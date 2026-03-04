@@ -18,7 +18,7 @@
   "author": "Envia <dev@envia.com> (https://envia.com)",
   "repository": {
     "type": "git",
-    "url": "https://github.com/envia-ep/envia-mcp-server.git"
+    "url": "git+https://github.com/envia-ep/envia-mcp-server.git"
   },
   "homepage": "https://docs.envia.com/docs/mcp-overview",
   "bugs": {
