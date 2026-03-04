@@ -1,5 +1,10 @@
 # @envia/envia-mcp
 
+[![npm version](https://img.shields.io/npm/v/@envia/envia-mcp.svg)](https://www.npmjs.com/package/@envia/envia-mcp)
+[![CI](https://github.com/envia-ep/envia-mcp-server/actions/workflows/ci.yml/badge.svg)](https://github.com/envia-ep/envia-mcp-server/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![Node.js](https://img.shields.io/node/v/@envia/envia-mcp.svg)](https://nodejs.org)
+
 MCP server for [Envia](https://envia.com) shipping APIs. Quote rates, create labels, track packages, schedule pickups, and more — directly from your AI assistant.
 
 ## Quick start
