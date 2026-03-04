@@ -1,0 +1,57 @@
+{
+  "name": "@envia/envia-mcp",
+  "version": "0.1.0",
+  "description": "MCP server for Envia shipping APIs — quote rates, create labels, track packages, and more from your AI assistant.",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "envia",
+    "shipping",
+    "logistics",
+    "labels",
+    "tracking",
+    "carriers",
+    "mexico",
+    "latam"
+  ],
+  "license": "MIT",
+  "author": "Envia <dev@envia.com> (https://envia.com)",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/envia-ep/envia-mcp-server.git"
+  },
+  "homepage": "https://docs.envia.com/docs/mcp-overview",
+  "bugs": {
+    "url": "https://github.com/envia-ep/envia-mcp-server/issues"
+  },
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "envia-mcp": "dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node dist/index.js",
+    "lint": "eslint src/",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "eslint": "^9.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
