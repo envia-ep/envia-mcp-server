@@ -12,6 +12,7 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { EnviaApiClient } from "../utils/api-client.js";
 import type { EnviaConfig } from "../config.js";
+import { carrierSchema } from "../utils/schemas.js";
 
 interface CancelData {
   carrier?: string;
@@ -32,7 +33,7 @@ export function registerCancelShipment(
       "If successful, the label cost is returned to your Envia balance. " +
       "Not all carriers support cancellation — check within the first 24 hours for best results.",
     {
-      carrier: z.string().describe("Carrier code (e.g. 'dhl', 'fedex')"),
+      carrier: carrierSchema.describe("Carrier code (e.g. 'dhl', 'fedex')"),
       tracking_number: z.string().describe("Tracking number of the shipment to cancel"),
     },
     async ({ carrier, tracking_number }) => {

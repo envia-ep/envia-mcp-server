@@ -70,6 +70,8 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error("Fatal:", err);
+  // Only log the error message — never the full object (may contain API key in stack trace)
+  const message = err instanceof Error ? err.message : "Unknown startup error";
+  console.error("Fatal:", message);
   process.exit(1);
 });

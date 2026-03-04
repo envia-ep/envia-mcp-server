@@ -6,6 +6,7 @@
  *  - JSON serialisation
  *  - Retries with exponential back-off for transient errors (429, 5xx)
  *  - Friendly error messages the agent can act on
+ *  - URL domain allowlist (prevents SSRF)
  */
 
 import type { EnviaConfig } from "../config.js";
@@ -39,6 +40,16 @@ const MAX_RETRIES = 3;
 const INITIAL_DELAY_MS = 500; // doubles each retry
 const DEFAULT_TIMEOUT_MS = 30_000;
 
+/** Only these hostnames are allowed for authenticated requests. */
+const ALLOWED_HOSTS = new Set([
+  "api.envia.com",
+  "api-test.envia.com",
+  "queries.envia.com",
+  "queries-test.envia.com",
+  "geocodes.envia.com",
+  "geocodes-test.envia.com",
+]);
+
 // ---------------------------------------------------------------------------
 // Client
 // ---------------------------------------------------------------------------
@@ -54,9 +65,30 @@ export class EnviaApiClient {
    * Perform an authenticated request against any Envia API.
    *
    * Retries automatically on 429 (rate-limited) and 5xx errors.
+   * Blocks requests to non-Envia domains (SSRF prevention).
    */
   async request<T = unknown>(opts: ApiRequestOptions): Promise<ApiResponse<T>> {
     const { url, method = "GET", body, timeoutMs = DEFAULT_TIMEOUT_MS } = opts;
+
+    // --- SSRF prevention: only allow Envia domains ---
+    try {
+      const parsedUrl = new URL(url);
+      if (!ALLOWED_HOSTS.has(parsedUrl.hostname)) {
+        return {
+          ok: false,
+          status: 0,
+          data: {} as T,
+          error: `Blocked: request to unauthorized host "${parsedUrl.hostname}". Only Envia API domains are allowed.`,
+        };
+      }
+    } catch {
+      return {
+        ok: false,
+        status: 0,
+        data: {} as T,
+        error: "Blocked: invalid URL.",
+      };
+    }
 
     let lastError: Error | undefined;
 
@@ -113,11 +145,12 @@ export class EnviaApiClient {
     }
 
     // All retries exhausted with a network-level error
+    // Do NOT expose raw error details — they may contain infra info
     return {
       ok: false,
       status: 0,
       data: {} as T,
-      error: `Network error after ${MAX_RETRIES + 1} attempts: ${lastError?.message ?? "unknown"}`,
+      error: `Network error after ${MAX_RETRIES + 1} attempts. Check your internet connection and try again.`,
     };
   }
 
@@ -140,14 +173,18 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** Map common HTTP status codes to messages an AI agent can act on. */
+/**
+ * Map common HTTP status codes to messages an AI agent can act on.
+ * Sanitises detail to avoid leaking internal API information.
+ */
 function friendlyError(status: number, body: Record<string, unknown>): string {
+  // Extract only known safe fields, truncate, and never dump full body
   const detail =
     typeof body.message === "string"
-      ? body.message
+      ? body.message.slice(0, 200)
       : typeof body.error === "string"
-        ? body.error
-        : JSON.stringify(body).slice(0, 300);
+        ? body.error.slice(0, 200)
+        : "No additional details available.";
 
   switch (status) {
     case 400:
@@ -166,8 +203,8 @@ function friendlyError(status: number, body: Record<string, unknown>): string {
       return "Rate limited — too many requests. Wait a moment and try again.";
     default:
       if (status >= 500) {
-        return `Envia server error (${status}). Try again shortly. Detail: ${detail}`;
+        return `Envia server error (${status}). Try again shortly.`;
       }
-      return `Unexpected error (${status}): ${detail}`;
+      return `Unexpected error (${status}). Please try again.`;
   }
 }

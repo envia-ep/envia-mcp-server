@@ -12,6 +12,7 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { EnviaApiClient } from "../utils/api-client.js";
 import type { EnviaConfig } from "../config.js";
+import { countrySchema, carrierSchema } from "../utils/schemas.js";
 
 interface LabelData {
   carrier: string;
@@ -43,7 +44,7 @@ export function registerCreateLabel(
       origin_street: z.string().describe("Sender street address"),
       origin_city: z.string().describe("Sender city"),
       origin_state: z.string().describe("Sender state / province code"),
-      origin_country: z.string().describe("Sender country (ISO 3166-1 alpha-2, e.g. MX)"),
+      origin_country: countrySchema.describe("Sender country (ISO 3166-1 alpha-2, e.g. MX)"),
       origin_postal_code: z.string().describe("Sender postal / ZIP code"),
 
       // Destination
@@ -52,7 +53,7 @@ export function registerCreateLabel(
       destination_street: z.string().describe("Recipient street address"),
       destination_city: z.string().describe("Recipient city"),
       destination_state: z.string().describe("Recipient state / province code"),
-      destination_country: z.string().describe("Recipient country (ISO 3166-1 alpha-2)"),
+      destination_country: countrySchema.describe("Recipient country (ISO 3166-1 alpha-2)"),
       destination_postal_code: z.string().describe("Recipient postal / ZIP code"),
 
       // Package
@@ -64,7 +65,7 @@ export function registerCreateLabel(
       package_declared_value: z.number().default(0).describe("Declared value for insurance"),
 
       // Shipment
-      carrier: z.string().describe("Carrier code from envia_get_shipping_rates (e.g. 'dhl')"),
+      carrier: carrierSchema.describe("Carrier code from envia_get_shipping_rates (e.g. 'dhl')"),
       service: z.string().describe("Service code from envia_get_shipping_rates (e.g. 'express')"),
       shipment_type: z.number().default(1).describe("1 = parcel (default), 2 = LTL, 3 = FTL"),
     },

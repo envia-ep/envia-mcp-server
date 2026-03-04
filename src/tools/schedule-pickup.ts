@@ -9,6 +9,7 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { EnviaApiClient } from "../utils/api-client.js";
 import type { EnviaConfig } from "../config.js";
+import { countrySchema, carrierSchema, dateSchema } from "../utils/schemas.js";
 
 interface PickupData {
   carrier?: string;
@@ -36,15 +37,15 @@ export function registerSchedulePickup(
       origin_street: z.string().describe("Pickup street address"),
       origin_city: z.string().describe("Pickup city"),
       origin_state: z.string().describe("Pickup state / province code"),
-      origin_country: z.string().describe("Pickup country (ISO 3166-1 alpha-2, e.g. MX)"),
+      origin_country: countrySchema.describe("Pickup country (ISO 3166-1 alpha-2, e.g. MX)"),
       origin_postal_code: z.string().describe("Pickup postal / ZIP code"),
 
       // Pickup details
-      carrier: z.string().describe("Carrier code (e.g. 'dhl', 'fedex')"),
+      carrier: carrierSchema.describe("Carrier code (e.g. 'dhl', 'fedex')"),
       tracking_numbers: z
         .string()
         .describe("Comma-separated tracking numbers for the pickup (e.g. '752061,752062')"),
-      date: z.string().describe("Pickup date in YYYY-MM-DD format (e.g. '2026-03-05')"),
+      date: dateSchema.describe("Pickup date in YYYY-MM-DD format (e.g. '2026-03-05')"),
       time_from: z
         .number()
         .min(0)

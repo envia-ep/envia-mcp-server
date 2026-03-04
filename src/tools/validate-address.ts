@@ -10,6 +10,7 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { EnviaApiClient } from "../utils/api-client.js";
 import type { EnviaConfig } from "../config.js";
+import { countrySchema } from "../utils/schemas.js";
 
 export function registerValidateAddress(
   server: McpServer,
@@ -22,7 +23,7 @@ export function registerValidateAddress(
       "Use this before creating labels to prevent address-related errors. " +
       "Provide either postal_code or city (or both). Country is always required (2-letter ISO code, e.g. MX, US, CO).",
     {
-      country: z.string().describe("ISO 3166-1 alpha-2 country code (e.g. MX, US, CO, BR)"),
+      country: countrySchema.describe("ISO 3166-1 alpha-2 country code (e.g. MX, US, CO, BR)"),
       postal_code: z
         .string()
         .optional()
@@ -52,7 +53,8 @@ export function registerValidateAddress(
       // 1. Validate postal code
       if (postal_code) {
         const pc = postal_code.trim();
-        const url = `${config.geocodesBase}/zipcode/${countryCode}/${pc}`;
+        // URL-encode both path segments to prevent path traversal
+        const url = `${config.geocodesBase}/zipcode/${encodeURIComponent(countryCode)}/${encodeURIComponent(pc)}`;
         const res = await client.get<{ data: Record<string, unknown> }>(url);
 
         if (!res.ok) {
@@ -75,7 +77,7 @@ export function registerValidateAddress(
       // 2. Look up city
       if (city) {
         const cityName = city.trim();
-        const url = `${config.geocodesBase}/locate/${countryCode}/${encodeURIComponent(cityName)}`;
+        const url = `${config.geocodesBase}/locate/${encodeURIComponent(countryCode)}/${encodeURIComponent(cityName)}`;
         const res = await client.get<{ data: Record<string, unknown> }>(url);
 
         if (!res.ok) {

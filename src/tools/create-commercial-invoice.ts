@@ -9,6 +9,7 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { EnviaApiClient } from "../utils/api-client.js";
 import type { EnviaConfig } from "../config.js";
+import { countrySchema, carrierSchema } from "../utils/schemas.js";
 
 interface InvoiceData {
   invoiceId?: string;
@@ -33,7 +34,7 @@ export function registerCreateCommercialInvoice(
       origin_street: z.string().describe("Shipper street address"),
       origin_city: z.string().describe("Shipper city"),
       origin_state: z.string().describe("Shipper state / province code"),
-      origin_country: z.string().describe("Shipper country (ISO 3166-1 alpha-2, e.g. MX)"),
+      origin_country: countrySchema.describe("Shipper country (ISO 3166-1 alpha-2, e.g. MX)"),
       origin_postal_code: z.string().describe("Shipper postal / ZIP code"),
 
       // Destination
@@ -42,18 +43,18 @@ export function registerCreateCommercialInvoice(
       destination_street: z.string().describe("Recipient street address"),
       destination_city: z.string().describe("Recipient city"),
       destination_state: z.string().describe("Recipient state / province code"),
-      destination_country: z.string().describe("Recipient country (ISO 3166-1 alpha-2)"),
+      destination_country: countrySchema.describe("Recipient country (ISO 3166-1 alpha-2)"),
       destination_postal_code: z.string().describe("Recipient postal / ZIP code"),
 
       // Carrier
-      carrier: z.string().describe("Carrier code (e.g. 'dhl', 'fedex')"),
+      carrier: carrierSchema.describe("Carrier code (e.g. 'dhl', 'fedex')"),
 
       // Items — flat for simplicity; the tool wraps them into the API structure
       item_description: z.string().describe("Item description (e.g. 'Cotton T-shirts')"),
       item_hs_code: z.string().describe("HS code for the item (use envia_classify_hscode to find it)"),
       item_quantity: z.number().int().positive().describe("Number of units"),
       item_unit_price: z.number().positive().describe("Price per unit in origin currency"),
-      item_country_of_manufacture: z.string().describe("Country where the item was manufactured (ISO code)"),
+      item_country_of_manufacture: countrySchema.describe("Country where the item was manufactured (ISO code)"),
 
       // Customs
       export_reason: z

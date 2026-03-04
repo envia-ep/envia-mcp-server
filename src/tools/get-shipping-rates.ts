@@ -12,6 +12,7 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { EnviaApiClient } from "../utils/api-client.js";
 import type { EnviaConfig } from "../config.js";
+import { countrySchema } from "../utils/schemas.js";
 
 interface RateEntry {
   carrier: string;
@@ -40,7 +41,7 @@ export function registerGetShippingRates(
       origin_street: z.string().describe("Sender street address"),
       origin_city: z.string().describe("Sender city"),
       origin_state: z.string().describe("Sender state / province code"),
-      origin_country: z.string().describe("Sender country (ISO 3166-1 alpha-2, e.g. MX)"),
+      origin_country: countrySchema.describe("Sender country (ISO 3166-1 alpha-2, e.g. MX)"),
       origin_postal_code: z.string().describe("Sender postal / ZIP code"),
 
       // Destination
@@ -49,7 +50,7 @@ export function registerGetShippingRates(
       destination_street: z.string().describe("Recipient street address"),
       destination_city: z.string().describe("Recipient city"),
       destination_state: z.string().describe("Recipient state / province code"),
-      destination_country: z.string().describe("Recipient country (ISO 3166-1 alpha-2)"),
+      destination_country: countrySchema.describe("Recipient country (ISO 3166-1 alpha-2)"),
       destination_postal_code: z.string().describe("Recipient postal / ZIP code"),
 
       // Package
@@ -110,10 +111,12 @@ export function registerGetShippingRates(
         },
       ];
 
+      const MAX_CARRIERS = 10;
       const carrierList = args.carriers
         .split(",")
         .map((c) => c.trim().toLowerCase())
-        .filter(Boolean);
+        .filter(Boolean)
+        .slice(0, MAX_CARRIERS);
 
       if (carrierList.length === 0) {
         return {
@@ -147,7 +150,9 @@ export function registerGetShippingRates(
 
       for (const result of settled) {
         if (result.status === "rejected") {
-          errors.push(`Unknown error: ${result.reason}`);
+          // Sanitize: only expose .message, never full stack/object
+          const reason = result.reason instanceof Error ? result.reason.message : "Unknown error";
+          errors.push(`Carrier request failed: ${reason}`);
           continue;
         }
         const { carrier, res } = result.value;

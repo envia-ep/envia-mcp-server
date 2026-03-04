@@ -102,6 +102,93 @@ describe("EnviaApiClient", () => {
     expect(result.error).toContain("Invalid postal code");
   });
 
+  // --- SSRF Prevention Tests ---
+
+  it("blocks requests to non-Envia domains (SSRF prevention)", async () => {
+    const mockFetch = vi.fn();
+    vi.stubGlobal("fetch", mockFetch);
+
+    const result = await client.get("https://evil.com/steal-token");
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("Blocked");
+    expect(result.error).toContain("unauthorized host");
+    // fetch should NEVER be called
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("blocks requests with invalid URLs", async () => {
+    const mockFetch = vi.fn();
+    vi.stubGlobal("fetch", mockFetch);
+
+    const result = await client.get("not-a-valid-url");
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("Blocked");
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("allows requests to all valid Envia domains", async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ data: "ok" }),
+    });
+    vi.stubGlobal("fetch", mockFetch);
+
+    // Test all 6 allowed domains
+    for (const domain of [
+      "api-test.envia.com",
+      "api.envia.com",
+      "queries-test.envia.com",
+      "queries.envia.com",
+      "geocodes-test.envia.com",
+      "geocodes.envia.com",
+    ]) {
+      const result = await client.get(`https://${domain}/test`);
+      expect(result.ok).toBe(true);
+    }
+  });
+
+  // --- Error Sanitization Tests ---
+
+  it("does not leak full response body in error messages", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 500,
+        json: () =>
+          Promise.resolve({
+            internal_path: "/srv/api/v2/handler.js",
+            stack: "Error at line 42...",
+            db_query: "SELECT * FROM users",
+          }),
+      }),
+    );
+
+    const result = await client.get("https://api-test.envia.com/test");
+    expect(result.ok).toBe(false);
+    // Should NOT contain internal details
+    expect(result.error).not.toContain("internal_path");
+    expect(result.error).not.toContain("SELECT");
+    expect(result.error).not.toContain("stack");
+  });
+
+  it("does not leak raw network error details", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockRejectedValue(new Error("getaddrinfo ENOTFOUND internal-api.vpc.envia.com")),
+    );
+
+    const result = await client.get("https://api-test.envia.com/test");
+    expect(result.ok).toBe(false);
+    // Should NOT contain internal hostname
+    expect(result.error).not.toContain("internal-api.vpc");
+    expect(result.error).not.toContain("ENOTFOUND");
+    expect(result.error).toContain("Network error");
+  });
+
   it("sends JSON body for POST requests", async () => {
     const mockFetch = vi.fn().mockResolvedValue({
       ok: true,

@@ -9,6 +9,7 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { EnviaApiClient } from "../utils/api-client.js";
 import type { EnviaConfig } from "../config.js";
+import { countrySchema } from "../utils/schemas.js";
 
 interface CarrierEntry {
   carrier: string;
@@ -31,7 +32,7 @@ export function registerListCarriers(
     "List available shipping carriers for a country. Optionally include their services. " +
       "Use this to find which carrier and service codes to pass to envia_get_shipping_rates or envia_create_label.",
     {
-      country: z.string().describe("ISO 3166-1 alpha-2 country code (e.g. MX, US, CO)"),
+      country: countrySchema.describe("ISO 3166-1 alpha-2 country code (e.g. MX, US, CO)"),
       international: z
         .boolean()
         .default(false)
@@ -45,7 +46,7 @@ export function registerListCarriers(
       const countryCode = country.trim().toUpperCase();
       const intl = international ? 1 : 0;
 
-      const carriersUrl = `${config.queriesBase}/available-carrier/${countryCode}/${intl}`;
+      const carriersUrl = `${config.queriesBase}/available-carrier/${encodeURIComponent(countryCode)}/${intl}`;
       const carriersRes = await client.get<{ data: CarrierEntry[] }>(carriersUrl);
 
       if (!carriersRes.ok) {
@@ -79,7 +80,8 @@ export function registerListCarriers(
         lines.push(`• ${c.carrier}${c.name ? ` — ${c.name}` : ""}`);
 
         if (include_services) {
-          const svcUrl = `${config.queriesBase}/service/${c.carrier}`;
+          // URL-encode carrier slug from API response (defense-in-depth)
+          const svcUrl = `${config.queriesBase}/service/${encodeURIComponent(c.carrier)}`;
           const svcRes = await client.get<{ data: ServiceEntry[] }>(svcUrl);
 
           if (svcRes.ok && Array.isArray(svcRes.data?.data)) {
