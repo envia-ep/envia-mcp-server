@@ -25,10 +25,13 @@ describe("validateCountry", () => {
     expect(result.valid).toBe(false);
   });
 
-  it("warns but allows unknown country codes", () => {
+  it("allows unknown country codes with a warning", () => {
     const result = validateCountry("ZZ");
-    expect(result.valid).toBe(false);
-    expect((result as { error: string }).error).toContain("not in the known supported list");
+    expect(result.valid).toBe(true);
+    expect((result as { valid: true; value: string; warning?: string }).value).toBe("ZZ");
+    expect((result as { valid: true; value: string; warning?: string }).warning).toContain(
+      "not in the known supported list",
+    );
   });
 });
 

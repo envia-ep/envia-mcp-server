@@ -10,7 +10,7 @@
 // ---------------------------------------------------------------------------
 
 export type ValidationResult<T> =
-  | { valid: true; value: T }
+  | { valid: true; value: T; warning?: string }
   | { valid: false; error: string };
 
 // ---------------------------------------------------------------------------
@@ -31,8 +31,9 @@ export function validateCountry(raw: string): ValidationResult<string> {
   }
   if (!SUPPORTED_COUNTRIES.has(code)) {
     return {
-      valid: false,
-      error: `Country "${code}" is not in the known supported list. You can still try — Envia may support it. Use envia_list_carriers to check.`,
+      valid: true,
+      value: code,
+      warning: `Country "${code}" is not in the known supported list. Envia may still support it — use envia_list_carriers to check.`,
     };
   }
   return { valid: true, value: code };

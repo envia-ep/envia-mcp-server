@@ -15,11 +15,21 @@
  *   ENVIA_ENVIRONMENT      — "sandbox" (default) | "production"
  */
 
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, resolve } from "node:path";
+
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 
 import { loadConfig } from "./config.js";
 import { EnviaApiClient } from "./utils/api-client.js";
+
+// Read version from package.json at startup (single source of truth)
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const pkg = JSON.parse(
+  readFileSync(resolve(__dirname, "..", "package.json"), "utf-8"),
+) as { version: string };
 
 // Tools
 import { registerValidateAddress } from "./tools/validate-address.js";
@@ -46,7 +56,7 @@ async function main() {
 
   const server = new McpServer({
     name: "envia",
-    version: "0.1.0",
+    version: pkg.version,
   });
 
   // Register all tools

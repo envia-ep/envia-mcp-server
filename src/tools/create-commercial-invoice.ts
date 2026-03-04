@@ -10,6 +10,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { EnviaApiClient } from "../utils/api-client.js";
 import type { EnviaConfig } from "../config.js";
 import { countrySchema, carrierSchema } from "../utils/schemas.js";
+import { buildAddress } from "../utils/address.js";
 
 interface InvoiceData {
   invoiceId?: string;
@@ -68,24 +69,24 @@ export function registerCreateCommercialInvoice(
     },
     async (args) => {
       const body = {
-        origin: {
+        origin: buildAddress({
           name: args.origin_name,
           phone: args.origin_phone,
           street: args.origin_street,
           city: args.origin_city,
           state: args.origin_state,
-          country: args.origin_country.trim().toUpperCase(),
-          postalCode: args.origin_postal_code,
-        },
-        destination: {
+          country: args.origin_country,
+          postal_code: args.origin_postal_code,
+        }),
+        destination: buildAddress({
           name: args.destination_name,
           phone: args.destination_phone,
           street: args.destination_street,
           city: args.destination_city,
           state: args.destination_state,
-          country: args.destination_country.trim().toUpperCase(),
-          postalCode: args.destination_postal_code,
-        },
+          country: args.destination_country,
+          postal_code: args.destination_postal_code,
+        }),
         shipment: {
           type: 1,
           carrier: args.carrier.trim().toLowerCase(),

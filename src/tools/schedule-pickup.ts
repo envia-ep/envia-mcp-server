@@ -10,6 +10,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { EnviaApiClient } from "../utils/api-client.js";
 import type { EnviaConfig } from "../config.js";
 import { countrySchema, carrierSchema, dateSchema } from "../utils/schemas.js";
+import { buildAddress } from "../utils/address.js";
 
 interface PickupData {
   carrier?: string;
@@ -83,15 +84,15 @@ export function registerSchedulePickup(
       }
 
       const body = {
-        origin: {
+        origin: buildAddress({
           name: args.origin_name,
           phone: args.origin_phone,
           street: args.origin_street,
           city: args.origin_city,
           state: args.origin_state,
-          country: args.origin_country.trim().toUpperCase(),
-          postalCode: args.origin_postal_code,
-        },
+          country: args.origin_country,
+          postal_code: args.origin_postal_code,
+        }),
         shipment: {
           type: 1,
           carrier: args.carrier.trim().toLowerCase(),
