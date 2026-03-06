@@ -10,10 +10,19 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { EnviaApiClient } from "../utils/api-client.js";
 import type { EnviaConfig } from "../config.js";
 
+interface HsCodeAlternative {
+  hsCode?: string;
+  description?: string;
+  fullDescription?: string;
+  confidenceScore?: number;
+}
+
 interface HsCodeData {
   hsCode?: string;
   description?: string;
-  alternatives?: string[];
+  fullDescription?: string;
+  confidenceScore?: number;
+  alternatives?: (HsCodeAlternative | string)[];
 }
 
 export function registerClassifyHscode(
@@ -92,10 +101,19 @@ export function registerClassifyHscode(
         lines.push(`  Description:         ${data.description}`);
       }
 
+      if (data.confidenceScore != null) {
+        lines.push(`  Confidence:          ${Math.round(data.confidenceScore * 100)}%`);
+      }
+
       if (data.alternatives && data.alternatives.length > 0) {
         lines.push("", "  Alternatives:");
         for (const alt of data.alternatives) {
-          lines.push(`    • ${alt}`);
+          if (typeof alt === "string") {
+            lines.push(`    • ${alt}`);
+          } else if (alt && typeof alt === "object" && alt.hsCode) {
+            const confidence = alt.confidenceScore != null ? ` (${Math.round(alt.confidenceScore * 100)}%)` : "";
+            lines.push(`    • ${alt.hsCode} — ${alt.description ?? "No description"}${confidence}`);
+          }
         }
       }
 

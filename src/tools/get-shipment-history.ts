@@ -11,12 +11,17 @@ import type { EnviaApiClient } from "../utils/api-client.js";
 import type { EnviaConfig } from "../config.js";
 
 interface ShipmentEntry {
-  trackingNumber?: string;
-  carrier?: string;
+  tracking_number?: string;
+  /** Carrier code (e.g. "dhl"). API returns this as "name". */
+  name?: string;
   status?: string;
-  createdAt?: string;
-  originCity?: string;
-  destinationCity?: string;
+  service?: string;
+  created_at?: string;
+  sender_city?: string;
+  consignee_city?: string;
+  total?: number;
+  currency?: string;
+  label_file?: string;
 }
 
 export function registerGetShipmentHistory(
@@ -73,11 +78,13 @@ export function registerGetShipmentHistory(
 
       for (const s of shipments.slice(0, 50)) {
         const route =
-          s.originCity && s.destinationCity
-            ? `${s.originCity} → ${s.destinationCity}`
+          s.sender_city && s.consignee_city
+            ? `${s.sender_city} → ${s.consignee_city}`
             : "";
+        const carrier = s.name ?? "—";
+        const service = s.service ? `/${s.service}` : "";
         lines.push(
-          `• ${s.trackingNumber ?? "—"} | ${s.carrier ?? "—"} | ${s.status ?? "—"}${route ? ` | ${route}` : ""}`,
+          `• ${s.tracking_number ?? "—"} | ${carrier}${service} | ${s.status ?? "—"}${route ? ` | ${route}` : ""}`,
         );
       }
 

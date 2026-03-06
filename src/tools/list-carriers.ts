@@ -12,14 +12,21 @@ import type { EnviaConfig } from "../config.js";
 import { countrySchema } from "../utils/schemas.js";
 
 interface CarrierEntry {
-  carrier: string;
-  name?: string;
+  /** Carrier code used in API calls (e.g. "dhl", "fedex"). */
+  name: string;
+  /** Human-readable carrier name (e.g. "DHL", "FedEx"). */
+  description?: string;
+  country_code?: string;
+  logo?: string;
 }
 
 interface ServiceEntry {
-  service: string;
+  /** Service code used in API calls (e.g. "ground", "express"). */
+  name: string;
+  /** Human-readable service name. */
   description?: string;
-  deliveryDays?: number;
+  /** Estimated delivery time as a string (e.g. "2-4 días"). */
+  delivery_estimate?: string;
 }
 
 export function registerListCarriers(
@@ -77,17 +84,17 @@ export function registerListCarriers(
       ];
 
       for (const c of carriers) {
-        lines.push(`• ${c.carrier}${c.name ? ` — ${c.name}` : ""}`);
+        lines.push(`• ${c.name}${c.description ? ` — ${c.description}` : ""}`);
 
         if (include_services) {
           // URL-encode carrier slug from API response (defense-in-depth)
-          const svcUrl = `${config.queriesBase}/service/${encodeURIComponent(c.carrier)}`;
+          const svcUrl = `${config.queriesBase}/service/${encodeURIComponent(c.name)}`;
           const svcRes = await client.get<{ data: ServiceEntry[] }>(svcUrl);
 
           if (svcRes.ok && Array.isArray(svcRes.data?.data)) {
             for (const s of svcRes.data.data) {
-              const days = s.deliveryDays ? ` (${s.deliveryDays} days)` : "";
-              lines.push(`    - ${s.service}${s.description ? `: ${s.description}` : ""}${days}`);
+              const estimate = s.delivery_estimate ? ` (${s.delivery_estimate})` : "";
+              lines.push(`    - ${s.name}${s.description ? `: ${s.description}` : ""}${estimate}`);
             }
           }
         }

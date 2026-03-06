@@ -20,7 +20,12 @@ interface TrackData {
   trackingNumber: string;
   status?: string;
   carrier?: string;
-  events?: TrackEvent[];
+  carrierDescription?: string;
+  trackUrl?: string;
+  trackUrlSite?: string;
+  estimatedDelivery?: string;
+  /** API returns event history under "eventHistory", not "events". */
+  eventHistory?: TrackEvent[];
 }
 
 export function registerTrackPackage(
@@ -80,19 +85,28 @@ export function registerTrackPackage(
       for (const t of trackings) {
         lines.push(`Tracking: ${t.trackingNumber}`);
         lines.push(`  Status:  ${t.status ?? "Unknown"}`);
-        if (t.carrier) lines.push(`  Carrier: ${t.carrier}`);
+        if (t.carrierDescription || t.carrier) {
+          lines.push(`  Carrier: ${t.carrierDescription ?? t.carrier}`);
+        }
+        if (t.estimatedDelivery) {
+          lines.push(`  ETA:     ${t.estimatedDelivery}`);
+        }
+        if (t.trackUrl) {
+          lines.push(`  Track:   ${t.trackUrl}`);
+        }
 
-        if (t.events && t.events.length > 0) {
+        const events = t.eventHistory ?? [];
+        if (events.length > 0) {
           lines.push("  Events:");
           // Show most recent events first (limit 10)
-          const recent = t.events.slice(0, 10);
+          const recent = events.slice(0, 10);
           for (const e of recent) {
             const time = e.timestamp ?? "—";
             const loc = e.location ? ` [${e.location}]` : "";
             lines.push(`    ${time}${loc}: ${e.description ?? "—"}`);
           }
-          if (t.events.length > 10) {
-            lines.push(`    ... and ${t.events.length - 10} more events`);
+          if (events.length > 10) {
+            lines.push(`    ... and ${events.length - 10} more events`);
           }
         }
 
