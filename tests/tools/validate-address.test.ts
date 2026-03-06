@@ -87,7 +87,7 @@ describe("envia_validate_address", () => {
     expect(mockFetch).toHaveBeenCalledTimes(2);
     const text = result.content[0].text;
     expect(text).toContain("Postal code 03100 is valid");
-    expect(text).toContain("City lookup result");
+    expect(text).toContain("City lookup results for");
   });
 
   // -------------------------------------------------------------------------
@@ -151,18 +151,19 @@ describe("envia_validate_address", () => {
 
     expect(text).toContain("Postal code 03100 is valid.");
     expect(text).toContain("City:    Del Valle");
-    expect(text).toContain("State:   CDMX");
+    expect(text).toContain("State:   Ciudad de México (DF)");
     expect(text).toContain("Country: MX");
+    expect(text).toContain("Suburbs: Del Valle Centro");
   });
 
   // -------------------------------------------------------------------------
   // 9. returns "not found" when postal code data is null
   // -------------------------------------------------------------------------
-  it('returns "not found" when postal code data is null', async () => {
+  it('returns "not found" when postal code data is empty array', async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
       status: 200,
-      json: () => Promise.resolve({ data: null }),
+      json: () => Promise.resolve([]),
     });
 
     const result = await handler({ country: "MX", postal_code: "99999" });
@@ -172,13 +173,13 @@ describe("envia_validate_address", () => {
   });
 
   // -------------------------------------------------------------------------
-  // 10. returns "not found" when city data is null
+  // 10. returns "not found" when city data is empty array
   // -------------------------------------------------------------------------
-  it('returns "not found" when city data is null', async () => {
+  it('returns "not found" when city data is empty array', async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
       status: 200,
-      json: () => Promise.resolve({ data: null }),
+      json: () => Promise.resolve([]),
     });
 
     const result = await handler({ country: "MX", city: "FakeCity" });

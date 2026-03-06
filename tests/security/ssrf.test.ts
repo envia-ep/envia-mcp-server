@@ -7,7 +7,7 @@
  * Allowed domains:
  *   api.envia.com, api-test.envia.com,
  *   queries.envia.com, queries-test.envia.com,
- *   geocodes.envia.com, geocodes-test.envia.com
+ *   geocodes.envia.com (production only — no sandbox endpoint exists)
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -19,7 +19,7 @@ const config: EnviaConfig = {
   environment: "sandbox",
   shippingBase: "https://api-test.envia.com",
   queriesBase: "https://queries-test.envia.com",
-  geocodesBase: "https://geocodes-test.envia.com",
+  geocodesBase: "https://geocodes.envia.com",
 };
 
 describe("SSRF Prevention", () => {

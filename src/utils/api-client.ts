@@ -46,8 +46,8 @@ const ALLOWED_HOSTS = new Set([
   "api-test.envia.com",
   "queries.envia.com",
   "queries-test.envia.com",
+  // Geocodes API only has a production endpoint — no sandbox version exists.
   "geocodes.envia.com",
-  "geocodes-test.envia.com",
 ]);
 
 // ---------------------------------------------------------------------------

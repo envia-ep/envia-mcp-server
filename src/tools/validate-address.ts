@@ -4,6 +4,9 @@
  * Validates a postal code or looks up a city to get normalised address data.
  * Always call this before requesting rates — it prevents label failures caused
  * by invalid or mismatched address fields.
+ *
+ * NOTE: The Geocodes API returns a raw JSON array (not wrapped in { data: ... })
+ * and is only available as a production endpoint — there is no sandbox version.
  */
 
 import { z } from "zod";
@@ -11,6 +14,23 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { EnviaApiClient } from "../utils/api-client.js";
 import type { EnviaConfig } from "../config.js";
 import { countrySchema } from "../utils/schemas.js";
+
+/** Shape of a single zipcode result from GET /zipcode/{country}/{code}. */
+interface ZipcodeEntry {
+  zip_code?: string;
+  country?: { name?: string; code?: string };
+  state?: { name?: string; code?: { "2digit"?: string; "3digit"?: string } };
+  locality?: string;
+  suburbs?: string[];
+  coordinates?: { latitude?: string; longitude?: string };
+}
+
+/** Shape of a single city-locate result from GET /locate/{country}/{city}. */
+interface LocateEntry {
+  country?: { name?: string; code?: string };
+  state?: { name?: string; code?: { "2digit"?: string; "3digit"?: string } };
+  zip_codes?: { zip_code?: string; locality?: string }[];
+}
 
 export function registerValidateAddress(
   server: McpServer,
@@ -55,22 +75,38 @@ export function registerValidateAddress(
         const pc = postal_code.trim();
         // URL-encode both path segments to prevent path traversal
         const url = `${config.geocodesBase}/zipcode/${encodeURIComponent(countryCode)}/${encodeURIComponent(pc)}`;
-        const res = await client.get<{ data: Record<string, unknown> }>(url);
+        const res = await client.get<ZipcodeEntry[]>(url);
 
         if (!res.ok) {
           results.push(`Postal code validation failed: ${res.error}`);
-        } else if (!res.data?.data) {
-          results.push(
-            `Postal code "${pc}" was not found in ${countryCode}. Double-check the code or try envia_validate_address with the city name instead.`,
-          );
         } else {
-          const d = res.data.data as Record<string, unknown>;
-          results.push(
-            `Postal code ${pc} is valid.\n` +
-              `  City:    ${d.city ?? "—"}\n` +
-              `  State:   ${d.state ?? "—"}\n` +
+          // Geocodes API returns a raw array — not wrapped in { data: ... }
+          const entries = Array.isArray(res.data) ? res.data : [];
+
+          if (entries.length === 0) {
+            results.push(
+              `Postal code "${pc}" was not found in ${countryCode}. Double-check the code or try envia_validate_address with the city name instead.`,
+            );
+          } else {
+            const d = entries[0];
+            const stateName = d.state?.name ?? "—";
+            const stateCode = d.state?.code?.["2digit"] ?? "";
+            const stateDisplay = stateCode ? `${stateName} (${stateCode})` : stateName;
+
+            const lines = [
+              `Postal code ${pc} is valid.`,
+              `  City:    ${d.locality ?? "—"}`,
+              `  State:   ${stateDisplay}`,
               `  Country: ${countryCode}`,
-          );
+            ];
+
+            if (d.suburbs && d.suburbs.length > 0) {
+              const shown = d.suburbs.slice(0, 10);
+              lines.push(`  Suburbs: ${shown.join(", ")}${d.suburbs.length > 10 ? ` (+${d.suburbs.length - 10} more)` : ""}`);
+            }
+
+            results.push(lines.join("\n"));
+          }
         }
       }
 
@@ -78,20 +114,32 @@ export function registerValidateAddress(
       if (city) {
         const cityName = city.trim();
         const url = `${config.geocodesBase}/locate/${encodeURIComponent(countryCode)}/${encodeURIComponent(cityName)}`;
-        const res = await client.get<{ data: Record<string, unknown> }>(url);
+        const res = await client.get<LocateEntry[]>(url);
 
         if (!res.ok) {
           results.push(`City lookup failed: ${res.error}`);
-        } else if (!res.data?.data) {
-          results.push(`City "${cityName}" was not found in ${countryCode}.`);
         } else {
-          const d = res.data.data as Record<string, unknown>;
-          results.push(
-            `City lookup result:\n` +
-              `  City:    ${d.city ?? cityName}\n` +
-              `  State:   ${d.state ?? "—"}\n` +
-              `  Country: ${countryCode}`,
-          );
+          // Geocodes API returns a raw array — not wrapped in { data: ... }
+          const entries = Array.isArray(res.data) ? res.data : [];
+
+          if (entries.length === 0) {
+            results.push(`City "${cityName}" was not found in ${countryCode}.`);
+          } else {
+            const lines: string[] = [`City lookup results for "${cityName}":`, ""];
+
+            for (const entry of entries.slice(0, 10)) {
+              const stateName = entry.state?.name ?? "—";
+              const stateCode = entry.state?.code?.["2digit"] ?? "";
+              const zips = entry.zip_codes?.map((z) => z.zip_code).filter(Boolean).join(", ") ?? "—";
+              lines.push(`  • ${cityName}, ${stateCode || stateName} — ZIP: ${zips}`);
+            }
+
+            if (entries.length > 10) {
+              lines.push(`  ... and ${entries.length - 10} more matches`);
+            }
+
+            results.push(lines.join("\n"));
+          }
         }
       }
 

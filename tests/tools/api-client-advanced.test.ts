@@ -14,7 +14,7 @@ const config: EnviaConfig = {
   environment: "sandbox",
   shippingBase: "https://api-test.envia.com",
   queriesBase: "https://queries-test.envia.com",
-  geocodesBase: "https://geocodes-test.envia.com",
+  geocodesBase: "https://geocodes.envia.com",
 };
 
 describe("EnviaApiClient — advanced behaviour", () => {

@@ -20,18 +20,22 @@ export interface EnviaConfig {
   geocodesBase: string;
 }
 
-const BASES: Record<EnviaEnvironment, { shipping: string; queries: string; geocodes: string }> = {
+const BASES: Record<EnviaEnvironment, { shipping: string; queries: string }> = {
   sandbox: {
     shipping: "https://api-test.envia.com",
     queries: "https://queries-test.envia.com",
-    geocodes: "https://geocodes-test.envia.com",
   },
   production: {
     shipping: "https://api.envia.com",
     queries: "https://queries.envia.com",
-    geocodes: "https://geocodes.envia.com",
   },
 };
+
+/**
+ * The Geocodes API is only available as a production endpoint.
+ * There is no sandbox version — both environments use the same URL.
+ */
+const GEOCODES_BASE = "https://geocodes.envia.com";
 
 /**
  * Build configuration from environment variables.
@@ -64,6 +68,6 @@ export function loadConfig(): EnviaConfig {
     environment,
     shippingBase: urls.shipping,
     queriesBase: urls.queries,
-    geocodesBase: urls.geocodes,
+    geocodesBase: GEOCODES_BASE,
   };
 }

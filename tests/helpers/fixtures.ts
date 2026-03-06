@@ -14,7 +14,7 @@ export const MOCK_CONFIG: EnviaConfig = {
   environment: "sandbox",
   shippingBase: "https://api-test.envia.com",
   queriesBase: "https://queries-test.envia.com",
-  geocodesBase: "https://geocodes-test.envia.com",
+  geocodesBase: "https://geocodes.envia.com",
 };
 
 // ---------------------------------------------------------------------------
@@ -194,13 +194,29 @@ export const MOCK_HISTORY_RESPONSE = {
   ],
 };
 
-export const MOCK_ZIPCODE_RESPONSE = {
-  data: { city: "Del Valle", state: "CDMX", country: "MX" },
-};
+/** Geocodes API returns a raw array — not wrapped in { data: ... }. */
+export const MOCK_ZIPCODE_RESPONSE = [
+  {
+    zip_code: "03100",
+    country: { name: "México", code: "MX" },
+    state: { name: "Ciudad de México", code: { "2digit": "DF", "3digit": "CMX" } },
+    locality: "Del Valle",
+    suburbs: ["Del Valle Centro", "Del Valle Norte", "Del Valle Sur"],
+    coordinates: { latitude: "19.3782", longitude: "-99.1716" },
+  },
+];
 
-export const MOCK_CITY_RESPONSE = {
-  data: { city: "Monterrey", state: "NL", country: "MX" },
-};
+/** Geocodes locate API also returns a raw array. */
+export const MOCK_CITY_RESPONSE = [
+  {
+    country: { name: "México", code: "MX" },
+    state: { name: "Nuevo León", code: { "2digit": "NL", "3digit": "NLE" } },
+    zip_codes: [
+      { zip_code: "64000", locality: "Monterrey" },
+      { zip_code: "64010", locality: "Monterrey" },
+    ],
+  },
+];
 
 // ---------------------------------------------------------------------------
 // Fetch mock helpers

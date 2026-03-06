@@ -29,7 +29,8 @@ describe("loadConfig", () => {
     expect(config.environment).toBe("sandbox");
     expect(config.shippingBase).toBe("https://api-test.envia.com");
     expect(config.queriesBase).toBe("https://queries-test.envia.com");
-    expect(config.geocodesBase).toBe("https://geocodes-test.envia.com");
+    // Geocodes API only has a production endpoint — no sandbox version exists
+    expect(config.geocodesBase).toBe("https://geocodes.envia.com");
   });
 
   it("uses production URLs when ENVIA_ENVIRONMENT=production", () => {

@@ -11,7 +11,7 @@ const mockConfig: EnviaConfig = {
   environment: "sandbox",
   shippingBase: "https://api-test.envia.com",
   queriesBase: "https://queries-test.envia.com",
-  geocodesBase: "https://geocodes-test.envia.com",
+  geocodesBase: "https://geocodes.envia.com",
 };
 
 describe("EnviaApiClient", () => {
@@ -142,7 +142,6 @@ describe("EnviaApiClient", () => {
       "api.envia.com",
       "queries-test.envia.com",
       "queries.envia.com",
-      "geocodes-test.envia.com",
       "geocodes.envia.com",
     ]) {
       const result = await client.get(`https://${domain}/test`);
