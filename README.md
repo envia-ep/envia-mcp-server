@@ -23,9 +23,9 @@ export ENVIA_API_KEY="your_jwt_token_here"
 # export ENVIA_ENVIRONMENT="production"
 ```
 
-Get your API key:
-- **Sandbox:** https://app.envia.com → Settings → API Keys
-- **Production:** https://app-production.envia.com → Settings → API Keys
+Get your API key from **Desarrolladores → Acceso de API** in your dashboard:
+- **Sandbox:** [shipping-test.envia.com/settings/developers](https://shipping-test.envia.com/settings/developers) · [Sign up](https://accounts-sandbox.envia.com/signup)
+- **Production:** [shipping.envia.com/settings/developers](https://shipping.envia.com/settings/developers) · [Sign up](https://accounts.envia.com/signup)
 
 ## IDE setup
 

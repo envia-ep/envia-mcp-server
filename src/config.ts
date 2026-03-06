@@ -47,8 +47,10 @@ export function loadConfig(): EnviaConfig {
   if (!apiKey) {
     throw new Error(
       "ENVIA_API_KEY is required. Set it as an environment variable.\n" +
-        "  Sandbox:    https://app.envia.com → Settings → API Keys\n" +
-        "  Production: https://app-production.envia.com → Settings → API Keys",
+        "  Sandbox dashboard:    https://shipping-test.envia.com/settings/developers\n" +
+        "  Production dashboard: https://shipping.envia.com/settings/developers\n" +
+        "  Sandbox signup:       https://accounts-sandbox.envia.com/signup\n" +
+        "  Production signup:    https://accounts.envia.com/signup",
     );
   }
 
