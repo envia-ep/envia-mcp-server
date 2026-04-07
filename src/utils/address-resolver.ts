@@ -1,10 +1,15 @@
 /**
- * Address Resolver — postal code geocoding and Colombian city translation.
+ * Address Resolver — postal code geocoding and city-based resolution.
  *
  * Provides reusable address resolution for any tool that needs to convert
- * minimal user input (postal code + country) into a fully resolved address
- * with city and state. Handles the Colombia special case where the city
- * must be an 8-digit DANE municipality code.
+ * minimal user input (postal code + country, or city + country) into a
+ * fully resolved address with city, state, and postal code.
+ *
+ * Three resolution strategies:
+ *  - Postal code geocoding via `GET {geocodesBase}/zipcode/{country}/{zip}`
+ *  - Colombian DANE city translation via `POST {shippingBase}/locate`
+ *  - Geocodes city lookup via `GET {geocodesBase}/locate/{country}/{city}`
+ *    for countries that use city names instead of postal codes (CL, GT, etc.)
  *
  * All functions are pure async with injected dependencies — no MCP or
  * tool awareness. Any tool that works with addresses can import these.
@@ -50,8 +55,23 @@ interface LocateResponse {
     state?: string;
 }
 
-/** 8-digit DANE municipality code pattern. */
+/** Shape returned by the Geocodes `/locate/{country}/{city}` endpoint. */
+interface GeocodeLocateEntry {
+    state?: {
+        code?: { '2digit'?: string };
+        name?: string;
+    };
+    zip_codes?: Array<{
+        zip_code?: string;
+        locality?: string;
+    }>;
+}
+
+/** 8-digit DANE municipality code pattern (Colombia-specific). */
 const DANE_CODE_PATTERN = /^\d{8}$/;
+
+/** Countries that resolve city names via the Geocodes `/locate` endpoint. */
+const GEOCODE_CITY_COUNTRIES = new Set(['CL', 'GT', 'PA', 'HN', 'PE', 'BO']);
 
 // ---------------------------------------------------------------------------
 // resolvePostalCode
@@ -149,17 +169,65 @@ export async function resolveColombianCity(
 }
 
 // ---------------------------------------------------------------------------
+// resolveCityByGeocode
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve a city name via the Geocodes `/locate` endpoint.
+ *
+ * Calls `GET {geocodesBase}/locate/{country}/{city}` to look up the
+ * canonical city name, 2-digit state code, and postal code for countries
+ * that use city-based addressing (CL, GT, PA, HN, PE, BO).
+ *
+ * Falls back gracefully on API errors — returns the original values so
+ * the rate API can attempt its own resolution.
+ *
+ * @param city    - City name to look up
+ * @param country - ISO 3166-1 alpha-2 country code
+ * @param client  - Envia API client instance
+ * @param config  - Server configuration with geocodesBase URL
+ * @returns Resolved address with city, state, and postal code when available
+ */
+export async function resolveCityByGeocode(
+    city: string,
+    country: string,
+    client: EnviaApiClient,
+    config: EnviaConfig,
+): Promise<ResolvedAddress> {
+    const base: ResolvedAddress = { country, city };
+
+    const url = `${config.geocodesBase}/locate/${encodeURIComponent(country)}/${encodeURIComponent(city)}`;
+
+    const res = await client.get<GeocodeLocateEntry[]>(url);
+
+    if (!res.ok || !Array.isArray(res.data) || res.data.length === 0) {
+        return base;
+    }
+
+    const entry = res.data[0];
+    const zipEntry = entry.zip_codes?.[0];
+
+    return {
+        country,
+        city: zipEntry?.locality ?? city,
+        state: entry.state?.code?.['2digit'] ?? entry.state?.name ?? undefined,
+        postalCode: zipEntry?.zip_code ?? undefined,
+    };
+}
+
+// ---------------------------------------------------------------------------
 // resolveAddress (orchestrator)
 // ---------------------------------------------------------------------------
 
 /**
  * Resolve an address from minimal user input into a fully populated address.
  *
- * Orchestrates postal code geocoding and Colombian DANE city translation:
+ * Orchestrates three resolution strategies based on country:
  * 1. If a postal code is provided, geocodes it to get city/state.
  * 2. Merges geocoded results with any explicit overrides from the caller.
- * 3. If the country is CO and the city is not already a DANE code,
- *    translates the city name via the `/locate` endpoint.
+ * 3. For CO: translates the city name to a DANE code via `POST /locate`.
+ * 4. For CL, GT, PA, HN, PE, BO: resolves city via `GET /locate/{country}/{city}`
+ *    on the Geocodes API, extracting state and postal code.
  *
  * @param params - Minimal address input from the user
  * @param client - Envia API client instance
@@ -191,6 +259,11 @@ export async function resolveAddress(
         if (!resolved.postalCode && DANE_CODE_PATTERN.test(resolved.city)) {
             resolved.postalCode = resolved.city;
         }
+    } else if (GEOCODE_CITY_COUNTRIES.has(country) && resolved.city) {
+        const located = await resolveCityByGeocode(resolved.city, country, client, config);
+        resolved.city = located.city ?? resolved.city;
+        if (located.state) resolved.state = located.state;
+        if (located.postalCode && !resolved.postalCode) resolved.postalCode = located.postalCode;
     }
 
     return resolved;

@@ -279,6 +279,14 @@ export function registerGetShippingRates(
                 }
                 if (Array.isArray(res.data?.data)) {
                     allRates.push(...res.data.data);
+                } else {
+                    const body = res.data as Record<string, unknown> | undefined;
+                    const detail = typeof body?.message === 'string'
+                        ? body.message
+                        : typeof body?.error === 'string'
+                            ? body.error
+                            : 'no rate data in response';
+                    errors.push(`${carrier}: ${detail}`);
                 }
             }
 

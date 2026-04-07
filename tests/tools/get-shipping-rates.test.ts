@@ -434,6 +434,52 @@ describe('quote_shipment', () => {
         expect(text).toContain('No rates');
     });
 
+    it('should surface API error message when response is OK but has no rate data', async () => {
+        mockFetch.mockReset();
+        mockFetch.mockResolvedValue({
+            ok: true,
+            status: 200,
+            json: () => Promise.resolve({ message: 'Carrier not available for this route' }),
+        });
+
+        const result = await handler({ ...VALID_QUOTE_ARGS, carriers: 'dhl' });
+        const text = result.content[0].text;
+
+        expect(text).toContain('No rates found');
+        expect(text).toContain('Errors');
+        expect(text).toContain('Carrier not available for this route');
+    });
+
+    it('should surface API error field when response is OK but has no rate data', async () => {
+        mockFetch.mockReset();
+        mockFetch.mockResolvedValue({
+            ok: true,
+            status: 200,
+            json: () => Promise.resolve({ error: 'Invalid destination' }),
+        });
+
+        const result = await handler({ ...VALID_QUOTE_ARGS, carriers: 'dhl' });
+        const text = result.content[0].text;
+
+        expect(text).toContain('No rates found');
+        expect(text).toContain('Invalid destination');
+    });
+
+    it('should report generic detail when response is OK but has no rate data and no message', async () => {
+        mockFetch.mockReset();
+        mockFetch.mockResolvedValue({
+            ok: true,
+            status: 200,
+            json: () => Promise.resolve({ unexpected: 'shape' }),
+        });
+
+        const result = await handler({ ...VALID_QUOTE_ARGS, carriers: 'dhl' });
+        const text = result.content[0].text;
+
+        expect(text).toContain('No rates found');
+        expect(text).toContain('no rate data in response');
+    });
+
     it('should handle "all" carrier mode when carrier list fetch fails', async () => {
         mockFetch.mockReset();
         mockFetch.mockResolvedValueOnce({

@@ -53,9 +53,27 @@ Translates a human-readable Colombian city name into its 8-digit DANE municipali
 - **Skips the call** when the city already matches the DANE pattern (`/^\d{8}$/`)
 - Falls back to the original values on API failure
 
+### `resolveCityByGeocode(city, country, client, config)`
+
+Resolves a city name via the Geocodes `/locate` endpoint for countries that use city-based addressing (CL, GT, PA, HN, PE, BO).
+
+| Parameter | Type | Description |
+|---|---|---|
+| `city` | `string` | City name to look up |
+| `country` | `string` | ISO 3166-1 alpha-2 country code |
+| `client` | `EnviaApiClient` | API client instance |
+| `config` | `EnviaConfig` | Server configuration |
+
+**Returns:** `Promise<ResolvedAddress>` — `{ city?, state?, postalCode?, country }`
+
+**Behavior:**
+- Calls `GET {geocodesBase}/locate/{country}/{city}`
+- Extracts 2-digit state code, canonical city name (locality), and postal code from the response
+- Falls back to the original city on API failure or empty results
+
 ### `resolveAddress(params, client, config)`
 
-Orchestrator that combines postal code geocoding and Colombian city translation.
+Orchestrator that combines postal code geocoding, Colombian DANE translation, and geocodes city lookup.
 
 | Parameter | Type | Description |
 |---|---|---|
@@ -68,7 +86,8 @@ Orchestrator that combines postal code geocoding and Colombian city translation.
 **Behavior:**
 1. If `postalCode` is provided, calls `resolvePostalCode` to geocode it.
 2. Merges any explicit `city`/`state` overrides from the caller (overrides win).
-3. If `country === "CO"` and `city` is present and not already a DANE code, calls `resolveColombianCity`.
+3. For CO: if `city` is present and not already a DANE code, calls `resolveColombianCity`.
+4. For CL, GT, PA, HN, PE, BO: if `city` is present, calls `resolveCityByGeocode` to resolve state and postal code.
 4. Returns the fully resolved address.
 
 ---

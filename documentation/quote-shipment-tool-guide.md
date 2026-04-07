@@ -181,7 +181,8 @@ The tool is a thin orchestrator that delegates to reusable utilities:
 User input
   → resolveAddress() (address-resolver.ts)
     → resolvePostalCode() — Geocodes API
-    → resolveColombianCity() — /locate endpoint (CO only)
+    → resolveColombianCity() — POST /locate (CO only)
+    → resolveCityByGeocode() — GET /locate/{country}/{city} (CL, GT, PA, HN, PE, BO)
   → buildQuoteAddress() (address.ts)
   → POST /ship/rate (single or parallel)
   → Sort by price, format output

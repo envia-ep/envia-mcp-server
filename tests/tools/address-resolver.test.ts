@@ -1,12 +1,18 @@
 /**
  * Tests for the address-resolver utility module.
  *
- * Covers resolvePostalCode, resolveColombianCity, and the resolveAddress
- * orchestrator with full isolation via mocked EnviaApiClient.
+ * Covers resolvePostalCode, resolveColombianCity, resolveCityByGeocode,
+ * and the resolveAddress orchestrator with full isolation via mocked
+ * EnviaApiClient.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { resolvePostalCode, resolveColombianCity, resolveAddress } from '../../src/utils/address-resolver.js';
+import {
+    resolvePostalCode,
+    resolveColombianCity,
+    resolveCityByGeocode,
+    resolveAddress,
+} from '../../src/utils/address-resolver.js';
 import type { EnviaApiClient, ApiResponse } from '../../src/utils/api-client.js';
 import type { EnviaConfig } from '../../src/config.js';
 
@@ -267,6 +273,142 @@ describe('resolveColombianCity', () => {
 });
 
 // ---------------------------------------------------------------------------
+// resolveCityByGeocode
+// ---------------------------------------------------------------------------
+
+describe('resolveCityByGeocode', () => {
+    let client: EnviaApiClient;
+
+    beforeEach(() => {
+        client = createMockClient();
+    });
+
+    it('should return city, state, and postal code when geocodes locate succeeds for CL', async () => {
+        vi.mocked(client.get).mockResolvedValue({
+            ok: true,
+            status: 200,
+            data: [{
+                state: { name: 'Bío-Bío', code: { '2digit': 'BI' } },
+                zip_codes: [{ zip_code: '4030000', locality: 'Concepción' }],
+            }],
+        });
+
+        const result = await resolveCityByGeocode('concepcion', 'CL', client, MOCK_CONFIG);
+
+        expect(result).toEqual({
+            country: 'CL',
+            city: 'Concepción',
+            state: 'BI',
+            postalCode: '4030000',
+        });
+    });
+
+    it('should call the geocodes locate endpoint with correct URL', async () => {
+        vi.mocked(client.get).mockResolvedValue({ ok: true, status: 200, data: [] });
+
+        await resolveCityByGeocode('Santiago', 'CL', client, MOCK_CONFIG);
+
+        expect(client.get).toHaveBeenCalledWith(
+            'https://geocodes.envia.com/locate/CL/Santiago',
+        );
+    });
+
+    it('should encode special characters in city name', async () => {
+        vi.mocked(client.get).mockResolvedValue({ ok: true, status: 200, data: [] });
+
+        await resolveCityByGeocode('San José', 'GT', client, MOCK_CONFIG);
+
+        expect(client.get).toHaveBeenCalledWith(
+            'https://geocodes.envia.com/locate/GT/San%20Jos%C3%A9',
+        );
+    });
+
+    it('should return original city when geocodes API fails', async () => {
+        vi.mocked(client.get).mockResolvedValue({
+            ok: false,
+            status: 500,
+            data: {},
+            error: 'Server error',
+        });
+
+        const result = await resolveCityByGeocode('Santiago', 'CL', client, MOCK_CONFIG);
+
+        expect(result).toEqual({ country: 'CL', city: 'Santiago' });
+    });
+
+    it('should return original city when geocodes API returns empty array', async () => {
+        vi.mocked(client.get).mockResolvedValue({ ok: true, status: 200, data: [] });
+
+        const result = await resolveCityByGeocode('NonexistentCity', 'CL', client, MOCK_CONFIG);
+
+        expect(result).toEqual({ country: 'CL', city: 'NonexistentCity' });
+    });
+
+    it('should return original city when geocodes API returns non-array', async () => {
+        vi.mocked(client.get).mockResolvedValue({
+            ok: true,
+            status: 200,
+            data: null,
+        });
+
+        const result = await resolveCityByGeocode('Santiago', 'CL', client, MOCK_CONFIG);
+
+        expect(result).toEqual({ country: 'CL', city: 'Santiago' });
+    });
+
+    it('should fall back to state name when 2digit code is absent', async () => {
+        vi.mocked(client.get).mockResolvedValue({
+            ok: true,
+            status: 200,
+            data: [{
+                state: { name: 'Región Metropolitana' },
+                zip_codes: [{ zip_code: '8320000', locality: 'Santiago' }],
+            }],
+        });
+
+        const result = await resolveCityByGeocode('Santiago', 'CL', client, MOCK_CONFIG);
+
+        expect(result.state).toBe('Región Metropolitana');
+    });
+
+    it('should handle missing zip_codes in response', async () => {
+        vi.mocked(client.get).mockResolvedValue({
+            ok: true,
+            status: 200,
+            data: [{
+                state: { code: { '2digit': 'RM' } },
+            }],
+        });
+
+        const result = await resolveCityByGeocode('Santiago', 'CL', client, MOCK_CONFIG);
+
+        expect(result.city).toBe('Santiago');
+        expect(result.state).toBe('RM');
+        expect(result.postalCode).toBeUndefined();
+    });
+
+    it('should work for Guatemalan cities', async () => {
+        vi.mocked(client.get).mockResolvedValue({
+            ok: true,
+            status: 200,
+            data: [{
+                state: { code: { '2digit': 'GU' } },
+                zip_codes: [{ zip_code: '01001', locality: 'Guatemala' }],
+            }],
+        });
+
+        const result = await resolveCityByGeocode('Guatemala', 'GT', client, MOCK_CONFIG);
+
+        expect(result).toEqual({
+            country: 'GT',
+            city: 'Guatemala',
+            state: 'GU',
+            postalCode: '01001',
+        });
+    });
+});
+
+// ---------------------------------------------------------------------------
 // resolveAddress (orchestrator)
 // ---------------------------------------------------------------------------
 
@@ -315,7 +457,7 @@ describe('resolveAddress', () => {
         expect(result.state).toBe('CMX');
     });
 
-    it('should resolve Colombian city via locate when country is CO', async () => {
+    it('should resolve Colombian city via carriers locate when country is CO', async () => {
         vi.mocked(client.get).mockResolvedValue({ ok: true, status: 200, data: [] });
         vi.mocked(client.post).mockResolvedValue({
             ok: true,
@@ -329,20 +471,85 @@ describe('resolveAddress', () => {
             MOCK_CONFIG,
         );
 
+        expect(client.post).toHaveBeenCalledWith(
+            expect.stringContaining('/locate'),
+            expect.objectContaining({ city: 'Bogota', state: 'DC', country: 'CO' }),
+        );
         expect(result.city).toBe('11001000');
         expect(result.state).toBe('DC');
         expect(result.postalCode).toBe('11001000');
     });
 
-    it('should not call locate for non-CO countries', async () => {
+    it('should resolve CL city via geocodes locate endpoint', async () => {
         vi.mocked(client.get).mockResolvedValue({
             ok: true,
             status: 200,
-            data: [{ locality: 'Santiago', state: { code: { '2digit': 'RM' } } }],
+            data: [{
+                state: { code: { '2digit': 'RM' } },
+                zip_codes: [{ zip_code: '8320000', locality: 'Santiago' }],
+            }],
+        });
+
+        const result = await resolveAddress(
+            { country: 'CL', city: 'Santiago' },
+            client,
+            MOCK_CONFIG,
+        );
+
+        expect(client.get).toHaveBeenCalledWith(
+            'https://geocodes.envia.com/locate/CL/Santiago',
+        );
+        expect(client.post).not.toHaveBeenCalled();
+        expect(result.city).toBe('Santiago');
+        expect(result.state).toBe('RM');
+        expect(result.postalCode).toBe('8320000');
+    });
+
+    it('should resolve CL city and populate postal code from geocodes', async () => {
+        vi.mocked(client.get).mockResolvedValue({
+            ok: true,
+            status: 200,
+            data: [{
+                state: { name: 'Bío-Bío', code: { '2digit': 'BI' } },
+                zip_codes: [{ zip_code: '4030000', locality: 'Concepción' }],
+            }],
+        });
+
+        const result = await resolveAddress(
+            { country: 'CL', city: 'concepcion' },
+            client,
+            MOCK_CONFIG,
+        );
+
+        expect(result).toEqual({
+            country: 'CL',
+            city: 'Concepción',
+            state: 'BI',
+            postalCode: '4030000',
+        });
+    });
+
+    it('should not call carriers locate for CL addresses', async () => {
+        vi.mocked(client.get).mockResolvedValue({ ok: true, status: 200, data: [] });
+
+        await resolveAddress(
+            { country: 'CL', city: 'Santiago' },
+            client,
+            MOCK_CONFIG,
+        );
+
+        expect(client.post).not.toHaveBeenCalled();
+    });
+
+    it('should not call locate for non-city-based countries like US', async () => {
+        vi.mocked(client.get).mockResolvedValue({
+            ok: true,
+            status: 200,
+            data: [{ locality: 'Miami', state: { code: { '2digit': 'FL' } } }],
         });
 
         await resolveAddress(
-            { postalCode: '8320000', country: 'CL', city: 'Santiago', state: 'RM' },
+            { postalCode: '33101', country: 'US', city: 'Miami', state: 'FL' },
             client,
             MOCK_CONFIG,
         );
@@ -463,5 +670,44 @@ describe('resolveAddress', () => {
         expect(client.post).toHaveBeenCalled();
         expect(result.city).toBe('11001000');
         expect(result.postalCode).toBe('110111');
+    });
+
+    it('should fall back gracefully when geocodes locate fails for CL', async () => {
+        vi.mocked(client.get).mockResolvedValue({
+            ok: false,
+            status: 500,
+            data: {},
+            error: 'Server error',
+        });
+
+        const result = await resolveAddress(
+            { country: 'CL', city: 'Santiago' },
+            client,
+            MOCK_CONFIG,
+        );
+
+        expect(result.city).toBe('Santiago');
+        expect(result.state).toBeUndefined();
+        expect(result.postalCode).toBeUndefined();
+    });
+
+    it('should not overwrite explicit postal code with geocodes result for CL', async () => {
+        vi.mocked(client.get).mockResolvedValue({
+            ok: true,
+            status: 200,
+            data: [{
+                state: { code: { '2digit': 'RM' } },
+                zip_codes: [{ zip_code: '8320000', locality: 'Santiago' }],
+            }],
+        });
+
+        const result = await resolveAddress(
+            { country: 'CL', city: 'Santiago', postalCode: '9999999' },
+            client,
+            MOCK_CONFIG,
+        );
+
+        expect(result.postalCode).toBe('9999999');
+        expect(result.state).toBe('RM');
     });
 });
