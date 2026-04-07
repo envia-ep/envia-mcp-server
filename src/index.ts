@@ -23,9 +23,9 @@ import 'dotenv/config';
 
 import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { dirname, resolve } from 'node:path';
+import { dirname, normalize, resolve } from 'node:path';
 
-import { Request, Response, NextFunction } from 'express';
+import type { Request, Response, NextFunction } from 'express';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { createMcpExpressApp } from '@modelcontextprotocol/sdk/server/express.js';
@@ -58,6 +58,7 @@ const pkg = JSON.parse(
 ) as { version: string };
 
 const PORT = parseInt(process.env.PORT ?? '3000', 10);
+const HOST = process.env.HOST ?? '127.0.0.1';
 
 /**
  * Compiled JS lives in dist/ but index.html lives in src/chat/.
@@ -120,12 +121,11 @@ app.options('/mcp', (_req: Request, res: Response) => {
     res.status(204).end();
 });
 
-const server = createEnviaServer();
-
-// ── POST /mcp — every request gets a fresh stateless transport ──────────
+// ── POST /mcp — fully isolated per request (server + transport) ─────────
 
 app.post('/mcp', async (req: Request, res: Response) => {
     try {
+        const server = createEnviaServer();
         const transport = new StreamableHTTPServerTransport({
             sessionIdGenerator: undefined,
         });
@@ -177,13 +177,12 @@ function serveChatFile(req: Request, res: Response): void {
         return;
     }
 
-    const relativePath = filePath.slice(1);
-    const candidates = [
-        resolve(DIST_CHAT_DIR, relativePath),
-        resolve(SRC_CHAT_DIR, relativePath),
-    ];
+    const relativePath = normalize(filePath.slice(1));
 
-    for (const candidate of candidates) {
+    for (const root of [DIST_CHAT_DIR, SRC_CHAT_DIR]) {
+        const candidate = resolve(root, relativePath);
+        if (!candidate.startsWith(root + '/') && candidate !== root) continue;
+
         if (existsSync(candidate)) {
             const content = readFileSync(candidate, 'utf-8');
             res.type(mime).send(content);
@@ -199,7 +198,7 @@ app.get('/*path', serveChatFile);
 
 // ── Start ───────────────────────────────────────────────────────────────
 
-app.listen(PORT, () => {
-    console.error(`Envia MCP server listening on http://127.0.0.1:${PORT}/mcp`);
-    console.error(`  Chat UI: http://127.0.0.1:${PORT}/`);
+app.listen(PORT, HOST, () => {
+    console.error(`Envia MCP server listening on http://${HOST}:${PORT}/mcp`);
+    console.error(`  Chat UI: http://${HOST}:${PORT}/`);
 });

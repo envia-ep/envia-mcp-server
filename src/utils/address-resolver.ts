@@ -104,7 +104,7 @@ export async function resolvePostalCode(
 
     if (!postalCode) return base;
 
-    const url = `${config.geocodesBase}/zipcode/${encodeURIComponent(country)}/${encodeURIComponent(postalCode)}`;
+    const url = `${config.geocodesBase}/zipcode/${encodeURIComponent(base.country)}/${encodeURIComponent(postalCode)}`;
 
     const res = await client.get<GeocodeEntry[] | GeocodeEntry>(url);
 

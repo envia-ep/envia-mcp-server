@@ -149,15 +149,15 @@ These countries have no postal code cascade — you must provide `city` and `sta
 
 ### `"all"` (default)
 
-Sends a single `POST /ship/rate` request with `carrier: "all"`. The Envia API returns rates from every available carrier in one response. This is the most efficient mode.
+Fetches the list of available carriers for the origin country via `GET /available-carrier/{country}/{intl}`, then fans out up to 10 parallel `POST /ship/rate` requests (one per carrier). This gives comprehensive results but costs one extra lookup.
 
 ### Specific carriers (comma-separated)
 
-Sends parallel requests, one per carrier. Useful when comparing a specific subset. The tool caps at 10 carriers to prevent abuse.
+Skips the carrier discovery step and sends parallel requests directly, one per carrier. Useful when you already know which carriers to compare. Capped at 10 carriers to prevent abuse.
 
 ```
-carriers: "dhl,fedex,estafeta"  → 3 parallel requests
-carriers: "all"                 → 1 request
+carriers: "dhl,fedex,estafeta"  → 3 parallel requests (no discovery)
+carriers: "all"                 → 1 discovery + up to 10 parallel requests
 ```
 
 ---

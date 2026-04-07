@@ -129,12 +129,26 @@ describe('resolvePostalCode', () => {
         expect(result.state).toBe('Región Metropolitana');
     });
 
-    it('should uppercase the country code', async () => {
+    it('should uppercase the country code in both the URL and result', async () => {
         vi.mocked(client.get).mockResolvedValue({ ok: true, status: 200, data: [] });
 
         const result = await resolvePostalCode('64000', 'mx', client, MOCK_CONFIG);
 
         expect(result.country).toBe('MX');
+        expect(client.get).toHaveBeenCalledWith(
+            'https://geocodes.envia.com/zipcode/MX/64000',
+        );
+    });
+
+    it('should trim whitespace from country before building the URL', async () => {
+        vi.mocked(client.get).mockResolvedValue({ ok: true, status: 200, data: [] });
+
+        const result = await resolvePostalCode('64000', ' mx ', client, MOCK_CONFIG);
+
+        expect(result.country).toBe('MX');
+        expect(client.get).toHaveBeenCalledWith(
+            'https://geocodes.envia.com/zipcode/MX/64000',
+        );
     });
 
     it('should handle non-array geocode response', async () => {

@@ -4,7 +4,7 @@
  * Purchases a shipping label from a carrier. Returns the tracking number
  * and a PDF label URL.
  *
- * The caller should have already used envia_get_shipping_rates to choose
+ * The caller should have already used quote_shipment to choose
  * a carrier + service, and envia_validate_address to verify the addresses.
  */
 
@@ -37,7 +37,7 @@ export function registerCreateLabel(
         {
             description:
                 "Purchase a shipping label. This charges your Envia account balance. " +
-                "Before calling this, use envia_get_shipping_rates to pick a carrier and service, " +
+                "Before calling this, use quote_shipment to pick a carrier and service, " +
                 "and envia_validate_address to verify addresses. " +
                 "Returns: tracking number, label PDF URL, and tracking URL.",
             inputSchema: z.object({
@@ -68,8 +68,8 @@ export function registerCreateLabel(
                 package_declared_value: z.number().default(0).describe("Declared value for insurance"),
 
                 // Shipment
-                carrier: carrierSchema.describe("Carrier code from envia_get_shipping_rates (e.g. 'dhl')"),
-                service: z.string().describe("Service code from envia_get_shipping_rates (e.g. 'express')"),
+                carrier: carrierSchema.describe("Carrier code from quote_shipment (e.g. 'dhl')"),
+                service: z.string().describe("Service code from quote_shipment (e.g. 'express')"),
                 shipment_type: z.number().default(1).describe("1 = parcel (default), 2 = LTL, 3 = FTL"),
             }),
         },

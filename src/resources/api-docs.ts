@@ -34,7 +34,7 @@ Geocodes API: ${config.geocodesBase}
 Available tools (10):
   1. envia_validate_address   — Validate postal codes and city names
   2. envia_list_carriers      — List carriers and services for a country
-  3. envia_get_shipping_rates — Compare rates across carriers
+  3. quote_shipment           — Compare rates across carriers
   4. envia_create_label       — Purchase a label (charges balance)
   5. envia_track_package      — Track one or more shipments
   6. envia_cancel_shipment    — Void a label and reclaim balance

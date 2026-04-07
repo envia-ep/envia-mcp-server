@@ -37,7 +37,7 @@ export function registerClassifyHscode(
                 "Classify a product into an HS code for international customs. " +
                 "Describe the product in plain language and optionally specify destination countries. " +
                 "Returns the recommended HS code and alternatives. " +
-                "Use the HS code in the package items when calling envia_get_shipping_rates or envia_create_label for international shipments.",
+                "Use the HS code in the package items when calling quote_shipment or envia_create_label for international shipments.",
             inputSchema: z.object({
                 description: z
                     .string()
