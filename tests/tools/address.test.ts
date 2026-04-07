@@ -72,7 +72,7 @@ describe("buildAddress", () => {
 // ---------------------------------------------------------------------------
 
 describe("buildQuoteAddress", () => {
-    it("should return all geographic fields when fully populated", () => {
+    it("should return all geographic fields plus placeholder street when fully populated", () => {
         const input: QuoteAddressInput = {
             city: "Monterrey",
             state: "NL",
@@ -83,11 +83,18 @@ describe("buildQuoteAddress", () => {
         const result = buildQuoteAddress(input);
 
         expect(result).toEqual({
+            street: "Calle 1 #100",
             city: "Monterrey",
             state: "NL",
             country: "MX",
             postalCode: "64000",
         });
+    });
+
+    it("should always include a placeholder street", () => {
+        const result = buildQuoteAddress({ country: "MX" });
+
+        expect(result.street).toBe("Calle 1 #100");
     });
 
     it("should uppercase the country code", () => {
@@ -123,13 +130,13 @@ describe("buildQuoteAddress", () => {
         expect(result).not.toHaveProperty("postalCode");
     });
 
-    it("should return only country when no optional fields are provided", () => {
+    it("should return street and country when no optional fields are provided", () => {
         const result = buildQuoteAddress({ country: "MX" });
 
-        expect(result).toEqual({ country: "MX" });
+        expect(result).toEqual({ street: "Calle 1 #100", country: "MX" });
     });
 
-    it("should not include name, phone, or street fields", () => {
+    it("should not include name or phone fields", () => {
         const result = buildQuoteAddress({
             city: "Monterrey",
             state: "NL",
@@ -139,6 +146,5 @@ describe("buildQuoteAddress", () => {
 
         expect(result).not.toHaveProperty("name");
         expect(result).not.toHaveProperty("phone");
-        expect(result).not.toHaveProperty("street");
     });
 });

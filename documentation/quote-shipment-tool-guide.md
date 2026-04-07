@@ -38,10 +38,12 @@ This tool is the entry point for the quoting workflow. Users typically call it b
 
 ### Removed Parameters (vs. previous version)
 
-These fields are **not needed for quoting** and were removed:
+These fields are **not needed for quoting** and were removed from the input schema:
 - `origin_name`, `origin_phone`, `origin_street`
 - `destination_name`, `destination_phone`, `destination_street`
 - `shipment_type` (hardcoded to `1` for parcel)
+
+> **Note:** The Envia rate API still requires a `street` field in the address payload. `buildQuoteAddress()` fills this automatically with a hardcoded placeholder (`"Calle 1 #100"`). Real street data is only needed when creating a shipment label via `envia_create_label`.
 
 ---
 

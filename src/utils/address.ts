@@ -62,24 +62,29 @@ export interface QuoteAddressInput {
 
 /** Address shape the rate API accepts for quoting. */
 export interface EnviaQuoteAddress {
+    street: string;
     city?: string;
     state?: string;
     country: string;
     postalCode?: string;
 }
 
+/** Placeholder street the rate API requires even for quoting. */
+const QUOTE_PLACEHOLDER_STREET = 'Calle 1 #100';
+
 /**
  * Build a minimal address payload for rate quoting.
  *
- * Only includes the geographic fields the rate API needs — no personal
- * information (name, phone, street). Uppercases the country code for
- * consistency with the Envia API.
+ * Includes a hardcoded placeholder street because the Envia rate API
+ * requires it even for price comparison. Real street data is only
+ * needed when creating a shipment label.
  *
  * @param input - Resolved geographic fields from the address-resolver
  * @returns Address object ready for the rate API payload
  */
 export function buildQuoteAddress(input: QuoteAddressInput): EnviaQuoteAddress {
     const address: EnviaQuoteAddress = {
+        street: QUOTE_PLACEHOLDER_STREET,
         country: input.country.trim().toUpperCase(),
     };
 

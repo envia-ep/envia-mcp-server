@@ -465,7 +465,7 @@ describe('quote_shipment', () => {
         expect(text).toContain('Invalid destination');
     });
 
-    it('should report generic detail when response is OK but has no rate data and no message', async () => {
+    it('should dump response shape when response is OK but has no rate data and no message', async () => {
         mockFetch.mockReset();
         mockFetch.mockResolvedValue({
             ok: true,
@@ -477,7 +477,8 @@ describe('quote_shipment', () => {
         const text = result.content[0].text;
 
         expect(text).toContain('No rates found');
-        expect(text).toContain('no rate data in response');
+        expect(text).toContain('unexpected response shape');
+        expect(text).toContain('"unexpected":"shape"');
     });
 
     it('should handle "all" carrier mode when carrier list fetch fails', async () => {

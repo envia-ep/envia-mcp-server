@@ -285,7 +285,7 @@ export function registerGetShippingRates(
                         ? body.message
                         : typeof body?.error === 'string'
                             ? body.error
-                            : 'no rate data in response';
+                            : `unexpected response shape: ${JSON.stringify(body).slice(0, 300)}`;
                     errors.push(`${carrier}: ${detail}`);
                 }
             }

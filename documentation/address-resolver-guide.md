@@ -134,6 +134,7 @@ Tools that need full addresses (name, phone, street) should resolve the geograph
 
 - `address-resolver.ts` resolves **what** the city/state are (external API calls)
 - `address.ts` builds **the shape** the Envia API expects (data transformation)
+- `buildQuoteAddress()` includes a hardcoded placeholder street (`"Calle 1 #100"`) because the Envia rate API requires it even for price comparison — users never provide it for quoting
 
 ```
 User input → resolveAddress() → buildQuoteAddress() or buildAddress() → API payload
@@ -196,13 +197,13 @@ const result = await resolveAddress(
 // No API call made — DANE code pattern detected
 ```
 
-### Chile (Category D — no postal code, explicit city/state)
+### Chile (Category D — city resolved via Geocodes `/locate`)
 
 ```typescript
 const result = await resolveAddress(
-    { country: 'CL', city: 'Santiago', state: 'RM' },
+    { country: 'CL', city: 'Concepcion' },
     client, config,
 );
-// → { country: 'CL', city: 'Santiago', state: 'RM' }
-// No geocode call — no postal code provided
+// → { country: 'CL', city: 'Concepción', state: 'BI', postalCode: '4030000' }
+// Resolved via GET {geocodesBase}/locate/CL/Concepcion
 ```
