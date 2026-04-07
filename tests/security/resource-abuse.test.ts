@@ -13,6 +13,7 @@ import {
     VALID_ORIGIN_ARGS,
     VALID_DESTINATION_ARGS,
     VALID_PACKAGE_ARGS,
+    VALID_QUOTE_ARGS,
     mockFetchSuccess,
 } from "../helpers/fixtures.js";
 import { EnviaApiClient } from "../../src/utils/api-client.js";
@@ -22,11 +23,25 @@ import { registerGetShipmentHistory } from "../../src/tools/get-shipment-history
 import { registerCreateLabel } from "../../src/tools/create-label.js";
 import { registerListCarriers } from "../../src/tools/list-carriers.js";
 import { registerValidateAddress } from "../../src/tools/validate-address.js";
+import { resolveAddress } from "../../src/utils/address-resolver.js";
+
+vi.mock("../../src/utils/address-resolver.js", () => ({
+    resolveAddress: vi.fn(),
+}));
+
+const resolveAddressMock = vi.mocked(resolveAddress);
 
 describe("Resource Abuse / DoS Prevention", () => {
     let handlers: Map<string, ToolHandler>;
 
     beforeEach(() => {
+        resolveAddressMock.mockResolvedValue({
+            postalCode: "64000",
+            country: "MX",
+            city: "Monterrey",
+            state: "NL",
+        });
+
         const { server, handlers: h } = createMockServer();
         handlers = h;
 
@@ -121,14 +136,11 @@ describe("Resource Abuse / DoS Prevention", () => {
             .join(",");
 
         const args = {
-            ...VALID_ORIGIN_ARGS,
-            ...VALID_DESTINATION_ARGS,
-            ...VALID_PACKAGE_ARGS,
+            ...VALID_QUOTE_ARGS,
             carriers: twentyCarriers,
-            shipment_type: 1,
         };
 
-        await callHandler("envia_get_shipping_rates", args);
+        await callHandler("quote_shipment", args);
 
         // The handler should cap at MAX_CARRIERS = 10
         expect(mockFetch).toHaveBeenCalledTimes(10);
@@ -139,14 +151,11 @@ describe("Resource Abuse / DoS Prevention", () => {
         vi.stubGlobal("fetch", mockFetch);
 
         const args = {
-            ...VALID_ORIGIN_ARGS,
-            ...VALID_DESTINATION_ARGS,
-            ...VALID_PACKAGE_ARGS,
+            ...VALID_QUOTE_ARGS,
             carriers: ",,,,",
-            shipment_type: 1,
         };
 
-        const result = await callHandler("envia_get_shipping_rates", args);
+        const result = await callHandler("quote_shipment", args);
 
         // All entries are empty after split + trim + filter(Boolean),
         // so the handler should return an error about providing at least one carrier.
@@ -159,14 +168,11 @@ describe("Resource Abuse / DoS Prevention", () => {
         vi.stubGlobal("fetch", mockFetch);
 
         const args = {
-            ...VALID_ORIGIN_ARGS,
-            ...VALID_DESTINATION_ARGS,
-            ...VALID_PACKAGE_ARGS,
+            ...VALID_QUOTE_ARGS,
             carriers: "  ,  ,  ",
-            shipment_type: 1,
         };
 
-        const result = await callHandler("envia_get_shipping_rates", args);
+        const result = await callHandler("quote_shipment", args);
 
         expect(result.content[0].text).toContain("at least one carrier");
         expect(mockFetch).not.toHaveBeenCalled();

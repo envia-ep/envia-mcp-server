@@ -1,10 +1,10 @@
 /**
- * Tests for the shared address builder utility.
+ * Tests for the shared address builder utilities.
  */
 
 import { describe, it, expect } from "vitest";
-import { buildAddress } from "../../src/utils/address.js";
-import type { AddressInput } from "../../src/utils/address.js";
+import { buildAddress, buildQuoteAddress } from "../../src/utils/address.js";
+import type { AddressInput, QuoteAddressInput } from "../../src/utils/address.js";
 
 describe("buildAddress", () => {
   const validInput: AddressInput = {
@@ -65,4 +65,80 @@ describe("buildAddress", () => {
     const result = buildAddress({ ...validInput, country: "  us  " });
     expect(result.country).toBe("US");
   });
+});
+
+// ---------------------------------------------------------------------------
+// buildQuoteAddress
+// ---------------------------------------------------------------------------
+
+describe("buildQuoteAddress", () => {
+    it("should return all geographic fields when fully populated", () => {
+        const input: QuoteAddressInput = {
+            city: "Monterrey",
+            state: "NL",
+            country: "mx",
+            postalCode: "64000",
+        };
+
+        const result = buildQuoteAddress(input);
+
+        expect(result).toEqual({
+            city: "Monterrey",
+            state: "NL",
+            country: "MX",
+            postalCode: "64000",
+        });
+    });
+
+    it("should uppercase the country code", () => {
+        const result = buildQuoteAddress({ country: "co", city: "11001000", state: "DC" });
+
+        expect(result.country).toBe("CO");
+    });
+
+    it("should trim country whitespace", () => {
+        const result = buildQuoteAddress({ country: "  mx  " });
+
+        expect(result.country).toBe("MX");
+    });
+
+    it("should omit city when not provided", () => {
+        const result = buildQuoteAddress({ country: "MX", postalCode: "64000" });
+
+        expect(result.city).toBeUndefined();
+        expect(result).not.toHaveProperty("city");
+    });
+
+    it("should omit state when not provided", () => {
+        const result = buildQuoteAddress({ country: "MX", postalCode: "64000" });
+
+        expect(result.state).toBeUndefined();
+        expect(result).not.toHaveProperty("state");
+    });
+
+    it("should omit postalCode when not provided", () => {
+        const result = buildQuoteAddress({ country: "CO", city: "11001000", state: "DC" });
+
+        expect(result.postalCode).toBeUndefined();
+        expect(result).not.toHaveProperty("postalCode");
+    });
+
+    it("should return only country when no optional fields are provided", () => {
+        const result = buildQuoteAddress({ country: "MX" });
+
+        expect(result).toEqual({ country: "MX" });
+    });
+
+    it("should not include name, phone, or street fields", () => {
+        const result = buildQuoteAddress({
+            city: "Monterrey",
+            state: "NL",
+            country: "MX",
+            postalCode: "64000",
+        });
+
+        expect(result).not.toHaveProperty("name");
+        expect(result).not.toHaveProperty("phone");
+        expect(result).not.toHaveProperty("street");
+    });
 });

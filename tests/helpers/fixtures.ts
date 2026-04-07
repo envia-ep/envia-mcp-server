@@ -219,6 +219,41 @@ export const MOCK_CITY_RESPONSE = [
 ];
 
 // ---------------------------------------------------------------------------
+// Quote tool — minimal argument sets
+// ---------------------------------------------------------------------------
+
+/** Minimal required args for the quote_shipment tool (MX domestic). */
+export const VALID_QUOTE_ARGS = {
+    origin_postal_code: "64000",
+    destination_postal_code: "03100",
+    weight: 2.5,
+    origin_country: "MX",
+    destination_country: "MX",
+    carriers: "dhl,fedex",
+};
+
+/** Colombian quote args — requires city/state instead of postal code. */
+export const VALID_CO_QUOTE_ARGS = {
+    origin_postal_code: "110111",
+    destination_postal_code: "760001",
+    weight: 1.0,
+    origin_country: "CO",
+    destination_country: "CO",
+    origin_city: "Bogota",
+    origin_state: "DC",
+    destination_city: "Cali",
+    destination_state: "VAC",
+    carriers: "all",
+};
+
+/** Response from POST /locate for Colombian city resolution. */
+export const MOCK_CO_LOCATE_RESPONSE = {
+    city: "11001000",
+    name: "Bogotá",
+    state: "DC",
+};
+
+// ---------------------------------------------------------------------------
 // Fetch mock helpers
 // ---------------------------------------------------------------------------
 

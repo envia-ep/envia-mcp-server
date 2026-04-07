@@ -12,6 +12,7 @@ import {
     VALID_ORIGIN_ARGS,
     VALID_DESTINATION_ARGS,
     VALID_PACKAGE_ARGS,
+    VALID_QUOTE_ARGS,
     MOCK_LABEL_RESPONSE,
     MOCK_RATES_RESPONSE,
     MOCK_ZIPCODE_RESPONSE,
@@ -31,13 +32,26 @@ import { registerSchedulePickup } from "../../src/tools/schedule-pickup.js";
 import { registerClassifyHscode } from "../../src/tools/classify-hscode.js";
 import { registerCreateCommercialInvoice } from "../../src/tools/create-commercial-invoice.js";
 import { registerResources } from "../../src/resources/api-docs.js";
+import { resolveAddress } from "../../src/utils/address-resolver.js";
+
+vi.mock("../../src/utils/address-resolver.js", () => ({
+    resolveAddress: vi.fn(),
+}));
+
+const resolveAddressMock = vi.mocked(resolveAddress);
 
 describe("Full workflow integration", () => {
     let handlers: Map<string, ToolHandler>;
     let mockFetch: ReturnType<typeof vi.fn>;
 
     beforeEach(() => {
-        vi.restoreAllMocks();
+        resolveAddressMock.mockResolvedValue({
+            postalCode: "64000",
+            country: "MX",
+            city: "Monterrey",
+            state: "NL",
+        });
+
         mockFetch = vi.fn();
         vi.stubGlobal("fetch", mockFetch);
 
@@ -84,13 +98,10 @@ describe("Full workflow integration", () => {
                 json: () => Promise.resolve(MOCK_RATES_RESPONSE),
             });
 
-            const ratesHandler = handlers.get("envia_get_shipping_rates")!;
+            const ratesHandler = handlers.get("quote_shipment")!;
             const ratesResult = await ratesHandler({
-                ...VALID_ORIGIN_ARGS,
-                ...VALID_DESTINATION_ARGS,
-                ...VALID_PACKAGE_ARGS,
+                ...VALID_QUOTE_ARGS,
                 carriers: "dhl",
-                shipment_type: 1,
             });
             expect(ratesResult.content[0].text).toContain("rate(s)");
             expect(ratesResult.content[0].text).toContain("dhl");
@@ -148,13 +159,10 @@ describe("Full workflow integration", () => {
                     Promise.resolve({ message: "Invalid origin postal code" }),
             });
 
-            const ratesHandler = handlers.get("envia_get_shipping_rates")!;
+            const ratesHandler = handlers.get("quote_shipment")!;
             const ratesResult = await ratesHandler({
-                ...VALID_ORIGIN_ARGS,
-                ...VALID_DESTINATION_ARGS,
-                ...VALID_PACKAGE_ARGS,
+                ...VALID_QUOTE_ARGS,
                 carriers: "dhl",
-                shipment_type: 1,
             });
 
             // Should show error, not crash
@@ -192,13 +200,10 @@ describe("Full workflow integration", () => {
                 status: 200,
                 json: () => Promise.resolve(MOCK_RATES_RESPONSE),
             });
-            const ratesHandler = handlers.get("envia_get_shipping_rates")!;
+            const ratesHandler = handlers.get("quote_shipment")!;
             await ratesHandler({
-                ...VALID_ORIGIN_ARGS,
-                ...VALID_DESTINATION_ARGS,
-                ...VALID_PACKAGE_ARGS,
+                ...VALID_QUOTE_ARGS,
                 carriers: "dhl",
-                shipment_type: 1,
             });
 
             // Step 4: Create invoice
@@ -331,7 +336,7 @@ describe("Full workflow integration", () => {
             const expectedTools = [
                 "envia_validate_address",
                 "envia_list_carriers",
-                "envia_get_shipping_rates",
+                "quote_shipment",
                 "envia_create_label",
                 "envia_track_package",
                 "envia_cancel_shipment",
