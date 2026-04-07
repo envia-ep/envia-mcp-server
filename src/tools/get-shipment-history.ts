@@ -11,88 +11,91 @@ import type { EnviaApiClient } from "../utils/api-client.js";
 import type { EnviaConfig } from "../config.js";
 
 interface ShipmentEntry {
-  tracking_number?: string;
-  /** Carrier code (e.g. "dhl"). API returns this as "name". */
-  name?: string;
-  status?: string;
-  service?: string;
-  created_at?: string;
-  sender_city?: string;
-  consignee_city?: string;
-  total?: number;
-  currency?: string;
-  label_file?: string;
+    tracking_number?: string;
+    /** Carrier code (e.g. "dhl"). API returns this as "name". */
+    name?: string;
+    status?: string;
+    service?: string;
+    created_at?: string;
+    sender_city?: string;
+    consignee_city?: string;
+    total?: number;
+    currency?: string;
+    label_file?: string;
 }
 
 export function registerGetShipmentHistory(
-  server: McpServer,
-  client: EnviaApiClient,
-  config: EnviaConfig,
+    server: McpServer,
+    client: EnviaApiClient,
+    config: EnviaConfig,
 ): void {
-  server.tool(
-    "envia_get_shipment_history",
-    "List all shipments created in a given month. " +
-      "Returns tracking numbers, carriers, statuses, and route summaries. " +
-      "Useful for reports and reconciliation.",
-    {
-      month: z
-        .number()
-        .int()
-        .min(1)
-        .max(12)
-        .describe("Month number (1–12)"),
-      year: z
-        .number()
-        .int()
-        .min(2020)
-        .describe("Four-digit year (e.g. 2026)"),
-    },
-    async ({ month, year }) => {
-      const mm = String(month).padStart(2, "0");
-      const url = `${config.queriesBase}/guide/${mm}/${year}`;
-      const res = await client.get<{ data: ShipmentEntry[] }>(url);
+    server.registerTool(
+        "envia_get_shipment_history",
+        {
+            description:
+                "List all shipments created in a given month. " +
+                "Returns tracking numbers, carriers, statuses, and route summaries. " +
+                "Useful for reports and reconciliation.",
+            inputSchema: z.object({
+                month: z
+                    .number()
+                    .int()
+                    .min(1)
+                    .max(12)
+                    .describe("Month number (1–12)"),
+                year: z
+                    .number()
+                    .int()
+                    .min(2020)
+                    .describe("Four-digit year (e.g. 2026)"),
+            }),
+        },
+        async ({ month, year }) => {
+            const mm = String(month).padStart(2, "0");
+            const url = `${config.queriesBase}/guide/${mm}/${year}`;
+            const res = await client.get<{ data: ShipmentEntry[] }>(url);
 
-      if (!res.ok) {
-        return {
-          content: [{ type: "text", text: `Failed to retrieve shipment history: ${res.error}` }],
-        };
-      }
+            if (!res.ok) {
+                return {
+                    content: [{ type: "text", text: `Failed to retrieve shipment history: ${res.error}` }],
+                };
+            }
 
-      const shipments = Array.isArray(res.data?.data) ? res.data.data : [];
+            const shipments = Array.isArray(res.data?.data) ? res.data.data : [];
 
-      if (shipments.length === 0) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: `No shipments found for ${mm}/${year}. Verify the month/year or check your Envia account.`,
-            },
-          ],
-        };
-      }
+            if (shipments.length === 0) {
+                return {
+                    content: [
+                        {
+                            type: "text",
+                            text: `No shipments found for ${mm}/${year}. Verify the month/year or check your Envia account.`,
+                        },
+                    ],
+                };
+            }
 
-      const lines: string[] = [
-        `Shipment history for ${mm}/${year}: ${shipments.length} shipment(s)`,
-        "",
-      ];
+            const lines: string[] = [
+                `Shipment history for ${mm}/${year}: ${shipments.length} shipment(s)`,
+                "",
+            ];
 
-      for (const s of shipments.slice(0, 50)) {
-        const route =
-          s.sender_city && s.consignee_city
-            ? `${s.sender_city} → ${s.consignee_city}`
-            : "";
-        const carrier = s.name ?? "—";
-        const service = s.service ? `/${s.service}` : "";
-        lines.push(
-          `• ${s.tracking_number ?? "—"} | ${carrier}${service} | ${s.status ?? "—"}${route ? ` | ${route}` : ""}`,
-        );
-      }
+            for (const s of shipments.slice(0, 50)) {
+                const route =
+                    s.sender_city && s.consignee_city
+                        ? `${s.sender_city} → ${s.consignee_city}`
+                        : "";
+                const carrier = s.name ?? "—";
+                const service = s.service ? `/${s.service}` : "";
+                lines.push(
+                    `• ${s.tracking_number ?? "—"} | ${carrier}${service} | ${s.status ?? "—"}${route ? ` | ${route}` : ""}`,
+                );
+            }
 
-      if (shipments.length > 50) {
-        lines.push(`\n... and ${shipments.length - 50} more shipments.`);
-      }
+            if (shipments.length > 50) {
+                lines.push(`\n... and ${shipments.length - 50} more shipments.`);
+            }
 
-      return { content: [{ type: "text", text: lines.join("\n") }] };
-    },
-  );
+            return { content: [{ type: "text", text: lines.join("\n") }] };
+        },
+    );
 }

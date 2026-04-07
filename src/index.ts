@@ -6,82 +6,200 @@
  * Exposes Envia shipping APIs as MCP tools so AI assistants can quote rates,
  * create labels, track packages, schedule pickups, and more.
  *
- * Transport: stdio (works with Claude Desktop, Cursor, VS Code, etc.)
+ * Transport: Stateless Streamable HTTP (spec-compliant, works with any MCP client)
+ *
+ * Also serves a browser-based chat UI at the root path (/) for interactive
+ * testing with an LLM provider (Anthropic / OpenAI).
  *
  * Required env:
  *   ENVIA_API_KEY          — your Envia JWT token
  *
  * Optional env:
  *   ENVIA_ENVIRONMENT      — "sandbox" (default) | "production"
+ *   PORT                   — HTTP port (default 3000)
  */
 
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, resolve } from "node:path";
+import 'dotenv/config';
 
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { readFileSync, existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, resolve } from 'node:path';
 
-import { loadConfig } from "./config.js";
-import { EnviaApiClient } from "./utils/api-client.js";
+import { Request, Response, NextFunction } from 'express';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { createMcpExpressApp } from '@modelcontextprotocol/sdk/server/express.js';
 
-// Read version from package.json at startup (single source of truth)
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const pkg = JSON.parse(
-  readFileSync(resolve(__dirname, "..", "package.json"), "utf-8"),
-) as { version: string };
+import { loadConfig } from './config.js';
+import { EnviaApiClient } from './utils/api-client.js';
 
 // Tools
-import { registerValidateAddress } from "./tools/validate-address.js";
-import { registerListCarriers } from "./tools/list-carriers.js";
-import { registerGetShippingRates } from "./tools/get-shipping-rates.js";
-import { registerCreateLabel } from "./tools/create-label.js";
-import { registerTrackPackage } from "./tools/track-package.js";
-import { registerCancelShipment } from "./tools/cancel-shipment.js";
-import { registerSchedulePickup } from "./tools/schedule-pickup.js";
-import { registerGetShipmentHistory } from "./tools/get-shipment-history.js";
-import { registerClassifyHscode } from "./tools/classify-hscode.js";
-import { registerCreateCommercialInvoice } from "./tools/create-commercial-invoice.js";
+import { registerValidateAddress } from './tools/validate-address.js';
+import { registerListCarriers } from './tools/list-carriers.js';
+import { registerGetShippingRates } from './tools/get-shipping-rates.js';
+import { registerCreateLabel } from './tools/create-label.js';
+import { registerTrackPackage } from './tools/track-package.js';
+import { registerCancelShipment } from './tools/cancel-shipment.js';
+import { registerSchedulePickup } from './tools/schedule-pickup.js';
+import { registerGetShipmentHistory } from './tools/get-shipment-history.js';
+import { registerClassifyHscode } from './tools/classify-hscode.js';
+import { registerCreateCommercialInvoice } from './tools/create-commercial-invoice.js';
 
 // Resources
-import { registerResources } from "./resources/api-docs.js";
+import { registerResources } from './resources/api-docs.js';
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const pkg = JSON.parse(
+    readFileSync(resolve(__dirname, '..', 'package.json'), 'utf-8'),
+) as { version: string };
+
+const PORT = parseInt(process.env.PORT ?? '3000', 10);
+
+/**
+ * Compiled JS lives in dist/ but index.html lives in src/chat/.
+ * Resolve both directories so we can serve compiled JS and static HTML.
+ */
+const DIST_CHAT_DIR = resolve(__dirname, 'chat');
+const SRC_CHAT_DIR = resolve(__dirname, '..', 'src', 'chat');
+
+const MIME: Record<string, string> = {
+    '.html': 'text/html; charset=utf-8',
+    '.js': 'application/javascript; charset=utf-8',
+    '.css': 'text/css; charset=utf-8',
+    '.json': 'application/json; charset=utf-8',
+};
+
+/**
+ * Build a fully-configured McpServer with all Envia tools and resources.
+ */
+function createEnviaServer(): McpServer {
+    const config = loadConfig();
+    const client = new EnviaApiClient(config);
+
+    const server = new McpServer({
+        name: 'envia',
+        version: pkg.version,
+    });
+
+    registerValidateAddress(server, client, config);
+    registerListCarriers(server, client, config);
+    registerGetShippingRates(server, client, config);
+    registerCreateLabel(server, client, config);
+    registerTrackPackage(server, client, config);
+    registerCancelShipment(server, client, config);
+    registerSchedulePickup(server, client, config);
+    registerGetShipmentHistory(server, client, config);
+    registerClassifyHscode(server, client, config);
+    registerCreateCommercialInvoice(server, client, config);
+
+    registerResources(server, config);
+
+    return server;
+}
 
 // ---------------------------------------------------------------------------
 // Bootstrap
 // ---------------------------------------------------------------------------
 
-async function main() {
-  const config = loadConfig();
-  const client = new EnviaApiClient(config);
+const app = createMcpExpressApp();
 
-  const server = new McpServer({
-    name: "envia",
-    version: pkg.version,
-  });
+/** CORS — allows the browser chat client to reach /mcp from the same origin */
+app.use((_req: Request, res: Response, next: NextFunction) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Accept, mcp-session-id');
+    res.setHeader('Access-Control-Expose-Headers', 'mcp-session-id');
+    next();
+});
 
-  // Register all tools
-  registerValidateAddress(server, client, config);
-  registerListCarriers(server, client, config);
-  registerGetShippingRates(server, client, config);
-  registerCreateLabel(server, client, config);
-  registerTrackPackage(server, client, config);
-  registerCancelShipment(server, client, config);
-  registerSchedulePickup(server, client, config);
-  registerGetShipmentHistory(server, client, config);
-  registerClassifyHscode(server, client, config);
-  registerCreateCommercialInvoice(server, client, config);
+app.options('/mcp', (_req: Request, res: Response) => {
+    res.status(204).end();
+});
 
-  // Register resources
-  registerResources(server, config);
+const server = createEnviaServer();
 
-  // Connect via stdio transport
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
+// ── POST /mcp — every request gets a fresh stateless transport ──────────
+
+app.post('/mcp', async (req: Request, res: Response) => {
+    try {
+        const transport = new StreamableHTTPServerTransport({
+            sessionIdGenerator: undefined,
+        });
+
+        res.on('close', () => {
+            transport.close().catch(() => {});
+        });
+
+        await server.connect(transport);
+        await transport.handleRequest(req, res, req.body);
+    } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : 'Internal server error';
+        if (!res.headersSent) {
+            res.status(500).json({
+                jsonrpc: '2.0',
+                error: { code: -32603, message },
+                id: null,
+            });
+        }
+    }
+});
+
+// ── GET /mcp — not supported in stateless mode ──────────────────────────
+
+app.get('/mcp', (_req: Request, res: Response) => {
+    res.status(405).set('Allow', 'POST').send('Method Not Allowed');
+});
+
+// ── DELETE /mcp — not supported in stateless mode ───────────────────────
+
+app.delete('/mcp', (_req: Request, res: Response) => {
+    res.status(405).set('Allow', 'POST').send('Method Not Allowed');
+});
+
+// ── Chat UI — static files served from dist/chat/ and src/chat/ ─────────
+
+/**
+ * Resolve a request path to a static file from the chat directories.
+ * Looks in dist/chat/ first (compiled JS), then src/chat/ (HTML).
+ */
+function serveChatFile(req: Request, res: Response): void {
+    let filePath = req.path;
+    if (filePath === '/') filePath = '/index.html';
+
+    const ext = filePath.slice(filePath.lastIndexOf('.'));
+    const mime = MIME[ext];
+    if (!mime) {
+        res.status(404).send('Not Found');
+        return;
+    }
+
+    const relativePath = filePath.slice(1);
+    const candidates = [
+        resolve(DIST_CHAT_DIR, relativePath),
+        resolve(SRC_CHAT_DIR, relativePath),
+    ];
+
+    for (const candidate of candidates) {
+        if (existsSync(candidate)) {
+            const content = readFileSync(candidate, 'utf-8');
+            res.type(mime).send(content);
+            return;
+        }
+    }
+
+    res.status(404).send('Not Found');
 }
 
-main().catch((err) => {
-  // Only log the error message — never the full object (may contain API key in stack trace)
-  const message = err instanceof Error ? err.message : "Unknown startup error";
-  console.error("Fatal:", message);
-  process.exit(1);
+app.get('/', serveChatFile);
+app.get('/*path', serveChatFile);
+
+// ── Start ───────────────────────────────────────────────────────────────
+
+app.listen(PORT, () => {
+    console.error(`Envia MCP server listening on http://127.0.0.1:${PORT}/mcp`);
+    console.error(`  Chat UI: http://127.0.0.1:${PORT}/`);
 });

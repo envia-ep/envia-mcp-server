@@ -10,21 +10,21 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { EnviaConfig } from "../config.js";
 
 export function registerResources(server: McpServer, config: EnviaConfig): void {
-  // ---- Quickstart / overview -----------------------------------------------
-  server.resource(
-    "envia-overview",
-    "envia://docs/overview",
-    {
-      description:
-        "Overview of Envia APIs and how the MCP tools map to shipping workflows.",
-      mimeType: "text/plain",
-    },
-    async () => ({
-      contents: [
+    // ---- Quickstart / overview -----------------------------------------------
+    server.registerResource(
+        "envia-overview",
+        "envia://docs/overview",
         {
-          uri: "envia://docs/overview",
-          mimeType: "text/plain",
-          text: `Envia MCP Server — Overview
+            description:
+                "Overview of Envia APIs and how the MCP tools map to shipping workflows.",
+            mimeType: "text/plain",
+        },
+        async () => ({
+            contents: [
+                {
+                    uri: "envia://docs/overview",
+                    mimeType: "text/plain",
+                    text: `Envia MCP Server — Overview
 ============================================================
 Environment: ${config.environment}
 Shipping API: ${config.shippingBase}
@@ -54,26 +54,26 @@ High-volume / warehouse workflow:
 
 Full docs: https://docs.envia.com
 `,
-        },
-      ],
-    }),
-  );
+                },
+            ],
+        }),
+    );
 
-  // ---- Address structure ---------------------------------------------------
-  server.resource(
-    "envia-address-format",
-    "envia://docs/address-format",
-    {
-      description:
-        "Required and optional address fields for Envia API requests.",
-      mimeType: "text/plain",
-    },
-    async () => ({
-      contents: [
+    // ---- Address structure ---------------------------------------------------
+    server.registerResource(
+        "envia-address-format",
+        "envia://docs/address-format",
         {
-          uri: "envia://docs/address-format",
-          mimeType: "text/plain",
-          text: `Envia Address Format
+            description:
+                "Required and optional address fields for Envia API requests.",
+            mimeType: "text/plain",
+        },
+        async () => ({
+            contents: [
+                {
+                    uri: "envia://docs/address-format",
+                    mimeType: "text/plain",
+                    text: `Envia Address Format
 ============================================================
 Required fields:
   name        — Full name (string)
@@ -95,8 +95,8 @@ Tips:
   • State codes vary by country (MX uses 2-letter codes like "NL", "CDMX")
   • Phone numbers should include country code (e.g. "+52 8180001234")
 `,
-        },
-      ],
-    }),
-  );
+                },
+            ],
+        }),
+    );
 }
