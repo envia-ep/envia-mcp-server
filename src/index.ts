@@ -44,6 +44,7 @@ import { registerSchedulePickup } from './tools/schedule-pickup.js';
 import { registerGetShipmentHistory } from './tools/get-shipment-history.js';
 import { registerClassifyHscode } from './tools/classify-hscode.js';
 import { registerCreateCommercialInvoice } from './tools/create-commercial-invoice.js';
+import { registerGetEcommerceOrder } from './tools/get-ecommerce-order.js';
 
 // Resources
 import { registerResources } from './resources/api-docs.js';
@@ -96,6 +97,7 @@ function createEnviaServer(): McpServer {
     registerGetShipmentHistory(server, client, config);
     registerClassifyHscode(server, client, config);
     registerCreateCommercialInvoice(server, client, config);
+    registerGetEcommerceOrder(server, client, config);
 
     registerResources(server, config);
 

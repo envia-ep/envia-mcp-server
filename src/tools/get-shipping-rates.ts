@@ -14,9 +14,13 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { EnviaApiClient } from '../utils/api-client.js';
 import type { EnviaConfig } from '../config.js';
 import { countrySchema } from '../utils/schemas.js';
-import { buildQuoteAddress } from '../utils/address.js';
 import { resolveAddress } from '../utils/address-resolver.js';
+import { textResponse } from '../utils/mcp-response.js';
+import { buildRateAddress } from '../builders/address.js';
+import { buildManualPackage } from '../builders/package.js';
+import { fetchAvailableCarriers, type CarrierInfo } from '../services/carrier.js';
 
+/** A single rate option returned by the carriers API. */
 interface RateEntry {
     carrier: string;
     service: string;
@@ -26,40 +30,8 @@ interface RateEntry {
     currency?: string;
 }
 
-interface CarrierEntry {
-    name: string;
-}
-
 /** Maximum number of individual carrier requests when not using "all". */
 const MAX_CARRIERS = 10;
-
-/**
- * Fetch available carrier codes for a country and shipment type.
- *
- * @param countryCode - ISO 3166-1 alpha-2 country code
- * @param international - Whether the shipment crosses borders
- * @param client - Envia API client
- * @param config - Server configuration
- * @returns Array of carrier code strings (e.g. ["fedex", "dhl", "estafeta"])
- */
-async function fetchAvailableCarriers(
-    countryCode: string,
-    international: boolean,
-    client: EnviaApiClient,
-    config: EnviaConfig,
-): Promise<string[]> {
-    const intl = international ? 1 : 0;
-    const url = `${config.queriesBase}/available-carrier/${encodeURIComponent(countryCode)}/${intl}`;
-    const res = await client.get<{ data: CarrierEntry[] }>(url);
-
-    if (!res.ok || !Array.isArray(res.data?.data)) {
-        return [];
-    }
-
-    return res.data.data
-        .map((c) => c.name)
-        .filter(Boolean);
-}
 
 /**
  * Register the quote_shipment tool on the given MCP server.
@@ -136,22 +108,16 @@ export function registerGetShippingRates(
         },
         async (args) => {
             if (!args.origin_postal_code && !args.origin_city) {
-                return {
-                    content: [{
-                        type: 'text' as const,
-                        text: 'Error: Provide either origin_postal_code or origin_city. ' +
-                            'Use postal code for MX, US, CA, BR, etc. Use city for CO, CL, GT, PA, HN, PE, BO.',
-                    }],
-                };
+                return textResponse(
+                    'Error: Provide either origin_postal_code or origin_city. ' +
+                    'Use postal code for MX, US, CA, BR, etc. Use city for CO, CL, GT, PA, HN, PE, BO.',
+                );
             }
             if (!args.destination_postal_code && !args.destination_city) {
-                return {
-                    content: [{
-                        type: 'text' as const,
-                        text: 'Error: Provide either destination_postal_code or destination_city. ' +
-                            'Use postal code for MX, US, CA, BR, etc. Use city for CO, CL, GT, PA, HN, PE, BO.',
-                    }],
-                };
+                return textResponse(
+                    'Error: Provide either destination_postal_code or destination_city. ' +
+                    'Use postal code for MX, US, CA, BR, etc. Use city for CO, CL, GT, PA, HN, PE, BO.',
+                );
             }
 
             const [origin, destination] = await Promise.all([
@@ -177,24 +143,18 @@ export function registerGetShippingRates(
                 ),
             ]);
 
-            const originAddress = buildQuoteAddress(origin);
-            const destinationAddress = buildQuoteAddress(destination);
+            const originAddress = buildRateAddress(origin);
+            const destinationAddress = buildRateAddress(destination);
 
             const packages = [
-                {
-                    type: 'box',
-                    content: args.content,
-                    amount: 1,
-                    declaredValue: args.declared_value,
+                buildManualPackage({
                     weight: args.weight,
-                    weightUnit: 'KG',
-                    lengthUnit: 'CM',
-                    dimensions: {
-                        length: args.length,
-                        width: args.width,
-                        height: args.height,
-                    },
-                },
+                    length: args.length,
+                    width: args.width,
+                    height: args.height,
+                    content: args.content,
+                    declaredValue: args.declared_value,
+                }),
             ];
 
             const settings: Record<string, unknown> = {};
@@ -208,47 +168,43 @@ export function registerGetShippingRates(
             const allRates: RateEntry[] = [];
             const errors: string[] = [];
 
-            let carrierList: string[];
+            let carrierList: CarrierInfo[];
 
             if (carrierInput === 'all') {
-                const isInternational = args.origin_country.toUpperCase() !== args.destination_country.toUpperCase();
+                const originCountry = args.origin_country.toUpperCase();
+                const destinationCountry = args.destination_country.toUpperCase();
+                const isInternational = originCountry !== destinationCountry;
+
                 carrierList = await fetchAvailableCarriers(
-                    args.origin_country.toUpperCase(),
+                    originCountry,
                     isInternational,
                     client,
                     config,
+                    isInternational ? destinationCountry : undefined,
                 );
 
                 if (carrierList.length === 0) {
-                    return {
-                        content: [
-                            {
-                                type: 'text' as const,
-                                text: 'No carriers available for this country and shipment type. ' +
-                                    'Use envia_list_carriers to verify available carriers.',
-                            },
-                        ],
-                    };
+                    return textResponse(
+                        'No carriers available for this country and shipment type. ' +
+                        'Use envia_list_carriers to verify available carriers.',
+                    );
                 }
 
                 carrierList = carrierList.slice(0, MAX_CARRIERS);
             } else {
+                // Manual carrier list: no routing flags available, default to standard export.
                 carrierList = carrierInput
                     .split(',')
                     .map((c) => c.trim())
                     .filter(Boolean)
-                    .slice(0, MAX_CARRIERS);
+                    .slice(0, MAX_CARRIERS)
+                    .map((name) => ({ name, import: 0, third_party: 0 }));
 
                 if (carrierList.length === 0) {
-                    return {
-                        content: [
-                            {
-                                type: 'text' as const,
-                                text: 'Error: Provide at least one carrier code (e.g. "dhl") or "all". ' +
-                                    'Use envia_list_carriers to find available carriers.',
-                            },
-                        ],
-                    };
+                    return textResponse(
+                        'Error: Provide at least one carrier code (e.g. "dhl") or "all". ' +
+                        'Use envia_list_carriers to find available carriers.',
+                    );
                 }
             }
 
@@ -258,10 +214,16 @@ export function registerGetShippingRates(
                         origin: originAddress,
                         destination: destinationAddress,
                         packages,
-                        shipment: { type: 1, carrier },
+                        shipment: {
+                            type: 1,
+                            reverse_pickup: 0,
+                            import: carrier.import,
+                            third_party: carrier.third_party,
+                            carrier: carrier.name,
+                        },
                         ...(Object.keys(settings).length > 0 && { settings }),
                     })
-                    .then((res) => ({ carrier, res })),
+                    .then((res) => ({ carrier: carrier.name, res })),
             );
 
             const settled = await Promise.allSettled(promises);
@@ -294,7 +256,7 @@ export function registerGetShippingRates(
                 const msg = errors.length
                     ? `No rates found. Errors:\n${errors.map((e) => `  • ${e}`).join('\n')}`
                     : 'No rates returned for the given route and carriers.';
-                return { content: [{ type: 'text' as const, text: msg }] };
+                return textResponse(msg);
             }
 
             allRates.sort(
@@ -322,7 +284,7 @@ export function registerGetShippingRates(
                 'Next step: use envia_create_label with the chosen carrier and service to purchase the label.',
             );
 
-            return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
+            return textResponse(lines.join('\n'));
         },
     );
 }

@@ -62,7 +62,12 @@ describe('quote_shipment', () => {
             .mockResolvedValueOnce({
                 ok: true,
                 status: 200,
-                json: () => Promise.resolve({ data: [{ name: 'fedex' }, { name: 'dhl' }] }),
+                json: () => Promise.resolve({
+                    data: [
+                        { name: 'fedex', import: 0, third_party: 0 },
+                        { name: 'dhl', import: 0, third_party: 0 },
+                    ],
+                }),
             })
             .mockResolvedValue({
                 ok: true,
@@ -74,12 +79,80 @@ describe('quote_shipment', () => {
 
         expect(mockFetch).toHaveBeenCalledTimes(3);
         const firstCallUrl = mockFetch.mock.calls[0][0];
-        expect(firstCallUrl).toContain('/available-carrier/MX/0');
+        expect(firstCallUrl).toContain('/available-carrier/MX/0/1');
         const rateCarriers = mockFetch.mock.calls.slice(1).map(
             (call: unknown[]) => JSON.parse((call[1] as { body: string }).body).shipment.carrier,
         );
         expect(rateCarriers).toContain('fedex');
         expect(rateCarriers).toContain('dhl');
+    });
+
+    it('should include import and third_party flags from carrier discovery in the shipment payload', async () => {
+        // Mirrors the real AR→MX response: DHL appears twice with different routing flags.
+        mockFetch.mockReset();
+        mockFetch
+            .mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: () => Promise.resolve({
+                    data: [
+                        { name: 'dhl', import: 0, third_party: 0 },
+                        { name: 'dhl', import: 1, third_party: 0 },
+                        { name: 'ups', import: 1, third_party: 0 },
+                        { name: 'fedex', import: 0, third_party: 1 },
+                    ],
+                }),
+            })
+            .mockResolvedValue({
+                ok: true,
+                status: 200,
+                json: () => Promise.resolve(MOCK_RATES_RESPONSE),
+            });
+
+        await handler({
+            ...VALID_QUOTE_ARGS,
+            carriers: 'all',
+            origin_country: 'AR',
+            destination_country: 'MX',
+        });
+
+        const shipments = mockFetch.mock.calls.slice(1).map(
+            (call: unknown[]) => JSON.parse((call[1] as { body: string }).body).shipment,
+        );
+
+        expect(shipments).toContainEqual(
+            expect.objectContaining({ carrier: 'dhl', import: 0, third_party: 0 }),
+        );
+        expect(shipments).toContainEqual(
+            expect.objectContaining({ carrier: 'dhl', import: 1, third_party: 0 }),
+        );
+        expect(shipments).toContainEqual(
+            expect.objectContaining({ carrier: 'ups', import: 1, third_party: 0 }),
+        );
+        expect(shipments).toContainEqual(
+            expect.objectContaining({ carrier: 'fedex', import: 0, third_party: 1 }),
+        );
+    });
+
+    it('should include reverse_pickup: 0 in every shipment payload', async () => {
+        await handler({ ...VALID_QUOTE_ARGS, carriers: 'dhl' });
+
+        const shipment = JSON.parse(
+            (mockFetch.mock.calls[0][1] as { body: string }).body,
+        ).shipment;
+        expect(shipment.reverse_pickup).toBe(0);
+    });
+
+    it('should default import and third_party to 0 for comma-separated carrier input', async () => {
+        await handler({ ...VALID_QUOTE_ARGS, carriers: 'dhl,fedex' });
+
+        const shipments = mockFetch.mock.calls.map(
+            (call: unknown[]) => JSON.parse((call[1] as { body: string }).body).shipment,
+        );
+        for (const shipment of shipments) {
+            expect(shipment.import).toBe(0);
+            expect(shipment.third_party).toBe(0);
+        }
     });
 
     it('should send parallel requests for comma-separated carriers', async () => {
@@ -100,7 +173,9 @@ describe('quote_shipment', () => {
             .mockResolvedValueOnce({
                 ok: true,
                 status: 200,
-                json: () => Promise.resolve({ data: [{ name: 'fedex' }] }),
+                json: () => Promise.resolve({
+                    data: [{ name: 'fedex', import: 0, third_party: 0 }],
+                }),
             })
             .mockResolvedValue({
                 ok: true,
@@ -116,7 +191,43 @@ describe('quote_shipment', () => {
         });
 
         const firstCallUrl = mockFetch.mock.calls[0][0];
-        expect(firstCallUrl).toContain('/available-carrier/MX/1');
+        expect(firstCallUrl).toContain('/available-carrier/MX/1/1');
+        expect(firstCallUrl).toContain('destination_country=US');
+    });
+
+    it('should pass destination_country query param for international carrier discovery', async () => {
+        // Regression: AR→MX previously returned only DHL because /available-carrier/AR/1
+        // only knows carriers for Argentina. The fix passes ?destination_country=MX so
+        // the API filters carriers that can serve the full route.
+        mockFetch.mockReset();
+        mockFetch
+            .mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: () => Promise.resolve({
+                    data: [
+                        { name: 'dhl', import: 0, third_party: 0 },
+                        { name: 'ups', import: 1, third_party: 0 },
+                        { name: 'fedex', import: 0, third_party: 1 },
+                    ],
+                }),
+            })
+            .mockResolvedValue({
+                ok: true,
+                status: 200,
+                json: () => Promise.resolve(MOCK_RATES_RESPONSE),
+            });
+
+        await handler({
+            ...VALID_QUOTE_ARGS,
+            carriers: 'all',
+            origin_country: 'AR',
+            destination_country: 'MX',
+        });
+
+        const discoveryUrl = mockFetch.mock.calls[0][0];
+        expect(discoveryUrl).toContain('/available-carrier/AR/1/1');
+        expect(discoveryUrl).toContain('destination_country=MX');
     });
 
     it('should return error when "all" resolves to no carriers', async () => {
