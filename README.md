@@ -90,7 +90,7 @@ Add to `.vscode/mcp.json` in your project root:
 |------|-------------|
 | `envia_validate_address` | Validate postal codes and look up cities |
 | `envia_list_carriers` | List available carriers and services for a country |
-| `envia_get_shipping_rates` | Compare rates across carriers for a route |
+| `quote_shipment` | Compare rates across carriers for a route |
 | `envia_create_label` | Purchase a shipping label (charges balance) |
 | `envia_track_package` | Track one or more shipments |
 | `envia_cancel_shipment` | Void a label and reclaim balance |
@@ -108,7 +108,7 @@ You: Ship a 2kg box (30x20x15cm) from postal code 64000 in Monterrey
      to 03100 in Mexico City. Compare DHL and Estafeta rates.
 
 AI:  [validates both postal codes with envia_validate_address]
-     [fetches rates with envia_get_shipping_rates for dhl,estafeta]
+     [fetches rates with quote_shipment for dhl,estafeta]
 
      Here are your options:
        DHL Economy:    $185.20 MXN — 3-5 business days

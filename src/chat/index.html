@@ -1,0 +1,832 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Envia — MCP Chat Demo</title>
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        :root {
+            --bg: #f8f9fa;
+            --surface: #ffffff;
+            --primary: #2563eb;
+            --primary-hover: #1d4ed8;
+            --text: #1f2937;
+            --text-muted: #6b7280;
+            --border: #e5e7eb;
+            --tool-bg: #f0f9ff;
+            --tool-border: #bae6fd;
+            --error-bg: #fef2f2;
+            --error-border: #fecaca;
+            --success: #059669;
+            --radius: 8px;
+            --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            --mono: "SF Mono", "Fira Code", "Consolas", monospace;
+        }
+
+        body {
+            font-family: var(--font);
+            background: var(--bg);
+            color: var(--text);
+            height: 100vh;
+            display: flex;
+        }
+
+        /* ── Sidebar ── */
+        .sidebar {
+            width: 320px;
+            background: var(--surface);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto;
+            flex-shrink: 0;
+        }
+
+        .sidebar h2 {
+            font-size: 14px;
+            font-weight: 600;
+            padding: 16px;
+            border-bottom: 1px solid var(--border);
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .config-section {
+            padding: 16px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .config-section label {
+            display: block;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-muted);
+            margin-bottom: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+        }
+
+        .config-section input, .config-section select {
+            width: 100%;
+            padding: 8px 10px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            font-size: 13px;
+            font-family: var(--mono);
+            margin-bottom: 10px;
+        }
+
+        .config-section input:focus, .config-section select:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.1);
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 8px 16px;
+            border: none;
+            border-radius: var(--radius);
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background-color 0.15s;
+            width: 100%;
+        }
+
+        .btn-primary {
+            background: var(--primary);
+            color: white;
+        }
+
+        .btn-primary:hover { background: var(--primary-hover); }
+        .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        .btn-outline {
+            background: transparent;
+            color: var(--text-muted);
+            border: 1px solid var(--border);
+        }
+
+        .btn-outline:hover { background: var(--bg); }
+
+        .status-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        .status-connected { background: #d1fae5; color: #065f46; }
+        .status-disconnected { background: #fee2e2; color: #991b1b; }
+
+        .tools-list {
+            padding: 8px 16px;
+            overflow-y: auto;
+            flex: 1;
+        }
+
+        .tool-item {
+            border-radius: 4px;
+            font-size: 12px;
+            font-family: var(--mono);
+            color: var(--text-muted);
+            margin-bottom: 2px;
+            overflow: hidden;
+        }
+
+        .tool-item-header {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            padding: 6px 8px;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .tool-item-header:hover { background: var(--bg); }
+
+        .tool-item-arrow {
+            font-size: 9px;
+            color: var(--text-muted);
+            transition: transform 0.15s;
+            flex-shrink: 0;
+        }
+
+        .tool-item-arrow.open { transform: rotate(90deg); }
+
+        .tool-item-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+        .tool-item-detail {
+            display: none;
+            padding: 6px 8px 10px 20px;
+            font-size: 11px;
+            line-height: 1.5;
+            border-top: 1px solid var(--border);
+            background: var(--bg);
+        }
+
+        .tool-item-detail.open { display: block; }
+
+        .tool-item-desc {
+            color: var(--text);
+            margin-bottom: 6px;
+            white-space: normal;
+            word-break: break-word;
+        }
+
+        .tool-item-schema {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 6px 8px;
+            overflow-x: auto;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .tool-item-schema pre {
+            margin: 0;
+            font-size: 10px;
+            line-height: 1.4;
+            white-space: pre-wrap;
+            word-break: break-all;
+            color: var(--text);
+        }
+
+        .tool-item-schema-label {
+            font-weight: 600;
+            color: var(--text-muted);
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+            margin-bottom: 4px;
+        }
+
+        /* ── Main chat area ── */
+        .main {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+        }
+
+        .chat-header {
+            padding: 16px 24px;
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+            font-weight: 600;
+            font-size: 16px;
+        }
+
+        .messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .message {
+            max-width: 80%;
+            padding: 12px 16px;
+            border-radius: var(--radius);
+            font-size: 14px;
+            line-height: 1.5;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .message-user {
+            align-self: flex-end;
+            background: var(--primary);
+            color: white;
+            border-bottom-right-radius: 2px;
+        }
+
+        .message-assistant {
+            align-self: flex-start;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-bottom-left-radius: 2px;
+        }
+
+        .message-tool {
+            align-self: flex-start;
+            background: var(--tool-bg);
+            border: 1px solid var(--tool-border);
+            font-size: 12px;
+            font-family: var(--mono);
+            max-width: 90%;
+        }
+
+        .message-tool .tool-name {
+            font-weight: 600;
+            color: var(--primary);
+            margin-bottom: 4px;
+        }
+
+        .message-error {
+            align-self: center;
+            background: var(--error-bg);
+            border: 1px solid var(--error-border);
+            color: #991b1b;
+            font-size: 13px;
+        }
+
+        .message-system {
+            align-self: center;
+            color: var(--text-muted);
+            font-size: 12px;
+            font-style: italic;
+        }
+
+        .typing-indicator {
+            align-self: flex-start;
+            color: var(--text-muted);
+            font-size: 13px;
+            padding: 8px 0;
+        }
+
+        .typing-indicator::after {
+            content: '';
+            animation: dots 1.5s infinite;
+        }
+
+        @keyframes dots {
+            0%, 20% { content: '.'; }
+            40% { content: '..'; }
+            60%, 100% { content: '...'; }
+        }
+
+        /* ── Input area ── */
+        .input-area {
+            padding: 16px 24px;
+            background: var(--surface);
+            border-top: 1px solid var(--border);
+            display: flex;
+            gap: 8px;
+        }
+
+        .input-area textarea {
+            flex: 1;
+            padding: 10px 14px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            font-size: 14px;
+            font-family: var(--font);
+            resize: none;
+            min-height: 42px;
+            max-height: 120px;
+        }
+
+        .input-area textarea:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.1);
+        }
+
+        .input-area .btn { width: auto; padding: 10px 20px; }
+
+        /* ── Debug panel ── */
+        .debug-panel {
+            width: 420px;
+            background: #1e1e2e;
+            color: #cdd6f4;
+            border-left: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
+            font-family: var(--mono);
+            font-size: 12px;
+            transition: width 0.2s;
+        }
+
+        .debug-panel.collapsed { width: 0; overflow: hidden; border-left: none; }
+
+        .debug-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 14px;
+            background: #181825;
+            border-bottom: 1px solid #313244;
+            flex-shrink: 0;
+        }
+
+        .debug-header span { font-weight: 600; font-size: 13px; color: #cba6f7; }
+
+        .debug-header button {
+            background: none;
+            border: 1px solid #45475a;
+            color: #a6adc8;
+            border-radius: 4px;
+            padding: 2px 8px;
+            cursor: pointer;
+            font-size: 11px;
+            font-family: var(--mono);
+        }
+
+        .debug-header button:hover { background: #313244; }
+
+        .debug-log {
+            flex: 1;
+            overflow-y: auto;
+            padding: 8px;
+        }
+
+        .debug-entry {
+            margin-bottom: 8px;
+            border: 1px solid #313244;
+            border-radius: 6px;
+            overflow: hidden;
+        }
+
+        .debug-entry-header {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 10px;
+            background: #181825;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .debug-entry-header:hover { background: #1e1e2e; }
+
+        .debug-entry-header .debug-arrow {
+            transition: transform 0.15s;
+            color: #585b70;
+            font-size: 10px;
+        }
+
+        .debug-entry-header .debug-arrow.open { transform: rotate(90deg); }
+
+        .debug-tag {
+            padding: 1px 6px;
+            border-radius: 3px;
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .debug-tag-llm-req   { background: #1e1e2e; color: #89b4fa; border: 1px solid #89b4fa; }
+        .debug-tag-llm-resp  { background: #1e1e2e; color: #a6e3a1; border: 1px solid #a6e3a1; }
+        .debug-tag-mcp-call  { background: #1e1e2e; color: #f9e2af; border: 1px solid #f9e2af; }
+        .debug-tag-mcp-resp  { background: #1e1e2e; color: #cba6f7; border: 1px solid #cba6f7; }
+        .debug-tag-error     { background: #1e1e2e; color: #f38ba8; border: 1px solid #f38ba8; }
+        .debug-tag-tools     { background: #1e1e2e; color: #94e2d5; border: 1px solid #94e2d5; }
+
+        .debug-entry-title {
+            color: #a6adc8;
+            font-size: 11px;
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .debug-entry-time { color: #585b70; font-size: 10px; flex-shrink: 0; }
+
+        .debug-entry-body {
+            display: none;
+            padding: 8px 10px;
+            background: #11111b;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .debug-entry-body.open { display: block; }
+
+        .debug-entry-body pre {
+            margin: 0;
+            white-space: pre-wrap;
+            word-break: break-all;
+            color: #cdd6f4;
+            line-height: 1.4;
+        }
+
+        .debug-toggle-btn {
+            position: fixed;
+            top: 8px;
+            right: 8px;
+            z-index: 100;
+            background: #181825;
+            color: #cba6f7;
+            border: 1px solid #313244;
+            border-radius: 6px;
+            padding: 4px 10px;
+            cursor: pointer;
+            font-family: var(--mono);
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .debug-toggle-btn:hover { background: #313244; }
+
+        /* ── Responsive ── */
+        @media (max-width: 768px) {
+            body { flex-direction: column; }
+            .sidebar {
+                width: 100%;
+                max-height: 200px;
+                border-right: none;
+                border-bottom: 1px solid var(--border);
+            }
+            .tools-list { display: none; }
+            .message { max-width: 95%; }
+            .debug-panel { width: 100%; max-height: 300px; border-left: none; border-top: 1px solid var(--border); }
+        }
+    </style>
+</head>
+<body>
+    <!-- Sidebar -->
+    <aside class="sidebar">
+        <h2>Configuration</h2>
+        <div class="config-section">
+            <label for="mcp-url">MCP Server URL</label>
+            <input type="text" id="mcp-url" placeholder="http://localhost:3000">
+
+            <label for="llm-provider">LLM Provider</label>
+            <select id="llm-provider">
+                <option value="anthropic">Anthropic (Claude)</option>
+                <option value="openai">OpenAI (GPT)</option>
+            </select>
+
+            <label for="llm-key">LLM API Key</label>
+            <input type="password" id="llm-key" placeholder="sk-...">
+
+            <label for="llm-model">Model (optional)</label>
+            <input type="text" id="llm-model" placeholder="Auto-detected">
+
+            <label for="envia-token">Envia Bearer Token</label>
+            <input type="password" id="envia-token" placeholder="Your Envia API token">
+
+            <button class="btn btn-primary" id="btn-connect">Connect</button>
+            <div style="margin-top: 8px; text-align: center;">
+                <span class="status-badge status-disconnected" id="status-badge">Disconnected</span>
+            </div>
+        </div>
+
+        <h2>Available Tools</h2>
+        <div class="tools-list" id="tools-list">
+            <div style="padding: 8px; color: var(--text-muted); font-size: 12px;">
+                Connect to see available tools
+            </div>
+        </div>
+    </aside>
+
+    <!-- Main Chat -->
+    <main class="main">
+        <div class="chat-header">
+            Envia — MCP Chat Demo
+        </div>
+        <div class="messages" id="messages">
+            <div class="message-system">
+                Configure your MCP server URL, LLM API key, and Envia token, then click Connect.
+            </div>
+        </div>
+        <div class="input-area">
+            <textarea id="user-input" placeholder="Type a message... (Enter to send, Shift+Enter for new line)" disabled rows="1"></textarea>
+            <button class="btn btn-primary" id="btn-send" disabled>Send</button>
+        </div>
+    </main>
+
+    <!-- Debug Panel -->
+    <aside class="debug-panel" id="debug-panel">
+        <div class="debug-header">
+            <span>Debug Log</span>
+            <button id="btn-clear-debug">Clear</button>
+        </div>
+        <div class="debug-log" id="debug-log"></div>
+    </aside>
+    <button class="debug-toggle-btn" id="btn-toggle-debug">Debug</button>
+
+    <script type="module">
+        import { McpClient, LLMOrchestrator } from './chat-client.js';
+
+        // ── DOM refs ──
+        const $ = (sel) => document.querySelector(sel);
+        const mcpUrlInput = $('#mcp-url');
+        mcpUrlInput.value = window.location.origin;
+        const llmProviderSelect = $('#llm-provider');
+        const llmKeyInput = $('#llm-key');
+        const llmModelInput = $('#llm-model');
+        const enviaTokenInput = $('#envia-token');
+        const btnConnect = $('#btn-connect');
+        const statusBadge = $('#status-badge');
+        const toolsList = $('#tools-list');
+        const messagesDiv = $('#messages');
+        const userInput = $('#user-input');
+        const btnSend = $('#btn-send');
+
+        const debugPanel = $('#debug-panel');
+        const debugLog = $('#debug-log');
+        const btnToggleDebug = $('#btn-toggle-debug');
+        const btnClearDebug = $('#btn-clear-debug');
+
+        let mcpClient = null;
+        let orchestrator = null;
+        let isProcessing = false;
+
+        // ── Debug panel ──
+        btnToggleDebug.addEventListener('click', () => {
+            debugPanel.classList.toggle('collapsed');
+            btnToggleDebug.textContent = debugPanel.classList.contains('collapsed') ? 'Debug' : 'Debug ✕';
+        });
+        btnClearDebug.addEventListener('click', () => { debugLog.innerHTML = ''; });
+
+        function debugEntry(tag, title, data) {
+            const entry = document.createElement('div');
+            entry.className = 'debug-entry';
+
+            const header = document.createElement('div');
+            header.className = 'debug-entry-header';
+
+            const arrow = document.createElement('span');
+            arrow.className = 'debug-arrow';
+            arrow.textContent = '▶';
+
+            const tagEl = document.createElement('span');
+            tagEl.className = `debug-tag debug-tag-${tag}`;
+            const tagLabels = { 'llm-req': 'LLM →', 'llm-resp': '← LLM', 'mcp-call': 'MCP →', 'mcp-resp': '← MCP', 'error': 'ERR', 'tools': 'TOOLS' };
+            tagEl.textContent = tagLabels[tag] || tag;
+
+            const titleEl = document.createElement('span');
+            titleEl.className = 'debug-entry-title';
+            titleEl.textContent = title;
+
+            const timeEl = document.createElement('span');
+            timeEl.className = 'debug-entry-time';
+            timeEl.textContent = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+            header.append(arrow, tagEl, titleEl, timeEl);
+
+            const body = document.createElement('div');
+            body.className = 'debug-entry-body';
+            const pre = document.createElement('pre');
+            pre.textContent = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+            body.appendChild(pre);
+
+            header.addEventListener('click', () => {
+                body.classList.toggle('open');
+                arrow.classList.toggle('open');
+            });
+
+            entry.append(header, body);
+            debugLog.appendChild(entry);
+            debugLog.scrollTop = debugLog.scrollHeight;
+        }
+
+        // ── Message rendering ──
+        function addMessage(type, content) {
+            const div = document.createElement('div');
+            div.className = `message message-${type}`;
+            if (type === 'tool') {
+                const nameDiv = document.createElement('div');
+                nameDiv.className = 'tool-name';
+                nameDiv.textContent = content.name;
+                div.appendChild(nameDiv);
+                const bodyDiv = document.createElement('div');
+                bodyDiv.textContent = typeof content.args === 'string'
+                    ? content.args
+                    : JSON.stringify(content.args, null, 2);
+                div.appendChild(bodyDiv);
+            } else {
+                div.textContent = content;
+            }
+            messagesDiv.appendChild(div);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            return div;
+        }
+
+        function addSystemMessage(text) {
+            const div = document.createElement('div');
+            div.className = 'message-system';
+            div.textContent = text;
+            messagesDiv.appendChild(div);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+
+        function showTyping() {
+            const div = document.createElement('div');
+            div.className = 'typing-indicator';
+            div.id = 'typing';
+            div.textContent = 'Thinking';
+            messagesDiv.appendChild(div);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+
+        function hideTyping() {
+            const el = document.getElementById('typing');
+            if (el) el.remove();
+        }
+
+        // ── Connect ──
+        btnConnect.addEventListener('click', async () => {
+            const mcpUrl = mcpUrlInput.value.trim();
+            const llmKey = llmKeyInput.value.trim();
+            const provider = llmProviderSelect.value;
+            const enviaToken = enviaTokenInput.value.trim();
+
+            if (!mcpUrl) return alert('Please enter the MCP Server URL');
+            if (!llmKey) return alert('Please enter your LLM API Key');
+
+            btnConnect.disabled = true;
+            btnConnect.textContent = 'Connecting...';
+
+            try {
+                // Connect to MCP
+                mcpClient = new McpClient(mcpUrl);
+                await mcpClient.connect();
+
+                // Create orchestrator
+                const model = llmModelInput.value.trim() || undefined;
+                orchestrator = new LLMOrchestrator({
+                    provider,
+                    apiKey: llmKey,
+                    mcpClient,
+                    model,
+                });
+
+                // Update UI
+                statusBadge.textContent = 'Connected';
+                statusBadge.className = 'status-badge status-connected';
+                userInput.disabled = false;
+                btnSend.disabled = false;
+                userInput.focus();
+
+                // Show tools in sidebar (expandable) and log to debug
+                toolsList.innerHTML = '';
+                for (const tool of mcpClient.tools) {
+                    const item = document.createElement('div');
+                    item.className = 'tool-item';
+
+                    const header = document.createElement('div');
+                    header.className = 'tool-item-header';
+                    const arrow = document.createElement('span');
+                    arrow.className = 'tool-item-arrow';
+                    arrow.textContent = '▶';
+                    const nameSpan = document.createElement('span');
+                    nameSpan.className = 'tool-item-name';
+                    nameSpan.textContent = tool.name;
+                    header.append(arrow, nameSpan);
+
+                    const detail = document.createElement('div');
+                    detail.className = 'tool-item-detail';
+
+                    const descP = document.createElement('div');
+                    descP.className = 'tool-item-desc';
+                    descP.textContent = tool.description || '(no description)';
+                    detail.appendChild(descP);
+
+                    if (tool.inputSchema) {
+                        const schemaLabel = document.createElement('div');
+                        schemaLabel.className = 'tool-item-schema-label';
+                        schemaLabel.textContent = 'Input Schema';
+                        detail.appendChild(schemaLabel);
+
+                        const schemaBox = document.createElement('div');
+                        schemaBox.className = 'tool-item-schema';
+                        const pre = document.createElement('pre');
+                        pre.textContent = JSON.stringify(tool.inputSchema, null, 2);
+                        schemaBox.appendChild(pre);
+                        detail.appendChild(schemaBox);
+                    }
+
+                    header.addEventListener('click', () => {
+                        detail.classList.toggle('open');
+                        arrow.classList.toggle('open');
+                    });
+
+                    item.append(header, detail);
+                    toolsList.appendChild(item);
+                }
+
+                debugEntry('tools', `${mcpClient.tools.length} tools loaded`, mcpClient.tools.map(t => ({
+                    name: t.name,
+                    description: t.description,
+                    inputSchema: t.inputSchema,
+                })));
+
+                addSystemMessage(
+                    `Connected to MCP server. ${mcpClient.tools.length} tools available. ` +
+                    (enviaToken ? 'Envia token configured.' : 'No Envia token — set ENVIA_API_KEY in the server environment.')
+                );
+
+            } catch (err) {
+                addMessage('error', `Connection failed: ${err.message}`);
+                statusBadge.textContent = 'Disconnected';
+                statusBadge.className = 'status-badge status-disconnected';
+            } finally {
+                btnConnect.disabled = false;
+                btnConnect.textContent = 'Connect';
+            }
+        });
+
+        // ── Send message ──
+        async function sendMessage() {
+            const text = userInput.value.trim();
+            if (!text || !orchestrator || isProcessing) return;
+
+            isProcessing = true;
+            userInput.value = '';
+            userInput.style.height = 'auto';
+            btnSend.disabled = true;
+
+            addMessage('user', text);
+            showTyping();
+
+            try {
+                const response = await orchestrator.chat(
+                    text,
+                    (toolName, toolArgs) => {
+                        hideTyping();
+                        addMessage('tool', { name: toolName, args: toolArgs });
+                        showTyping();
+                    },
+                    debugEntry,
+                );
+
+                hideTyping();
+                addMessage('assistant', response);
+            } catch (err) {
+                hideTyping();
+                addMessage('error', `Error: ${err.message}`);
+            } finally {
+                isProcessing = false;
+                btnSend.disabled = false;
+                userInput.focus();
+            }
+        }
+
+        btnSend.addEventListener('click', sendMessage);
+
+        userInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
+
+        // Auto-resize textarea
+        userInput.addEventListener('input', () => {
+            userInput.style.height = 'auto';
+            userInput.style.height = Math.min(userInput.scrollHeight, 120) + 'px';
+        });
+
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', () => {
+            if (mcpClient) mcpClient.disconnect();
+        });
+    </script>
+</body>
+</html>

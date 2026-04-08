@@ -22,7 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 10 MCP tools for Envia shipping APIs:
   - `envia_validate_address` — Validate postal codes and city lookup
   - `envia_list_carriers` — List carriers and services by country
-  - `envia_get_shipping_rates` — Multi-carrier rate comparison
+  - `quote_shipment` — Multi-carrier rate comparison
   - `envia_create_label` — Purchase shipping labels
   - `envia_track_package` — Track one or more shipments
   - `envia_cancel_shipment` — Void labels and reclaim balance
