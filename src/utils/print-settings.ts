@@ -84,7 +84,7 @@ export async function fetchPrintSettings(
 
     const encodedCarrier = encodeURIComponent(carrier);
     const encodedService = encodeURIComponent(service);
-    const encodedCountry = encodeURIComponent(country.toUpperCase());
+    const encodedCountry = encodeURIComponent(country.trim().toUpperCase());
 
     const url =
         `${config.queriesBase}/pickup-limits/${encodedCarrier}/${encodedService}/${encodedCountry}` +
@@ -100,8 +100,9 @@ export async function fetchPrintSettings(
                 printSize: first.size_id || DEFAULT_PRINT_SIZE,
             };
         }
-    } catch {
-        // Swallow — fallback to defaults below
+    } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.warn(`[fetchPrintSettings] Failed to fetch pickup limits for ${carrier}/${service}/${country}: ${message}`);
     }
 
     return { printFormat: DEFAULT_PRINT_FORMAT, printSize: DEFAULT_PRINT_SIZE };

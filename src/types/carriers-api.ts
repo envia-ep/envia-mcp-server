@@ -31,7 +31,7 @@ export interface RateAddress {
  * Full address for label generation (POST /ship/generate).
  *
  * Matches the `definitions.address` in generate.v1.schema.
- * Required: name, street, number, city, state, country, postalCode.
+ * Required: name, street, city, state, country, postalCode.
  * The remaining fields are optional but improve label quality.
  */
 export interface GenerateAddress {

@@ -313,10 +313,8 @@ describe('EcommerceOrderService', () => {
 
             const result = service.resolveLocation(order, 0);
 
-            expect('error' in result).toBe(true);
-            if ('error' in result) {
-                expect(result.error).toContain('no locations');
-            }
+            expect(result).toHaveProperty('error');
+            expect((result as { error: string }).error).toContain('no locations');
         });
 
         it('should return error when location_index is out of bounds', () => {
@@ -324,10 +322,8 @@ describe('EcommerceOrderService', () => {
 
             const result = service.resolveLocation(order, 5);
 
-            expect('error' in result).toBe(true);
-            if ('error' in result) {
-                expect(result.error).toContain('out of bounds');
-            }
+            expect(result).toHaveProperty('error');
+            expect((result as { error: string }).error).toContain('out of bounds');
         });
 
         it('should filter out fulfilled packages', () => {
@@ -348,11 +344,9 @@ describe('EcommerceOrderService', () => {
 
             const result = service.resolveLocation(order, 0);
 
-            expect('error' in result).toBe(false);
-            if (!('error' in result)) {
-                expect(result.activePackages).toHaveLength(1);
-                expect(result.activePackages[0].id).toBe(1);
-            }
+            expect(result).not.toHaveProperty('error');
+            expect((result as { activePackages: { id: number }[] }).activePackages).toHaveLength(1);
+            expect((result as { activePackages: { id: number }[] }).activePackages[0].id).toBe(1);
         });
 
         it('should filter out return packages', () => {
@@ -370,10 +364,8 @@ describe('EcommerceOrderService', () => {
 
             const result = service.resolveLocation(order, 0);
 
-            expect('error' in result).toBe(false);
-            if (!('error' in result)) {
-                expect(result.activePackages).toHaveLength(1);
-            }
+            expect(result).not.toHaveProperty('error');
+            expect((result as { activePackages: unknown[] }).activePackages).toHaveLength(1);
         });
 
         it('should return error when all packages are fulfilled', () => {
@@ -390,10 +382,8 @@ describe('EcommerceOrderService', () => {
 
             const result = service.resolveLocation(order, 0);
 
-            expect('error' in result).toBe(true);
-            if ('error' in result) {
-                expect(result.error).toContain('already fulfilled');
-            }
+            expect(result).toHaveProperty('error');
+            expect((result as { error: string }).error).toContain('already fulfilled');
         });
     });
 
@@ -407,12 +397,10 @@ describe('EcommerceOrderService', () => {
 
             const result = service.resolveCarrier(packages, 'dhl', 'express');
 
-            expect('error' in result).toBe(false);
-            if (!('error' in result)) {
-                expect(result.carrier).toBe('dhl');
-                expect(result.service).toBe('express');
-                expect(result.carrierId).toBeNull();
-            }
+            expect(result).not.toHaveProperty('error');
+            expect((result as { carrier: string; service: string; carrierId: number | null }).carrier).toBe('dhl');
+            expect((result as { carrier: string; service: string; carrierId: number | null }).service).toBe('express');
+            expect((result as { carrier: string; service: string; carrierId: number | null }).carrierId).toBeNull();
         });
 
         it('should fall back to package quote when no params provided', () => {
@@ -420,12 +408,10 @@ describe('EcommerceOrderService', () => {
 
             const result = service.resolveCarrier(packages, undefined, undefined);
 
-            expect('error' in result).toBe(false);
-            if (!('error' in result)) {
-                expect(result.carrier).toBe('fedex');
-                expect(result.service).toBe('ground');
-                expect(result.carrierId).toBe(3);
-            }
+            expect(result).not.toHaveProperty('error');
+            expect((result as { carrier: string; service: string; carrierId: number | null }).carrier).toBe('fedex');
+            expect((result as { carrier: string; service: string; carrierId: number | null }).service).toBe('ground');
+            expect((result as { carrier: string; service: string; carrierId: number | null }).carrierId).toBe(3);
         });
 
         it('should return error when no carrier available from any source', () => {
@@ -435,10 +421,8 @@ describe('EcommerceOrderService', () => {
 
             const result = service.resolveCarrier(packages, undefined, undefined);
 
-            expect('error' in result).toBe(true);
-            if ('error' in result) {
-                expect(result.error).toContain('No carrier pre-selected');
-            }
+            expect(result).toHaveProperty('error');
+            expect((result as { error: string }).error).toContain('No carrier pre-selected');
         });
 
         it('should lowercase and trim carrier param', () => {
@@ -446,11 +430,9 @@ describe('EcommerceOrderService', () => {
 
             const result = service.resolveCarrier(packages, '  DHL  ', '  Express  ');
 
-            expect('error' in result).toBe(false);
-            if (!('error' in result)) {
-                expect(result.carrier).toBe('dhl');
-                expect(result.service).toBe('Express');
-            }
+            expect(result).not.toHaveProperty('error');
+            expect((result as { carrier: string; service: string }).carrier).toBe('dhl');
+            expect((result as { carrier: string; service: string }).service).toBe('Express');
         });
     });
 

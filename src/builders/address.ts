@@ -61,13 +61,14 @@ export function buildRateAddress(input: RateAddressInput): RateAddress {
  * @returns Minimal geographic address for rate quoting
  */
 export function buildRateAddressFromLocation(loc: V4Location): RateAddress {
-    return {
+    const address: RateAddress = {
         street: PLACEHOLDER_STREET,
-        city: loc.city ?? '',
-        state: loc.state_code ?? '',
         country: (loc.country_code ?? '').toUpperCase(),
-        postalCode: loc.postal_code ?? '',
     };
+    if (loc.city) address.city = loc.city;
+    if (loc.state_code) address.state = loc.state_code;
+    if (loc.postal_code) address.postalCode = loc.postal_code;
+    return address;
 }
 
 /**
@@ -77,13 +78,14 @@ export function buildRateAddressFromLocation(loc: V4Location): RateAddress {
  * @returns Minimal geographic address for rate quoting
  */
 export function buildRateAddressFromShippingAddress(addr: V4ShippingAddress): RateAddress {
-    return {
+    const address: RateAddress = {
         street: PLACEHOLDER_STREET,
-        city: addr.city ?? '',
-        state: addr.state_code ?? '',
         country: (addr.country_code ?? '').toUpperCase(),
-        postalCode: addr.postal_code ?? '',
     };
+    if (addr.city) address.city = addr.city;
+    if (addr.state_code) address.state = addr.state_code;
+    if (addr.postal_code) address.postalCode = addr.postal_code;
+    return address;
 }
 
 // ---------------------------------------------------------------------------

@@ -306,7 +306,9 @@ export class EcommerceOrderService {
             location.state_code,
         ].filter(Boolean).join(', ');
 
-        const isInternational = location.country_code !== shippingAddress.country_code;
+        const isInternational =
+            (location.country_code ?? '').trim().toUpperCase() !==
+            (shippingAddress.country_code ?? '').trim().toUpperCase();
         const packages = buildPackagesFromV4(activePackages, isInternational);
 
         const quotePayload = this.buildQuotePayload(location, shippingAddress, packages, carrier);

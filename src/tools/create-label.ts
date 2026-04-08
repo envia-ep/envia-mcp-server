@@ -393,11 +393,29 @@ async function handleManualMode(
         ),
     ]);
 
+    const originCity = originResolved.city ?? (args.origin_city as string | undefined) ?? '';
+    const originState = originResolved.state ?? (args.origin_state as string | undefined) ?? '';
+    const destCity = destResolved.city ?? (args.destination_city as string | undefined) ?? '';
+    const destState = destResolved.state ?? (args.destination_state as string | undefined) ?? '';
+
+    if (!originCity || !originState) {
+        return textResponse(
+            'Error: Could not resolve origin city and state. ' +
+            'Provide origin_city and origin_state explicitly, or ensure origin_postal_code is valid.',
+        );
+    }
+    if (!destCity || !destState) {
+        return textResponse(
+            'Error: Could not resolve destination city and state. ' +
+            'Provide destination_city and destination_state explicitly, or ensure destination_postal_code is valid.',
+        );
+    }
+
     const origin = buildGenerateAddress({
         name: args.origin_name as string,
         street: args.origin_street as string,
-        city: originResolved.city ?? (args.origin_city as string) ?? '',
-        state: originResolved.state ?? (args.origin_state as string) ?? '',
+        city: originCity,
+        state: originState,
         country: originResolved.country,
         postalCode: originResolved.postalCode ?? (args.origin_postal_code as string) ?? '',
         phone: args.origin_phone as string | undefined,
@@ -412,8 +430,8 @@ async function handleManualMode(
     const destination = buildGenerateAddress({
         name: args.destination_name as string,
         street: args.destination_street as string,
-        city: destResolved.city ?? (args.destination_city as string) ?? '',
-        state: destResolved.state ?? (args.destination_state as string) ?? '',
+        city: destCity,
+        state: destState,
         country: destResolved.country,
         postalCode: destResolved.postalCode ?? (args.destination_postal_code as string) ?? '',
         phone: args.destination_phone as string | undefined,
@@ -437,8 +455,9 @@ async function handleManualMode(
     );
 
     const settings: Record<string, unknown> = { ...printSettings };
-    if (args.currency) {
-        settings.currency = (args.currency as string).trim();
+    const trimmedCurrency = (args.currency as string | undefined)?.trim();
+    if (trimmedCurrency) {
+        settings.currency = trimmedCurrency;
     }
 
     const body: Record<string, unknown> = {
