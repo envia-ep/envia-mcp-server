@@ -181,13 +181,24 @@ The tool is a thin orchestrator that delegates to reusable utilities:
 
 ```
 User input
-  → resolveAddress() (address-resolver.ts)
+  → resolveAddress() (utils/address-resolver.ts)
     → resolvePostalCode() — Geocodes API
     → resolveColombianCity() — POST /locate (CO only)
     → resolveCityByGeocode() — GET /locate/{country}/{city} (CL, GT, PA, HN, PE, BO)
-  → buildQuoteAddress() (address.ts)
-  → POST /ship/rate (single or parallel)
+  → buildRateAddress() (builders/address.ts)
+  → buildManualPackage() (builders/package.ts)
+  → fetchAvailableCarriers() (services/carrier.ts) — when carriers="all"
+  → POST /ship/rate (parallel per carrier)
   → Sort by price, format output
 ```
+
+**Key files:**
+- Tool: `src/tools/get-shipping-rates.ts`
+- Address builders: `src/builders/address.ts` (`buildRateAddress`)
+- Package builders: `src/builders/package.ts` (`buildManualPackage`)
+- Carrier service: `src/services/carrier.ts` (`fetchAvailableCarriers`)
+- Address resolver: `src/utils/address-resolver.ts`
+- MCP response: `src/utils/mcp-response.ts`
+- API types: `src/types/carriers-api.ts`
 
 See [Address Resolver Guide](./address-resolver-guide.md) for details on the resolution layer.
