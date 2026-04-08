@@ -1,6 +1,6 @@
 ---
 description: Core implementation standards — documentation, principles, language
-globs: ["**/*.{js,ts,jsx,tsx,mjs,cjs}"]
+alwaysApply: true
 ---
 
 # General Implementation Standards

@@ -155,13 +155,13 @@ export function buildGenerateAddressFromLocation(loc: V4Location): GenerateAddre
     const name = [loc.first_name, loc.last_name].filter(Boolean).join(' ');
     const address: GenerateAddress = {
         name,
-        phone: loc.phone ?? '',
         street: loc.address_1 ?? '',
         city: loc.city ?? '',
         state: loc.state_code ?? '',
         country: (loc.country_code ?? '').toUpperCase(),
         postalCode: loc.postal_code ?? '',
     };
+    if (loc.phone) address.phone = loc.phone;
     if (loc.company) address.company = loc.company;
     return address;
 }
@@ -176,13 +176,13 @@ export function buildGenerateAddressFromShippingAddress(addr: V4ShippingAddress)
     const name = [addr.first_name, addr.last_name].filter(Boolean).join(' ');
     const address: GenerateAddress = {
         name,
-        phone: addr.phone ?? '',
         street: addr.address_1 ?? '',
         city: addr.city ?? '',
         state: addr.state_code ?? '',
         country: (addr.country_code ?? '').toUpperCase(),
         postalCode: addr.postal_code ?? '',
     };
+    if (addr.phone) address.phone = addr.phone;
     if (addr.email) address.email = addr.email;
     if (addr.company) address.company = addr.company;
     if (addr.reference) address.reference = addr.reference;

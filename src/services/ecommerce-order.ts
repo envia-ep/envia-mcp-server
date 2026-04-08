@@ -261,7 +261,7 @@ export class EcommerceOrderService {
             orderNumber: order.order.number,
             shopName: order.shop.name,
             ecommercePlatform: order.ecommerce.name,
-            currency: order.order.currency,
+            currency: order.order.currency || 'MXN',
             statusPayment: order.order.status_payment,
             fulfillmentWarnings: warnings,
         };

@@ -1,6 +1,6 @@
 ---
 description: Formatting and naming conventions — enforced alongside Prettier/ESLint
-globs: ["**/*.{js,ts,jsx,tsx,mjs,cjs,json}"]
+alwaysApply: true
 ---
 
 # Code Style

@@ -491,6 +491,10 @@ async function resolvePrintSettings(
     client: EnviaApiClient,
     config: EnviaConfig,
 ): Promise<{ printFormat: string; printSize: string }> {
+    if (overrides.printFormat && overrides.printSize) {
+        return { printFormat: overrides.printFormat, printSize: overrides.printSize };
+    }
+
     const fetched = await fetchPrintSettings(carrier, service, country, carrierId, client, config);
     return {
         printFormat: overrides.printFormat || fetched.printFormat,

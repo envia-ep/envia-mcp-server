@@ -52,13 +52,13 @@ Typical domestic workflow:
   validate_address → list_carriers → quote_shipment → envia_create_label → track_package
 
 Typical international workflow:
-  validate_address → classify_hscode → quote_shipment → create_commercial_invoice → envia_create_label → track_package
+  validate_address → classify_hscode → quote_shipment → envia_create_commercial_invoice → envia_create_label → track_package
 
 Ecommerce order workflow (one-step):
   envia_create_label (order_identifier) → track_package
 
 Ecommerce order workflow (with rate comparison):
-  get_ecommerce_order → quote_shipment → envia_create_label (order_identifier + carrier override) → track_package
+  envia_get_ecommerce_order → quote_shipment → envia_create_label (order_identifier + carrier override) → track_package
 
 High-volume / warehouse workflow:
   (loop) envia_create_label → schedule_pickup → track_package

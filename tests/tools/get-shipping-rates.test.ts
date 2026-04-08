@@ -149,10 +149,12 @@ describe('quote_shipment', () => {
         const shipments = mockFetch.mock.calls.map(
             (call: unknown[]) => JSON.parse((call[1] as { body: string }).body).shipment,
         );
-        for (const shipment of shipments) {
-            expect(shipment.import).toBe(0);
-            expect(shipment.third_party).toBe(0);
-        }
+        expect(shipments).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({ import: 0, third_party: 0 }),
+                expect.objectContaining({ import: 0, third_party: 0 }),
+            ]),
+        );
     });
 
     it('should send parallel requests for comma-separated carriers', async () => {

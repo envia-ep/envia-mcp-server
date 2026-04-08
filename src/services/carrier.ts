@@ -12,8 +12,8 @@ import type { EnviaConfig } from '../config.js';
 /** Shape of a single carrier entry from the available-carrier endpoint. */
 interface CarrierEntry {
     name: string;
-    import: number;
-    third_party: number;
+    import?: number;
+    third_party?: number;
 }
 
 /**

@@ -34,7 +34,7 @@ interface PrintLimitEntry {
 
 /** Shape returned by the pickup-limits endpoint. */
 interface PickupLimitsResponse {
-    print: PrintLimitEntry[];
+    print?: PrintLimitEntry[];
 }
 
 // ---------------------------------------------------------------------------
