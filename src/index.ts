@@ -53,6 +53,7 @@ import { registerGetShipmentHistory } from './tools/get-shipment-history.js';
 import { registerClassifyHscode } from './tools/classify-hscode.js';
 import { registerCreateCommercialInvoice } from './tools/create-commercial-invoice.js';
 import { registerGetEcommerceOrder } from './tools/get-ecommerce-order.js';
+import { registerListAdditionalServices } from './tools/list-additional-services.js';
 
 // Resources
 import { registerResources } from './resources/api-docs.js';
@@ -106,6 +107,7 @@ function createEnviaServer(): McpServer {
     registerClassifyHscode(server, client, config);
     registerCreateCommercialInvoice(server, client, config);
     registerGetEcommerceOrder(server, client, config);
+    registerListAdditionalServices(server, client, config);
 
     registerResources(server, config);
 

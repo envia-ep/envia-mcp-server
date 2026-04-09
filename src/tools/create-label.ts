@@ -22,9 +22,10 @@ import { resolveAddress } from '../utils/address-resolver.js';
 import { fetchPrintSettings } from '../utils/print-settings.js';
 import { textResponse, type McpTextResponse } from '../utils/mcp-response.js';
 import { buildGenerateAddress, buildGenerateAddressFromLocation, buildGenerateAddressFromShippingAddress } from '../builders/address.js';
-import { buildManualPackage } from '../builders/package.js';
+import { buildManualPackage, validateInsuranceExclusivity } from '../builders/package.js';
 import { buildPackagesFromV4 } from '../builders/package.js';
-import type { PackageItem } from '../types/carriers-api.js';
+import { buildAdditionalServices } from '../builders/additional-service.js';
+import type { PackageItem, InsuranceServiceType } from '../types/carriers-api.js';
 import { buildEcommerceSection } from '../builders/ecommerce.js';
 import { EcommerceOrderService } from '../services/ecommerce-order.js';
 import type { V4Order } from '../types/ecommerce-order.js';
@@ -251,6 +252,26 @@ export function registerCreateLabel(
                 ),
                 currency: z.string().optional().describe(
                     'ISO 4217 currency code for declared values (e.g. "MXN", "USD"). Optional.',
+                ),
+
+                additional_services: z.array(z.object({
+                    service: z.string().describe('Service name (e.g. "adult_signature_required", "proof_of_delivery").'),
+                    amount: z.number().min(0).optional().describe(
+                        'Monetary amount when the service requires it (e.g. insurance value, COD amount).',
+                    ),
+                })).optional().describe(
+                    'Optional additional services for the shipment. ' +
+                    'Use list_additional_services to discover available services for a route. ' +
+                    'Example: [{ "service": "adult_signature_required" }]',
+                ),
+                insurance_type: z.enum(['envia_insurance', 'insurance', 'high_value_protection']).optional().describe(
+                    'Shortcut to add an insurance service. Uses package_declared_value as amount. ' +
+                    'Only one insurance type allowed. "insurance" is carrier-native (CO/BR). ' +
+                    '"envia_insurance" is Envia platform insurance. "high_value_protection" for high-value packages.',
+                ),
+                cash_on_delivery_amount: z.number().positive().optional().describe(
+                    'Cash on delivery amount to collect from recipient. ' +
+                    'Adds a cash_on_delivery additional service automatically.',
                 ),
             }),
         },
@@ -530,6 +551,20 @@ async function handleManualMode(
         });
     }
 
+    const additionalServices = buildAdditionalServices(
+        args.additional_services as Array<{ service: string; amount?: number }> | undefined,
+        args.insurance_type as InsuranceServiceType | undefined,
+        args.package_declared_value as number | undefined,
+        args.cash_on_delivery_amount as number | undefined,
+    );
+
+    if (additionalServices.length > 0) {
+        const validationError = validateInsuranceExclusivity(additionalServices);
+        if (validationError) {
+            return textResponse(`Error: ${validationError}`);
+        }
+    }
+
     const body: Record<string, unknown> = {
         origin,
         destination,
@@ -542,6 +577,7 @@ async function handleManualMode(
                 content: args.package_content as string,
                 declaredValue: args.package_declared_value as number,
                 items,
+                additionalServices: additionalServices.length > 0 ? additionalServices : undefined,
             }),
         ],
         shipment: {

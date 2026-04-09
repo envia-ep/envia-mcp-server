@@ -11,7 +11,8 @@
  * All package types are defined in src/types/carriers-api.ts.
  */
 
-import type { ShipmentPackage, PackageItem } from '../types/carriers-api.js';
+import type { ShipmentPackage, PackageItem, AdditionalServiceEntry } from '../types/carriers-api.js';
+import { INSURANCE_SERVICES } from '../types/carriers-api.js';
 import type { V4Package, V4Product } from '../types/ecommerce-order.js';
 
 /** Default package type when the source does not specify one. */
@@ -42,6 +43,7 @@ export interface ManualPackageInput {
     weightUnit?: string;
     lengthUnit?: string;
     items?: PackageItem[];
+    additionalServices?: AdditionalServiceEntry[];
 }
 
 /**
@@ -72,8 +74,37 @@ export function buildManualPackage(input: ManualPackageInput): ShipmentPackage {
     if (input.insurance != null && input.insurance > 0) pkg.insurance = input.insurance;
     if (input.boxCode) pkg.boxCode = input.boxCode;
     if (input.items && input.items.length > 0) pkg.items = input.items;
+    if (input.additionalServices && input.additionalServices.length > 0) {
+        pkg.additionalServices = input.additionalServices;
+    }
 
     return pkg;
+}
+
+/**
+ * Validate that at most one insurance-type service is selected.
+ *
+ * Insurance services are mutually exclusive: only `envia_insurance`,
+ * `insurance`, or `high_value_protection` may appear — never two
+ * simultaneously.
+ *
+ * @param services - Additional services to validate
+ * @returns null when valid, or an error message string
+ */
+export function validateInsuranceExclusivity(services: AdditionalServiceEntry[]): string | null {
+    const selected = services
+        .map((s) => s.service)
+        .filter((name) => (INSURANCE_SERVICES as readonly string[]).includes(name));
+
+    if (selected.length > 1) {
+        return (
+            `Only one insurance service may be selected at a time. ` +
+            `Found: ${selected.join(', ')}. ` +
+            `Choose one of: ${INSURANCE_SERVICES.join(', ')}.`
+        );
+    }
+
+    return null;
 }
 
 // ---------------------------------------------------------------------------

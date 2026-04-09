@@ -82,6 +82,22 @@ export interface PackageItem {
 }
 
 /**
+ * Additional service attached to a package (e.g. insurance, COD, signatures).
+ *
+ * Matches the `{ service, data }` structure expected by the carriers API
+ * inside `packages[].additionalServices`.
+ */
+export interface AdditionalServiceEntry {
+    service: string;
+    data?: { amount?: number };
+}
+
+/** Insurance-type service identifiers. Only one may be selected per package. */
+export const INSURANCE_SERVICES = ['envia_insurance', 'insurance', 'high_value_protection'] as const;
+
+export type InsuranceServiceType = typeof INSURANCE_SERVICES[number];
+
+/**
  * Bill of Lading complement entry (Mexican carta porte / SAT data).
  *
  * Used for domestic MX freight shipments requiring SAT catalog codes.
@@ -115,7 +131,7 @@ export interface ShipmentPackage {
     insurance?: number | null;
     boxCode?: string;
     items?: PackageItem[];
-    additionalServices?: unknown[];
+    additionalServices?: AdditionalServiceEntry[];
     xmlData?: string | null;
     packageId?: string | null;
     bolComplement?: BolComplementEntry[];
@@ -172,4 +188,35 @@ export interface EcommerceSection {
     order_name: string;
     order_number: string;
     type_generate: 'multi_generate';
+}
+
+// ---------------------------------------------------------------------------
+// Rate response types
+// ---------------------------------------------------------------------------
+
+/** A line item inside `costSummary[].costAdditionalServices` or `costAdditionalCharges`. */
+export interface CostAdditionalServiceEntry {
+    additionalService: string;
+    translationTag?: string;
+    commission: number;
+    taxes: number;
+    cost: number;
+}
+
+/** Cost summary for a single package inside a rate response entry. */
+export interface RateCostSummary {
+    basePrice: number;
+    basePriceTaxes: number;
+    additionalServices: number;
+    additionalServicesTaxes: number;
+    additionalCharges: number;
+    additionalChargesTaxes: number;
+    taxes: number;
+    totalPrice: number;
+    insurance: number;
+    cashOnDeliveryCommission: number;
+    cashOnDeliveryAmount: number;
+    costAdditionalServices?: CostAdditionalServiceEntry[];
+    costAdditionalCharges?: CostAdditionalServiceEntry[];
+    currency?: string;
 }
