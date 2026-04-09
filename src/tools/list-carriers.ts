@@ -5,11 +5,12 @@
  * and shipment type (domestic or international).
  */
 
-import { z } from "zod";
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { EnviaApiClient } from "../utils/api-client.js";
-import type { EnviaConfig } from "../config.js";
-import { countrySchema } from "../utils/schemas.js";
+import { z } from 'zod';
+import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { EnviaApiClient } from '../utils/api-client.js';
+import { resolveClient } from '../utils/api-client.js';
+import type { EnviaConfig } from '../config.js';
+import { countrySchema, requiredApiKeySchema } from '../utils/schemas.js';
 
 interface CarrierEntry {
     /** Carrier code used in API calls (e.g. "dhl", "fedex"). */
@@ -41,6 +42,7 @@ export function registerListCarriers(
                 "List available shipping carriers for a country. Optionally include their services. " +
                 "Use this to find which carrier and service codes to pass to quote_shipment or create_shipment.",
             inputSchema: z.object({
+                api_key: requiredApiKeySchema,
                 country: countrySchema.describe("ISO 3166-1 alpha-2 country code (e.g. MX, US, CO)"),
                 international: z
                     .boolean()
@@ -52,12 +54,14 @@ export function registerListCarriers(
                     .describe("Set to true to also list available services per carrier."),
             }),
         },
-        async ({ country, international, include_services }) => {
+        async (args) => {
+            const { country, international, include_services } = args;
+            const activeClient = resolveClient(client, args.api_key, config);
             const countryCode = country.trim().toUpperCase();
             const intl = international ? 1 : 0;
 
             const carriersUrl = `${config.queriesBase}/available-carrier/${encodeURIComponent(countryCode)}/${intl}`;
-            const carriersRes = await client.get<{ data: CarrierEntry[] }>(carriersUrl);
+            const carriersRes = await activeClient.get<{ data: CarrierEntry[] }>(carriersUrl);
 
             if (!carriersRes.ok) {
                 return {
@@ -92,7 +96,7 @@ export function registerListCarriers(
                 if (include_services) {
                     // URL-encode carrier slug from API response (defense-in-depth)
                     const svcUrl = `${config.queriesBase}/service/${encodeURIComponent(c.name)}`;
-                    const svcRes = await client.get<{ data: ServiceEntry[] }>(svcUrl);
+                    const svcRes = await activeClient.get<{ data: ServiceEntry[] }>(svcUrl);
 
                     if (svcRes.ok && Array.isArray(svcRes.data?.data)) {
                         for (const s of svcRes.data.data) {

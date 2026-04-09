@@ -12,9 +12,10 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { EnviaApiClient } from '../utils/api-client.js';
+import { resolveClient } from '../utils/api-client.js';
 import type { EnviaConfig } from '../config.js';
 import type { RateCostSummary } from '../types/carriers-api.js';
-import { countrySchema } from '../utils/schemas.js';
+import { countrySchema, requiredApiKeySchema } from '../utils/schemas.js';
 import { resolveAddress } from '../utils/address-resolver.js';
 import { textResponse } from '../utils/mcp-response.js';
 import { buildRateAddress } from '../builders/address.js';
@@ -66,6 +67,7 @@ export function registerGetShippingRates(
                 'city names are translated to DANE codes automatically. ' +
                 'Returns available services sorted by price (cheapest first).',
             inputSchema: z.object({
+                api_key: requiredApiKeySchema,
                 origin_postal_code: z.string().optional().describe(
                     'Origin postal / ZIP code. City and state are resolved automatically. ' +
                     'Required for most countries (MX, US, CA, BR, etc.). ' +
@@ -137,6 +139,8 @@ export function registerGetShippingRates(
             }),
         },
         async (args) => {
+            const activeClient = resolveClient(client, args.api_key, config);
+
             if (!args.origin_postal_code && !args.origin_city) {
                 return textResponse(
                     'Error: Provide either origin_postal_code or origin_city. ' +
@@ -158,7 +162,7 @@ export function registerGetShippingRates(
                         city: args.origin_city,
                         state: args.origin_state,
                     },
-                    client,
+                    activeClient,
                     config,
                 ),
                 resolveAddress(
@@ -168,7 +172,7 @@ export function registerGetShippingRates(
                         city: args.destination_city,
                         state: args.destination_state,
                     },
-                    client,
+                    activeClient,
                     config,
                 ),
             ]);
@@ -225,7 +229,7 @@ export function registerGetShippingRates(
                 carrierList = await fetchAvailableCarriers(
                     originCountry,
                     isInternational,
-                    client,
+                    activeClient,
                     config,
                     isInternational ? destinationCountry : undefined,
                 );
@@ -256,7 +260,7 @@ export function registerGetShippingRates(
             }
 
             const promises = carrierList.map((carrier) =>
-                client
+                activeClient
                     .post<{ data: RateEntry[] }>(rateUrl, {
                         origin: originAddress,
                         destination: destinationAddress,

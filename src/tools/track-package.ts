@@ -8,7 +8,9 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { EnviaApiClient } from "../utils/api-client.js";
+import { resolveClient } from "../utils/api-client.js";
 import type { EnviaConfig } from "../config.js";
+import { optionalApiKeySchema } from "../utils/schemas.js";
 
 interface TrackEvent {
     timestamp?: string;
@@ -40,6 +42,7 @@ export function registerTrackPackage(
                 "Track one or more packages by their tracking numbers. " +
                 "Returns the current status and event history for each shipment.",
             inputSchema: z.object({
+                api_key: optionalApiKeySchema,
                 tracking_numbers: z
                     .string()
                     .describe(
@@ -47,7 +50,10 @@ export function registerTrackPackage(
                     ),
             }),
         },
-        async ({ tracking_numbers }) => {
+        async (args) => {
+            const { tracking_numbers } = args;
+            const activeClient = resolveClient(client, args.api_key, config);
+
             const numbers = tracking_numbers
                 .split(",")
                 .map((s) => s.trim())
@@ -60,7 +66,7 @@ export function registerTrackPackage(
             }
 
             const url = `${config.shippingBase}/ship/generaltrack/`;
-            const res = await client.post<{ data: TrackData[] }>(url, {
+            const res = await activeClient.post<{ data: TrackData[] }>(url, {
                 trackingNumbers: numbers,
             });
 

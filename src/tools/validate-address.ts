@@ -12,8 +12,9 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { EnviaApiClient } from "../utils/api-client.js";
+import { resolveClient } from "../utils/api-client.js";
 import type { EnviaConfig } from "../config.js";
-import { countrySchema } from "../utils/schemas.js";
+import { countrySchema, optionalApiKeySchema } from "../utils/schemas.js";
 
 /** Shape of a single zipcode result from GET /zipcode/{country}/{code}. */
 interface ZipcodeEntry {
@@ -45,6 +46,7 @@ export function registerValidateAddress(
                 "Use this before creating labels to prevent address-related errors. " +
                 "Provide either postal_code or city (or both). Country is always required (2-letter ISO code, e.g. MX, US, CO).",
             inputSchema: z.object({
+                api_key: optionalApiKeySchema,
                 country: countrySchema.describe("ISO 3166-1 alpha-2 country code (e.g. MX, US, CO, BR)"),
                 postal_code: z
                     .string()
@@ -56,7 +58,10 @@ export function registerValidateAddress(
                     .describe("City name to look up (e.g. Monterrey, Bogota). Used when postal code is unknown."),
             }),
         },
-        async ({ country, postal_code, city }) => {
+        async (args) => {
+            const { country, postal_code, city } = args;
+            const activeClient = resolveClient(client, args.api_key, config);
+
             const countryCode = country.trim().toUpperCase();
 
             // At least one of postal_code or city is required
@@ -78,7 +83,7 @@ export function registerValidateAddress(
                 const pc = postal_code.trim();
                 // URL-encode both path segments to prevent path traversal
                 const url = `${config.geocodesBase}/zipcode/${encodeURIComponent(countryCode)}/${encodeURIComponent(pc)}`;
-                const res = await client.get<ZipcodeEntry[]>(url);
+                const res = await activeClient.get<ZipcodeEntry[]>(url);
 
                 if (!res.ok) {
                     results.push(`Postal code validation failed: ${res.error}`);
@@ -117,7 +122,7 @@ export function registerValidateAddress(
             if (city) {
                 const cityName = city.trim();
                 const url = `${config.geocodesBase}/locate/${encodeURIComponent(countryCode)}/${encodeURIComponent(cityName)}`;
-                const res = await client.get<LocateEntry[]>(url);
+                const res = await activeClient.get<LocateEntry[]>(url);
 
                 if (!res.ok) {
                     results.push(`City lookup failed: ${res.error}`);

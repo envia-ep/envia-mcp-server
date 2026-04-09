@@ -26,3 +26,22 @@ export const dateSchema = z
 export const postalCodeSchema = z
     .string()
     .regex(/^[A-Za-z0-9 -]{3,10}$/, "Postal code must be 3-10 alphanumeric characters");
+
+/**
+ * Required API key parameter — used by tools that always need
+ * a user-specific key (rates, labels, pickups, etc.).
+ */
+export const requiredApiKeySchema = z.string().describe(
+    'Envia API key. Overrides the server default. ' +
+    'Works with session token or API key' +
+    'Get yours at https://shipping.envia.com/settings/developers',
+);
+
+/**
+ * Optional API key parameter — used by tools that can work with
+ * the server default but accept an override (tracking, validation, HS codes).
+ */
+export const optionalApiKeySchema = z.string().optional().describe(
+    'Optional Envia API key to override the server default.' +
+    'Works with session token or API key',
+);

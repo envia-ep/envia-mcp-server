@@ -14,7 +14,9 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { EnviaApiClient } from '../utils/api-client.js';
+import { resolveClient } from '../utils/api-client.js';
 import type { EnviaConfig } from '../config.js';
+import { requiredApiKeySchema } from '../utils/schemas.js';
 import { textResponse } from '../utils/mcp-response.js';
 import { EcommerceOrderService } from '../services/ecommerce-order.js';
 import type { TransformedOrder, TransformedLocation } from '../types/ecommerce-order.js';
@@ -208,8 +210,6 @@ export function registerGetEcommerceOrder(
     client: EnviaApiClient,
     config: EnviaConfig,
 ): void {
-    const orderService = new EcommerceOrderService(client, config);
-
     server.registerTool(
         'envia_get_ecommerce_order',
         {
@@ -219,6 +219,7 @@ export function registerGetEcommerceOrder(
                 'formatted for use with quote_shipment and create_shipment. ' +
                 'Use this when the user provides an order number from their ecommerce platform (Shopify, Tiendanube, WooCommerce, etc.).',
             inputSchema: z.object({
+                api_key: requiredApiKeySchema,
                 order_identifier: z.string().min(1).describe(
                     'The ecommerce platform order identifier (e.g. Shopify order number, Tiendanube ID). ' +
                     'This is the external identifier visible to merchants, not an internal database ID.',
@@ -229,7 +230,11 @@ export function registerGetEcommerceOrder(
                 ),
             }),
         },
-        async ({ order_identifier, payload_type }) => {
+        async (args) => {
+            const { order_identifier, payload_type } = args;
+            const activeClient = resolveClient(client, args.api_key, config);
+            const orderService = new EcommerceOrderService(activeClient, config);
+
             let order;
             try {
                 order = await orderService.fetchOrder(order_identifier as string);

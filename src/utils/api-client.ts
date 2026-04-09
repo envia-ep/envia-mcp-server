@@ -166,6 +166,30 @@ export class EnviaApiClient {
 }
 
 // ---------------------------------------------------------------------------
+// Client resolution (API key override)
+// ---------------------------------------------------------------------------
+
+/**
+ * Return a client that uses the given API key override, or the original
+ * client when no override is provided.
+ *
+ * @param client   - Default API client (uses server-level ENVIA_API_KEY)
+ * @param apiKey   - Per-request API key override from tool input
+ * @param config   - Server configuration (cloned with the new key)
+ * @returns The appropriate EnviaApiClient instance
+ */
+export function resolveClient(
+    client: EnviaApiClient,
+    apiKey: string | undefined,
+    config: EnviaConfig,
+): EnviaApiClient {
+    if (apiKey && apiKey.trim() !== config.apiKey) {
+        return new EnviaApiClient({ ...config, apiKey: apiKey.trim() });
+    }
+    return client;
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 

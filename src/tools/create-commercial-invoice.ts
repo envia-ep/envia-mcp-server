@@ -5,12 +5,13 @@
  * Required by customs for cross-border shipments.
  */
 
-import { z } from "zod";
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { EnviaApiClient } from "../utils/api-client.js";
-import type { EnviaConfig } from "../config.js";
-import { countrySchema, carrierSchema } from "../utils/schemas.js";
-import { buildGenerateAddress } from "../builders/address.js";
+import { z } from 'zod';
+import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { EnviaApiClient } from '../utils/api-client.js';
+import { resolveClient } from '../utils/api-client.js';
+import type { EnviaConfig } from '../config.js';
+import { countrySchema, carrierSchema, requiredApiKeySchema } from '../utils/schemas.js';
+import { buildGenerateAddress } from '../builders/address.js';
 
 interface InvoiceData {
     invoiceId?: string;
@@ -31,6 +32,7 @@ export function registerCreateCommercialInvoice(
                 "Customs authorities require this document for cross-border shipments. " +
                 "Provide origin/destination, item details (description, HS code, quantity, price), and export reason.",
             inputSchema: z.object({
+                api_key: requiredApiKeySchema,
                 // Origin
                 origin_name: z.string().describe("Shipper / exporter full name"),
                 origin_phone: z.string().describe("Shipper phone number"),
@@ -71,6 +73,7 @@ export function registerCreateCommercialInvoice(
             }),
         },
         async (args) => {
+            const activeClient = resolveClient(client, args.api_key, config);
             const body = {
                 origin: buildGenerateAddress({
                     name: args.origin_name,
@@ -121,7 +124,7 @@ export function registerCreateCommercialInvoice(
             };
 
             const url = `${config.shippingBase}/ship/commercial-invoice`;
-            const res = await client.post<{ data: InvoiceData }>(url, body);
+            const res = await activeClient.post<{ data: InvoiceData }>(url, body);
 
             if (!res.ok) {
                 return {

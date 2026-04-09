@@ -8,7 +8,9 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { EnviaApiClient } from "../utils/api-client.js";
+import { resolveClient } from "../utils/api-client.js";
 import type { EnviaConfig } from "../config.js";
+import { optionalApiKeySchema } from "../utils/schemas.js";
 
 interface HsCodeAlternative {
     hsCode?: string;
@@ -39,6 +41,7 @@ export function registerClassifyHscode(
                 "Returns the recommended HS code and alternatives. " +
                 "Use the HS code in the package items when calling quote_shipment or create_shipment for international shipments.",
             inputSchema: z.object({
+                api_key: optionalApiKeySchema,
                 description: z
                     .string()
                     .describe("Product description in plain language (e.g. 'cotton t-shirt', 'ceramic coffee mug'). Use english for better results."),
@@ -56,7 +59,10 @@ export function registerClassifyHscode(
                     .describe("Include alternative HS code suggestions (default: true)"),
             }),
         },
-        async ({ description, hs_code_provided, destination_countries, include_alternatives }) => {
+        async (args) => {
+            const { description, hs_code_provided, destination_countries, include_alternatives } = args;
+            const activeClient = resolveClient(client, args.api_key, config);
+
             const body: Record<string, unknown> = {
                 description,
                 includeAlternatives: include_alternatives,
@@ -74,7 +80,7 @@ export function registerClassifyHscode(
             }
 
             const url = `${config.shippingBase}/utils/classify-hscode`;
-            const res = await client.post<{ data: HsCodeData; success?: boolean }>(url, body);
+            const res = await activeClient.post<{ data: HsCodeData; success?: boolean }>(url, body);
 
             if (!res.ok) {
                 return {

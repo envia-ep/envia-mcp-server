@@ -16,8 +16,9 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { EnviaApiClient } from '../utils/api-client.js';
+import { resolveClient } from '../utils/api-client.js';
 import type { EnviaConfig } from '../config.js';
-import { countrySchema } from '../utils/schemas.js';
+import { countrySchema, requiredApiKeySchema } from '../utils/schemas.js';
 import { resolveAddress } from '../utils/address-resolver.js';
 import { fetchPrintSettings } from '../utils/print-settings.js';
 import { textResponse, type McpTextResponse } from '../utils/mcp-response.js';
@@ -106,8 +107,6 @@ export function registerCreateLabel(
     client: EnviaApiClient,
     config: EnviaConfig,
 ): void {
-    const orderService = new EcommerceOrderService(client, config);
-
     server.registerTool(
         'create_shipment',
         {
@@ -118,6 +117,7 @@ export function registerCreateLabel(
                 'City and state are resolved automatically from postal codes. ' +
                 'Returns: tracking number, label PDF URL, and tracking URL.',
             inputSchema: z.object({
+                api_key: requiredApiKeySchema,
                 // Ecommerce shortcut
                 order_identifier: z.string().optional().describe(
                     'Ecommerce order identifier for one-step label creation. ' +
@@ -276,10 +276,12 @@ export function registerCreateLabel(
             }),
         },
         async (args) => {
+            const activeClient = resolveClient(client, args.api_key, config);
+
             if (args.order_identifier) {
-                return handleEcommerceMode(args, orderService, client, config);
+                return handleEcommerceMode(args, activeClient, config);
             }
-            return handleManualMode(args, client, config);
+            return handleManualMode(args, activeClient, config);
         },
     );
 }
@@ -299,10 +301,10 @@ export function registerCreateLabel(
  */
 async function handleEcommerceMode(
     args: Record<string, unknown>,
-    orderService: EcommerceOrderService,
     client: EnviaApiClient,
     config: EnviaConfig,
 ): Promise<McpTextResponse> {
+    const orderService = new EcommerceOrderService(client, config);
     const identifier = args.order_identifier as string;
     const locIndex = (args.location_index as number) ?? 0;
 

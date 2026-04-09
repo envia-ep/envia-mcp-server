@@ -12,8 +12,9 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { EnviaApiClient } from '../utils/api-client.js';
+import { resolveClient } from '../utils/api-client.js';
 import type { EnviaConfig } from '../config.js';
-import { countrySchema } from '../utils/schemas.js';
+import { countrySchema, requiredApiKeySchema } from '../utils/schemas.js';
 import { textResponse } from '../utils/mcp-response.js';
 import { fetchAvailableAdditionalServices, type AdditionalServiceInfo } from '../services/additional-service.js';
 
@@ -39,6 +40,7 @@ export function registerListAdditionalServices(
                 'Results depend on the origin country, whether the shipment is international, ' +
                 'and the shipment type.',
             inputSchema: z.object({
+                api_key: requiredApiKeySchema,
                 origin_country: countrySchema.describe(
                     'Origin country (ISO 3166-1 alpha-2, e.g. MX, CO, BR). Required.',
                 ),
@@ -52,6 +54,7 @@ export function registerListAdditionalServices(
             }),
         },
         async (args) => {
+            const activeClient = resolveClient(client, args.api_key, config);
             const originCountry = args.origin_country.toUpperCase();
             const destinationCountry = args.destination_country?.toUpperCase();
             const international = !!destinationCountry && destinationCountry !== originCountry;
@@ -60,7 +63,7 @@ export function registerListAdditionalServices(
                 originCountry,
                 international,
                 args.shipment_type,
-                client,
+                activeClient,
                 config,
                 international ? destinationCountry : undefined,
             );

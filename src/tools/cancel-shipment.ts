@@ -8,11 +8,12 @@
  * after which cancellation is no longer possible.
  */
 
-import { z } from "zod";
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { EnviaApiClient } from "../utils/api-client.js";
-import type { EnviaConfig } from "../config.js";
-import { carrierSchema } from "../utils/schemas.js";
+import { z } from 'zod';
+import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { EnviaApiClient } from '../utils/api-client.js';
+import { resolveClient } from '../utils/api-client.js';
+import type { EnviaConfig } from '../config.js';
+import { carrierSchema, requiredApiKeySchema } from '../utils/schemas.js';
 
 interface CancelData {
     carrier?: string;
@@ -35,13 +36,16 @@ export function registerCancelShipment(
                 "If successful, the label cost is returned to your Envia balance. " +
                 "Not all carriers support cancellation — check within the first 24 hours for best results.",
             inputSchema: z.object({
+                api_key: requiredApiKeySchema,
                 carrier: carrierSchema.describe("Carrier code (e.g. 'dhl', 'fedex')"),
                 tracking_number: z.string().describe("Tracking number of the shipment to cancel"),
             }),
         },
-        async ({ carrier, tracking_number }) => {
+        async (args) => {
+            const { carrier, tracking_number } = args;
+            const activeClient = resolveClient(client, args.api_key, config);
             const url = `${config.shippingBase}/ship/cancel/`;
-            const res = await client.post<{ data: CancelData }>(url, {
+            const res = await activeClient.post<{ data: CancelData }>(url, {
                 carrier: carrier.trim().toLowerCase(),
                 trackingNumber: tracking_number.trim(),
             });
