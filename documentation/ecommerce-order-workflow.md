@@ -274,7 +274,7 @@ These are generic defaults from the ecommerce platform checkout and do not repre
 If no package in a location has a valid quote, the generate payload is **not produced**. The user must:
 1. Use `quote_shipment` to compare rates for the origin/destination
 2. Choose a carrier and service from the results
-3. Use `envia_create_label` with the chosen carrier and the address data from the order
+3. Use `create_shipment` with the chosen carrier and the address data from the order
 
 ---
 
@@ -330,7 +330,7 @@ For reference, here is the complete pipeline that the `envia-clients` frontend (
 | 4. Fulfill | `processGenerationResponse` | Sends fulfillment to ecommerce store via `tmpFulfillment` |
 | 5. Download | `downloadLabels` | Downloads or prints label PDF |
 
-The MCP `envia_get_ecommerce_order` tool covers **Step 1** (payload preparation). Steps 2-3 correspond to `envia_create_label`. Steps 4-5 (store fulfillment and label download) will be implemented in a future iteration.
+The MCP `envia_get_ecommerce_order` tool covers **Step 1** (payload preparation). Steps 2-3 correspond to `create_shipment`. Steps 4-5 (store fulfillment and label download) will be implemented in a future iteration.
 
 ---
 

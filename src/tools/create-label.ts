@@ -1,5 +1,5 @@
 /**
- * Tool: envia_create_label
+ * Tool: create_shipment
  *
  * Purchases a shipping label from a carrier. Returns the tracking number
  * and a PDF label URL.
@@ -24,6 +24,7 @@ import { textResponse, type McpTextResponse } from '../utils/mcp-response.js';
 import { buildGenerateAddress, buildGenerateAddressFromLocation, buildGenerateAddressFromShippingAddress } from '../builders/address.js';
 import { buildManualPackage } from '../builders/package.js';
 import { buildPackagesFromV4 } from '../builders/package.js';
+import type { PackageItem } from '../types/carriers-api.js';
 import { buildEcommerceSection } from '../builders/ecommerce.js';
 import { EcommerceOrderService } from '../services/ecommerce-order.js';
 import type { V4Order } from '../types/ecommerce-order.js';
@@ -93,7 +94,7 @@ function formatLabelOutput(shipment: LabelData): string {
 // ---------------------------------------------------------------------------
 
 /**
- * Register the envia_create_label tool on the given MCP server.
+ * Register the create_shipment tool on the given MCP server.
  *
  * @param server - MCP server instance to register the tool on
  * @param client - Envia API client for HTTP requests
@@ -107,7 +108,7 @@ export function registerCreateLabel(
     const orderService = new EcommerceOrderService(client, config);
 
     server.registerTool(
-        'envia_create_label',
+        'create_shipment',
         {
             description:
                 'Purchase a shipping label. This charges your Envia account balance. ' +
@@ -130,12 +131,17 @@ export function registerCreateLabel(
                 // Origin (required in manual mode)
                 origin_name: z.string().optional().describe('Sender full name'),
                 origin_phone: z.string().optional().describe('Sender phone number'),
-                origin_street: z.string().optional().describe('Sender street address'),
+                origin_street: z.string().optional().describe(
+                    'Sender full street address (e.g. "Av. Constitución 123"). ' +
+                    'For MX, put only the street name here and use origin_number for the exterior number.',
+                ),
                 origin_number: z.string().optional().describe(
-                    'Sender exterior house/building number. Important for MX addresses.',
+                    'Sender exterior house/building number. Only used for MX addresses (e.g. "123"). ' +
+                    'For non-MX countries the number is already part of origin_street and this field is ignored.',
                 ),
                 origin_district: z.string().optional().describe(
-                    'Sender neighborhood / colonia. Important for MX addresses.',
+                    'Sender neighborhood / colonia. Auto-resolved from postal code for MX. ' +
+                    'Provide explicitly to override the auto-resolved value.',
                 ),
                 origin_city: z.string().optional().describe(
                     'Sender city. Auto-resolved from postal code for most countries. ' +
@@ -158,12 +164,17 @@ export function registerCreateLabel(
                 // Destination (required in manual mode)
                 destination_name: z.string().optional().describe('Recipient full name'),
                 destination_phone: z.string().optional().describe('Recipient phone number'),
-                destination_street: z.string().optional().describe('Recipient street address'),
+                destination_street: z.string().optional().describe(
+                    'Recipient full street address (e.g. "Calle Reforma 456"). ' +
+                    'For MX, put only the street name here and use destination_number for the exterior number.',
+                ),
                 destination_number: z.string().optional().describe(
-                    'Recipient exterior house/building number. Important for MX addresses.',
+                    'Recipient exterior house/building number. Only used for MX addresses (e.g. "456"). ' +
+                    'For non-MX countries the number is already part of destination_street and this field is ignored.',
                 ),
                 destination_district: z.string().optional().describe(
-                    'Recipient neighborhood / colonia. Important for MX addresses.',
+                    'Recipient neighborhood / colonia. Auto-resolved from postal code for MX. ' +
+                    'Provide explicitly to override the auto-resolved value.',
                 ),
                 destination_city: z.string().optional().describe(
                     'Recipient city. Auto-resolved from postal code for most countries. ' +
@@ -190,6 +201,32 @@ export function registerCreateLabel(
                 package_height: z.number().positive().optional().describe('Package height in CM'),
                 package_content: z.string().default('General merchandise').describe('Description of contents'),
                 package_declared_value: z.number().default(0).describe('Declared value for insurance'),
+
+                // Package items (REQUIRED for international shipments — customs documentation)
+                items: z.array(z.object({
+                    description: z.string().optional().describe(
+                        'Item description for customs (use English to avoid delays). ' +
+                        'Defaults to package_content when omitted.',
+                    ),
+                    quantity: z.number().int().positive().default(1).describe('Number of units of this item.'),
+                    price: z.number().min(0).describe(
+                        'Unit price of the item — carriers need this for customs declarations and landed cost.',
+                    ),
+                    weight: z.number().min(0).optional().describe('Weight per unit in KG.'),
+                    sku: z.string().optional().describe('Stock keeping unit identifier.'),
+                    productCode: z.string().optional().describe(
+                        'HS / tariff code (e.g. "4202.21.6000"). Recommended for international.',
+                    ),
+                    countryOfManufacture: z.string().optional().describe(
+                        'ISO 2-letter country where manufactured (e.g. "MX", "CN").',
+                    ),
+                    currency: z.string().optional().describe(
+                        'ISO 4217 currency of the price (e.g. "USD", "MXN").',
+                    ),
+                })).optional().describe(
+                    'REQUIRED for international shipments. Array of items in the package for customs ' +
+                    'documentation and landed cost calculation. Each item needs at least quantity and price.',
+                ),
 
                 // Shipment
                 carrier: z.string().optional().describe(
@@ -420,7 +457,7 @@ async function handleManualMode(
         postalCode: originResolved.postalCode ?? (args.origin_postal_code as string) ?? '',
         phone: args.origin_phone as string | undefined,
         number: args.origin_number as string | undefined,
-        district: args.origin_district as string | undefined,
+        district: (args.origin_district as string | undefined) || originResolved.district,
         company: args.origin_company as string | undefined,
         email: args.origin_email as string | undefined,
         reference: args.origin_reference as string | undefined,
@@ -436,7 +473,7 @@ async function handleManualMode(
         postalCode: destResolved.postalCode ?? (args.destination_postal_code as string) ?? '',
         phone: args.destination_phone as string | undefined,
         number: args.destination_number as string | undefined,
-        district: args.destination_district as string | undefined,
+        district: (args.destination_district as string | undefined) || destResolved.district,
         company: args.destination_company as string | undefined,
         email: args.destination_email as string | undefined,
         reference: args.destination_reference as string | undefined,
@@ -460,6 +497,39 @@ async function handleManualMode(
         settings.currency = trimmedCurrency;
     }
 
+    const isInternational = originResolved.country.toUpperCase() !== destResolved.country.toUpperCase();
+
+    let items: PackageItem[] | undefined;
+    if (isInternational) {
+        const rawItems = args.items as Array<Record<string, unknown>> | undefined;
+        if (!rawItems || rawItems.length === 0) {
+            return textResponse(
+                'Error: items array is required for international shipments.\n' +
+                'Carriers need package items with at least quantity and price for customs documentation.\n\n' +
+                'Provide items: [{ quantity, price, description?, productCode?, countryOfManufacture?, currency? }]',
+            );
+        }
+
+        items = rawItems.map((raw) => {
+            const item: PackageItem = {
+                quantity: (raw.quantity as number) ?? 1,
+                price: raw.price as number,
+            };
+
+            const desc = (raw.description as string | undefined) || (args.package_content as string);
+            if (desc) item.description = desc;
+            if (raw.weight != null) item.weight = raw.weight as number;
+            if (raw.sku) item.sku = raw.sku as string;
+            if (raw.productCode) item.productCode = raw.productCode as string;
+            if (raw.countryOfManufacture) {
+                item.countryOfManufacture = (raw.countryOfManufacture as string).trim().toUpperCase();
+            }
+            if (raw.currency) item.currency = (raw.currency as string).trim().toUpperCase();
+
+            return item;
+        });
+    }
+
     const body: Record<string, unknown> = {
         origin,
         destination,
@@ -471,6 +541,7 @@ async function handleManualMode(
                 height: args.package_height as number,
                 content: args.package_content as string,
                 declaredValue: args.package_declared_value as number,
+                items,
             }),
         ],
         shipment: {
@@ -482,6 +553,9 @@ async function handleManualMode(
         settings,
     };
 
+    // do not remove this console.error
+    // it is used to debug the payload
+    console.error(JSON.stringify(body));
     return postGenerateAndFormat(body, client, config);
 }
 
@@ -546,7 +620,18 @@ async function postGenerateAndFormat(
 
     const shipment = res.data?.data?.[0];
     if (!shipment?.trackingNumber) {
-        return textResponse('Label creation returned an unexpected response. No tracking number found.');
+        const raw = res.data as Record<string, unknown> | undefined;
+        const detail = typeof raw?.message === 'string'
+            ? raw.message
+            : typeof raw?.error === 'string'
+                ? raw.error
+                : JSON.stringify(raw ?? {}).slice(0, 500);
+        return textResponse(
+            `Label creation returned an unexpected response. No tracking number found.\n\n` +
+            `API response: ${detail}\n\n` +
+            'This usually means the carrier rejected the request. Check that all required address fields ' +
+            'are present (name, street, number, district/colonia for MX, city, state, country, postalCode).',
+        );
     }
 
     return textResponse(formatLabelOutput(shipment));

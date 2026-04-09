@@ -35,24 +35,29 @@ export interface ManualPackageInput {
     height: number;
     content?: string;
     declaredValue?: number;
+    insurance?: number;
+    boxCode?: string;
     type?: string;
     amount?: number;
     weightUnit?: string;
     lengthUnit?: string;
+    items?: PackageItem[];
 }
 
 /**
  * Build a single package payload from flat tool parameters.
  *
+ * Only includes optional fields when the caller provides them —
+ * no data is invented.
+ *
  * @param input - Package dimensions and metadata from tool args
  * @returns Package ready for the rate or generate API payload
  */
 export function buildManualPackage(input: ManualPackageInput): ShipmentPackage {
-    return {
+    const pkg: ShipmentPackage = {
         type: input.type || DEFAULT_PACKAGE_TYPE,
         content: input.content || 'General merchandise',
         amount: input.amount || 1,
-        declaredValue: input.declaredValue || 0,
         weight: input.weight,
         weightUnit: input.weightUnit || DEFAULT_WEIGHT_UNIT,
         lengthUnit: input.lengthUnit || DEFAULT_LENGTH_UNIT,
@@ -62,6 +67,13 @@ export function buildManualPackage(input: ManualPackageInput): ShipmentPackage {
             height: input.height,
         },
     };
+
+    if (input.declaredValue != null && input.declaredValue > 0) pkg.declaredValue = input.declaredValue;
+    if (input.insurance != null && input.insurance > 0) pkg.insurance = input.insurance;
+    if (input.boxCode) pkg.boxCode = input.boxCode;
+    if (input.items && input.items.length > 0) pkg.items = input.items;
+
+    return pkg;
 }
 
 // ---------------------------------------------------------------------------
@@ -70,6 +82,8 @@ export function buildManualPackage(input: ManualPackageInput): ShipmentPackage {
 
 /**
  * Build a single package payload from a V4 order package.
+ *
+ * Passes through all available V4 data without inventing fields.
  *
  * @param pkg - V4 package from the orders API
  * @param includeItems - Whether to include product line items (for international shipments)
@@ -80,7 +94,6 @@ export function buildPackageFromV4(pkg: V4Package, includeItems: boolean): Shipm
         type: pkg.package_type_name?.toLowerCase() || DEFAULT_PACKAGE_TYPE,
         content: pkg.content || 'General merchandise',
         amount: pkg.amount || 1,
-        declaredValue: pkg.declared_value || 0,
         weight: pkg.weight || 0,
         weightUnit: pkg.weight_unit || DEFAULT_WEIGHT_UNIT,
         lengthUnit: pkg.length_unit || DEFAULT_LENGTH_UNIT,
@@ -90,6 +103,14 @@ export function buildPackageFromV4(pkg: V4Package, includeItems: boolean): Shipm
             height: pkg.dimensions?.height || 0,
         },
     };
+
+    if (pkg.declared_value != null && pkg.declared_value > 0) payload.declaredValue = pkg.declared_value;
+    if (pkg.insurance != null && pkg.insurance > 0) payload.insurance = pkg.insurance;
+    if (pkg.box_code) payload.boxCode = pkg.box_code;
+
+    if (pkg.additional_services && pkg.additional_services.length > 0) {
+        payload.additionalServices = pkg.additional_services;
+    }
 
     if (includeItems && pkg.products?.length > 0) {
         payload.items = buildItemsFromV4(pkg.products);
@@ -112,15 +133,22 @@ export function buildPackagesFromV4(pkgs: V4Package[], includeItems: boolean): S
 /**
  * Build product item payloads from V4 order products.
  *
+ * Maps V4 product fields to the `packageItem` schema definition.
+ *
  * @param products - V4 product line items
  * @returns Array of item payloads for international shipments
  */
 export function buildItemsFromV4(products: V4Product[]): PackageItem[] {
-    return products.map((prod) => ({
-        name: prod.name,
-        sku: prod.sku ?? '',
-        quantity: prod.quantity,
-        price: prod.price,
-        weight: prod.weight ?? 0,
-    }));
+    return products.map((prod) => {
+        const item: PackageItem = {
+            description: prod.name,
+            quantity: prod.quantity,
+            price: prod.price,
+        };
+
+        if (prod.sku) item.sku = prod.sku;
+        if (prod.weight != null && prod.weight > 0) item.weight = prod.weight;
+
+        return item;
+    });
 }

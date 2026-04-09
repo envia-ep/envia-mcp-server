@@ -95,7 +95,7 @@ describe("Input Injection Resistance", () => {
                 shipment_type: 1,
             };
 
-            const result = await callHandler("envia_create_label", args);
+            const result = await callHandler("create_shipment", args);
             expect(result.content[0].text).toBeDefined();
         });
 
@@ -151,7 +151,7 @@ describe("Input Injection Resistance", () => {
                 shipment_type: 1,
             };
 
-            const result = await callHandler("envia_create_label", args);
+            const result = await callHandler("create_shipment", args);
             expect(result.content[0].text).toBeDefined();
         });
 
@@ -166,7 +166,7 @@ describe("Input Injection Resistance", () => {
                 shipment_type: 1,
             };
 
-            const result = await callHandler("envia_create_label", args);
+            const result = await callHandler("create_shipment", args);
             expect(result.content[0].text).toBeDefined();
         });
 
@@ -289,7 +289,7 @@ describe("Input Injection Resistance", () => {
                 shipment_type: 1,
             };
 
-            const result = await callHandler("envia_create_label", args);
+            const result = await callHandler("create_shipment", args);
             expect(result.content[0].text).toBeDefined();
         });
 
@@ -304,7 +304,7 @@ describe("Input Injection Resistance", () => {
                 shipment_type: 1,
             };
 
-            const result = await callHandler("envia_create_label", args);
+            const result = await callHandler("create_shipment", args);
             expect(result.content[0].text).toBeDefined();
         });
 
@@ -447,7 +447,7 @@ describe("Input Injection Resistance", () => {
             };
 
             // carrier.trim().toLowerCase() should not throw even on special chars
-            const result = await callHandler("envia_create_label", args);
+            const result = await callHandler("create_shipment", args);
             expect(result.content[0].text).toBeDefined();
         });
 

@@ -36,6 +36,8 @@ export interface ResolvedAddress {
     state?: string;
     postalCode?: string;
     country: string;
+    /** Neighborhood / colonia resolved from postal code suburbs (important for MX). */
+    district?: string;
 }
 
 /** Shape returned by the Geocodes API for a single postal code entry. */
@@ -46,6 +48,8 @@ interface GeocodeEntry {
         code?: { '2digit'?: string };
         name?: string;
     };
+    /** Neighborhood names (colonias). Present for MX postal codes. */
+    suburbs?: string[];
 }
 
 /** Shape returned by the carriers `/locate` endpoint for Colombian cities. */
@@ -113,12 +117,18 @@ export async function resolvePostalCode(
     const entry = Array.isArray(res.data) ? res.data[0] : res.data;
     if (!entry) return base;
 
-    return {
+    const resolved: ResolvedAddress = {
         postalCode,
         country: base.country,
         city: entry.locality ?? entry.city ?? undefined,
         state: entry.state?.code?.['2digit'] ?? entry.state?.name ?? undefined,
     };
+
+    if (Array.isArray(entry.suburbs) && entry.suburbs.length > 0) {
+        resolved.district = entry.suburbs[0];
+    }
+
+    return resolved;
 }
 
 // ---------------------------------------------------------------------------

@@ -113,7 +113,7 @@ describe("Full workflow integration", () => {
                 json: () => Promise.resolve(MOCK_LABEL_RESPONSE),
             });
 
-            const labelHandler = handlers.get("envia_create_label")!;
+            const labelHandler = handlers.get("create_shipment")!;
             const labelResult = await labelHandler({
                 ...VALID_ORIGIN_ARGS,
                 ...VALID_DESTINATION_ARGS,
@@ -233,7 +233,7 @@ describe("Full workflow integration", () => {
                 status: 200,
                 json: () => Promise.resolve(MOCK_LABEL_RESPONSE),
             });
-            const labelHandler = handlers.get("envia_create_label")!;
+            const labelHandler = handlers.get("create_shipment")!;
             const labelResult = await labelHandler({
                 ...VALID_ORIGIN_ARGS,
                 ...VALID_DESTINATION_ARGS,
@@ -254,7 +254,7 @@ describe("Full workflow integration", () => {
                 status: 200,
                 json: () => Promise.resolve(MOCK_LABEL_RESPONSE),
             });
-            const labelHandler = handlers.get("envia_create_label")!;
+            const labelHandler = handlers.get("create_shipment")!;
             await labelHandler({
                 ...VALID_ORIGIN_ARGS,
                 ...VALID_DESTINATION_ARGS,
@@ -288,7 +288,7 @@ describe("Full workflow integration", () => {
                 status: 200,
                 json: () => Promise.resolve(MOCK_LABEL_RESPONSE),
             });
-            const labelHandler = handlers.get("envia_create_label")!;
+            const labelHandler = handlers.get("create_shipment")!;
             await labelHandler({
                 ...VALID_ORIGIN_ARGS,
                 ...VALID_DESTINATION_ARGS,
@@ -337,7 +337,7 @@ describe("Full workflow integration", () => {
                 "envia_validate_address",
                 "envia_list_carriers",
                 "quote_shipment",
-                "envia_create_label",
+                "create_shipment",
                 "envia_track_package",
                 "envia_cancel_shipment",
                 "envia_schedule_pickup",

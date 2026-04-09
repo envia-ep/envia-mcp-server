@@ -4,7 +4,7 @@
 
 The `quote_shipment` tool compares shipping rates across carriers for a given route with minimal user input. It requires only **3 parameters** (origin postal code, destination postal code, and package weight) to return accurate rate comparisons — city and state are resolved automatically via the address resolver.
 
-This tool is the entry point for the quoting workflow. Users typically call it before `envia_create_label` to choose the best carrier and service.
+This tool is the entry point for the quoting workflow. Users typically call it before `create_shipment` to choose the best carrier and service.
 
 ---
 
@@ -43,7 +43,7 @@ These fields are **not needed for quoting** and were removed from the input sche
 - `destination_name`, `destination_phone`, `destination_street`
 - `shipment_type` (hardcoded to `1` for parcel)
 
-> **Note:** The Envia rate API still requires a `street` field in the address payload. `buildQuoteAddress()` fills this automatically with a hardcoded placeholder (`"Calle 1 #100"`). Real street data is only needed when creating a shipment label via `envia_create_label`.
+> **Note:** The Envia rate API still requires a `street` field in the address payload. `buildQuoteAddress()` fills this automatically with a hardcoded placeholder (`"Calle 1 #100"`). Real street data is only needed when creating a shipment label via `create_shipment`.
 
 ---
 
@@ -134,9 +134,9 @@ These countries have no postal code cascade — you must provide `city` and `sta
 
 ---
 
-## 5. How It Differs from `envia_create_label`
+## 5. How It Differs from `create_shipment`
 
-| Aspect | `quote_shipment` | `envia_create_label` |
+| Aspect | `quote_shipment` | `create_shipment` |
 |---|---|---|
 | Purpose | Compare rates, choose carrier | Purchase a shipping label |
 | Required address fields | Postal code + country | Full address (name, phone, street, city, state, country, postal code) |

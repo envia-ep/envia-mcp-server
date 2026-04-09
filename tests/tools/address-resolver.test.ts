@@ -67,6 +67,61 @@ describe('resolvePostalCode', () => {
         });
     });
 
+    it('should include district from first suburb when suburbs are present', async () => {
+        vi.mocked(client.get).mockResolvedValue({
+            ok: true,
+            status: 200,
+            data: [
+                {
+                    locality: 'Del Valle',
+                    state: { code: { '2digit': 'DF' } },
+                    suburbs: ['Del Valle Centro', 'Del Valle Norte', 'Del Valle Sur'],
+                },
+            ],
+        });
+
+        const result = await resolvePostalCode('03100', 'MX', client, MOCK_CONFIG);
+
+        expect(result.district).toBe('Del Valle Centro');
+        expect(result.city).toBe('Del Valle');
+        expect(result.state).toBe('DF');
+    });
+
+    it('should not include district when suburbs array is empty', async () => {
+        vi.mocked(client.get).mockResolvedValue({
+            ok: true,
+            status: 200,
+            data: [
+                {
+                    locality: 'Monterrey',
+                    state: { code: { '2digit': 'NL' } },
+                    suburbs: [],
+                },
+            ],
+        });
+
+        const result = await resolvePostalCode('64000', 'MX', client, MOCK_CONFIG);
+
+        expect(result.district).toBeUndefined();
+    });
+
+    it('should not include district when suburbs field is absent', async () => {
+        vi.mocked(client.get).mockResolvedValue({
+            ok: true,
+            status: 200,
+            data: [
+                {
+                    locality: 'Miami',
+                    state: { code: { '2digit': 'FL' } },
+                },
+            ],
+        });
+
+        const result = await resolvePostalCode('33101', 'US', client, MOCK_CONFIG);
+
+        expect(result.district).toBeUndefined();
+    });
+
     it('should call the geocodes API with the correct URL', async () => {
         vi.mocked(client.get).mockResolvedValue({ ok: true, status: 200, data: [] });
 
@@ -452,6 +507,28 @@ describe('resolveAddress', () => {
             city: 'Monterrey',
             state: 'NL',
         });
+    });
+
+    it('should propagate district from postal code resolution for MX', async () => {
+        vi.mocked(client.get).mockResolvedValue({
+            ok: true,
+            status: 200,
+            data: [{
+                locality: 'Apodaca',
+                state: { code: { '2digit': 'NL' } },
+                suburbs: ['Lombardia Residencial', 'Otro Fraccionamiento'],
+            }],
+        });
+
+        const result = await resolveAddress(
+            { postalCode: '66612', country: 'MX' },
+            client,
+            MOCK_CONFIG,
+        );
+
+        expect(result.district).toBe('Lombardia Residencial');
+        expect(result.city).toBe('Apodaca');
+        expect(result.state).toBe('NL');
     });
 
     it('should use explicit city/state overrides over geocoded values', async () => {

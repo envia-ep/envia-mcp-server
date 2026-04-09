@@ -31,17 +31,17 @@ export function registerClassifyHscode(
     config: EnviaConfig,
 ): void {
     server.registerTool(
-        "envia_classify_hscode",
+        "classify_hscode",
         {
             description:
                 "Classify a product into an HS code for international customs. " +
                 "Describe the product in plain language and optionally specify destination countries. " +
                 "Returns the recommended HS code and alternatives. " +
-                "Use the HS code in the package items when calling quote_shipment or envia_create_label for international shipments.",
+                "Use the HS code in the package items when calling quote_shipment or create_shipment for international shipments.",
             inputSchema: z.object({
                 description: z
                     .string()
-                    .describe("Product description in plain language (e.g. 'cotton t-shirt', 'ceramic coffee mug')"),
+                    .describe("Product description in plain language (e.g. 'cotton t-shirt', 'ceramic coffee mug'). Use english for better results."),
                 hs_code_provided: z
                     .string()
                     .optional()

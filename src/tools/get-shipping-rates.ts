@@ -281,7 +281,7 @@ export function registerGetShippingRates(
 
             lines.push(
                 '',
-                'Next step: use envia_create_label with the chosen carrier and service to purchase the label.',
+                'Next step: use create_shipment with the chosen carrier and service to purchase the label.',
             );
 
             return textResponse(lines.join('\n'));

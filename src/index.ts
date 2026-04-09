@@ -6,17 +6,24 @@
  * Exposes Envia shipping APIs as MCP tools so AI assistants can quote rates,
  * create labels, track packages, schedule pickups, and more.
  *
- * Transport: Stateless Streamable HTTP (spec-compliant, works with any MCP client)
+ * Two transport modes (controlled by MCP_TRANSPORT env var):
  *
- * Also serves a browser-based chat UI at the root path (/) for interactive
- * testing with an LLM provider (Anthropic / OpenAI).
+ *  - **http** (default) — Stateless Streamable HTTP on an Express server.
+ *    Includes a browser chat UI at the root path (/). Works with any
+ *    HTTP-capable MCP client.
+ *
+ *  - **stdio** — Standard input/output transport. The server reads JSON-RPC
+ *    messages from stdin and writes responses to stdout. Used by CLI-based
+ *    MCP hosts (e.g. Claude Desktop, Cursor).
  *
  * Required env:
  *   ENVIA_API_KEY          — your Envia JWT token
  *
  * Optional env:
  *   ENVIA_ENVIRONMENT      — "sandbox" (default) | "production"
- *   PORT                   — HTTP port (default 3000)
+ *   MCP_TRANSPORT          — "http" (default) | "stdio"
+ *   PORT                   — HTTP port (default 3000, http mode only)
+ *   HOST                   — Bind address (default 127.0.0.1, http mode only)
  */
 
 import 'dotenv/config';
@@ -28,6 +35,7 @@ import { dirname, normalize, resolve } from 'node:path';
 import type { Request, Response, NextFunction } from 'express';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { createMcpExpressApp } from '@modelcontextprotocol/sdk/server/express.js';
 
 import { loadConfig } from './config.js';
@@ -105,68 +113,110 @@ function createEnviaServer(): McpServer {
 }
 
 // ---------------------------------------------------------------------------
-// Bootstrap
+// Bootstrap — transport selection
 // ---------------------------------------------------------------------------
 
-const app = createMcpExpressApp();
+const TRANSPORT = (process.env.MCP_TRANSPORT ?? 'http').toLowerCase();
 
-/** CORS — allows the browser chat client to reach /mcp from the same origin */
-app.use((_req: Request, res: Response, next: NextFunction) => {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Accept, mcp-session-id');
-    res.setHeader('Access-Control-Expose-Headers', 'mcp-session-id');
-    next();
-});
+if (TRANSPORT === 'stdio') {
+    startStdioMode();
+} else {
+    startHttpMode();
+}
 
-app.options('/mcp', (_req: Request, res: Response) => {
-    res.status(204).end();
-});
+// ---------------------------------------------------------------------------
+// stdio mode — JSON-RPC over stdin/stdout
+// ---------------------------------------------------------------------------
 
-// ── POST /mcp — fully isolated per request (server + transport) ─────────
+/**
+ * Start the MCP server in stdio mode.
+ *
+ * Creates a single server instance connected to a StdioServerTransport.
+ * Used by CLI-based MCP hosts (Claude Desktop, Cursor, etc.).
+ */
+async function startStdioMode(): Promise<void> {
+    const server = createEnviaServer();
+    const transport = new StdioServerTransport();
 
-app.post('/mcp', async (req: Request, res: Response) => {
-    try {
-        const server = createEnviaServer();
-        const transport = new StreamableHTTPServerTransport({
-            sessionIdGenerator: undefined,
-        });
+    await server.connect(transport);
 
-        res.on('close', () => {
-            transport.close().catch(() => {});
-        });
+    console.error('Envia MCP server running in stdio mode');
+}
 
-        await server.connect(transport);
-        await transport.handleRequest(req, res, req.body);
-    } catch (error: unknown) {
-        const message = error instanceof Error ? error.message : 'Internal server error';
-        if (!res.headersSent) {
-            res.status(500).json({
-                jsonrpc: '2.0',
-                error: { code: -32603, message },
-                id: null,
+// ---------------------------------------------------------------------------
+// HTTP mode — Streamable HTTP on Express
+// ---------------------------------------------------------------------------
+
+/**
+ * Start the MCP server in HTTP mode with an Express app.
+ *
+ * Each POST /mcp request gets an isolated server + transport pair.
+ * Also serves a browser chat UI at the root path.
+ */
+function startHttpMode(): void {
+    const app = createMcpExpressApp();
+
+    app.use((_req: Request, res: Response, next: NextFunction) => {
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
+        res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Accept, mcp-session-id');
+        res.setHeader('Access-Control-Expose-Headers', 'mcp-session-id');
+        next();
+    });
+
+    app.options('/mcp', (_req: Request, res: Response) => {
+        res.status(204).end();
+    });
+
+    app.post('/mcp', async (req: Request, res: Response) => {
+        try {
+            const server = createEnviaServer();
+            const transport = new StreamableHTTPServerTransport({
+                sessionIdGenerator: undefined,
             });
+
+            res.on('close', () => {
+                transport.close().catch(() => {});
+            });
+
+            await server.connect(transport);
+            await transport.handleRequest(req, res, req.body);
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : 'Internal server error';
+            if (!res.headersSent) {
+                res.status(500).json({
+                    jsonrpc: '2.0',
+                    error: { code: -32603, message },
+                    id: null,
+                });
+            }
         }
-    }
-});
+    });
 
-// ── GET /mcp — not supported in stateless mode ──────────────────────────
+    app.get('/mcp', (_req: Request, res: Response) => {
+        res.status(405).set('Allow', 'POST').send('Method Not Allowed');
+    });
 
-app.get('/mcp', (_req: Request, res: Response) => {
-    res.status(405).set('Allow', 'POST').send('Method Not Allowed');
-});
+    app.delete('/mcp', (_req: Request, res: Response) => {
+        res.status(405).set('Allow', 'POST').send('Method Not Allowed');
+    });
 
-// ── DELETE /mcp — not supported in stateless mode ───────────────────────
+    app.get('/', serveChatFile);
+    app.get('/*path', serveChatFile);
 
-app.delete('/mcp', (_req: Request, res: Response) => {
-    res.status(405).set('Allow', 'POST').send('Method Not Allowed');
-});
+    app.listen(PORT, HOST, () => {
+        console.error(`Envia MCP server listening on http://${HOST}:${PORT}/mcp`);
+        console.error(`  Chat UI: http://${HOST}:${PORT}/`);
+    });
+}
 
-// ── Chat UI — static files served from dist/chat/ and src/chat/ ─────────
+// ---------------------------------------------------------------------------
+// Chat UI — static files from dist/chat/ and src/chat/
+// ---------------------------------------------------------------------------
 
 /**
  * Resolve a request path to a static file from the chat directories.
- * Looks in dist/chat/ first (compiled JS), then src/chat/ (HTML).
+ * Looks in dist/chat/ first (compiled JS), then src/chat/ (HTML source).
  */
 function serveChatFile(req: Request, res: Response): void {
     let filePath = req.path;
@@ -194,13 +244,3 @@ function serveChatFile(req: Request, res: Response): void {
 
     res.status(404).send('Not Found');
 }
-
-app.get('/', serveChatFile);
-app.get('/*path', serveChatFile);
-
-// ── Start ───────────────────────────────────────────────────────────────
-
-app.listen(PORT, HOST, () => {
-    console.error(`Envia MCP server listening on http://${HOST}:${PORT}/mcp`);
-    console.error(`  Chat UI: http://${HOST}:${PORT}/`);
-});

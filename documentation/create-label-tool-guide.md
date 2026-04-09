@@ -1,8 +1,8 @@
-# envia_create_label Tool — Technical Guide
+# create_shipment Tool — Technical Guide
 
 ## 1. Purpose
 
-The `envia_create_label` tool purchases a shipping label from a carrier via `POST /ship/generate/`. It charges the user's Envia account balance and returns a tracking number, label PDF URL, and tracking URL.
+The `create_shipment` tool purchases a shipping label from a carrier via `POST /ship/generate/`. It charges the user's Envia account balance and returns a tracking number, label PDF URL, and tracking URL.
 
 The tool operates in two modes:
 
@@ -172,7 +172,7 @@ In manual mode, the carrier API is skipped (no `carrier_id` available) and defau
 ### Ecommerce — direct label creation
 
 ```
-envia_create_label (order_identifier: "1234")
+create_shipment (order_identifier: "1234")
   → Label created
   → envia_track_package (tracking_number from response)
 ```
@@ -184,7 +184,7 @@ envia_get_ecommerce_order (order_identifier: "1234")
   → See available rates and carrier options
   → quote_shipment (with postal codes from order)
   → Pick cheapest carrier
-  → envia_create_label (order_identifier: "1234", carrier: "fedex", service: "ground")
+  → create_shipment (order_identifier: "1234", carrier: "fedex", service: "ground")
 ```
 
 ### Manual — full domestic workflow
@@ -193,7 +193,7 @@ envia_get_ecommerce_order (order_identifier: "1234")
 envia_validate_address (postal_code, country)
   → quote_shipment (origin/destination postal codes + weight)
   → Pick carrier/service
-  → envia_create_label (full addresses + carrier + service)
+  → create_shipment (full addresses + carrier + service)
   → envia_track_package
   → envia_schedule_pickup (if needed)
 ```
