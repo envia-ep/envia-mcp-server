@@ -1,1 +1,1 @@
-mcp-carriers: npm run start
+mcp-carriers: node dist/index.js
