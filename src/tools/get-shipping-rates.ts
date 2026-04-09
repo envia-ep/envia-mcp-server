@@ -102,6 +102,14 @@ export function registerGetShippingRates(
                     'Destination state / department code. Required for CO (e.g. "VAC" for Cali, "DC" for Bogota). ' +
                     'For other countries: resolved automatically from postal code.',
                 ),
+                origin_district: z.string().optional().describe(
+                    'Origin neighborhood / colonia. Encouraged for MX addresses — some carriers ' +
+                    'validate availability at this level. Auto-resolved from postal code if not provided.',
+                ),
+                destination_district: z.string().optional().describe(
+                    'Destination neighborhood / colonia. Encouraged for MX addresses — some carriers ' +
+                    'validate availability at this level. Auto-resolved from postal code if not provided.',
+                ),
 
                 length: z.number().positive().default(10).describe('Package length in CM (default: 10)'),
                 width: z.number().positive().default(10).describe('Package width in CM (default: 10)'),
@@ -176,6 +184,9 @@ export function registerGetShippingRates(
                     config,
                 ),
             ]);
+
+            if (args.origin_district) origin.district = args.origin_district;
+            if (args.destination_district) destination.district = args.destination_district;
 
             const originAddress = buildRateAddress(origin);
             const destinationAddress = buildRateAddress(destination);

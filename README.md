@@ -144,6 +144,8 @@ The rate response displays which services were applied and warns about any that 
 
 Both `quote_shipment` and `create_shipment` auto-resolve city, state, and district (colonia) from postal codes using the Envia geocodes API. Colombia DANE codes are also translated automatically. Provide explicit values only when you need to override.
 
+For **MX addresses**, the district (colonia/neighborhood) is particularly important — some carriers validate availability at this level. The tool auto-resolves it from the postal code's first suburb, but you can provide `origin_district` / `destination_district` explicitly when the customer knows their specific colonia.
+
 ### create_shipment — dual mode
 
 - **Manual mode** — Provide addresses, package details, carrier, and service directly. For international shipments, an `items` array with customs data (quantity, price, HS code) is required.

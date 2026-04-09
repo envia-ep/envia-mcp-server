@@ -25,6 +25,8 @@ export interface RateAddress {
     state?: string;
     country: string;
     postalCode?: string;
+    /** Neighborhood / colonia. Important for MX where some carriers validate at this level. */
+    district?: string;
 }
 
 /**

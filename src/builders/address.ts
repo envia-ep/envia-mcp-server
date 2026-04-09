@@ -49,6 +49,8 @@ export interface RateAddressInput {
     state?: string;
     country: string;
     postalCode?: string;
+    /** Neighborhood / colonia. Important for MX where carriers may validate at this level. */
+    district?: string;
 }
 
 /**
@@ -70,6 +72,7 @@ export function buildRateAddress(input: RateAddressInput): RateAddress {
     if (input.city) address.city = input.city;
     if (input.state) address.state = input.state;
     if (input.postalCode) address.postalCode = input.postalCode;
+    if (input.district) address.district = input.district;
 
     return address;
 }

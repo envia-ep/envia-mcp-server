@@ -299,11 +299,12 @@ export class LLMOrchestrator {
 
             const toolResults: ToolResult[] = [];
             for (const tc of response.toolCalls) {
-                if (onToolCall) onToolCall(tc.name, tc.args);
+                const { api_key: _stripped, ...displayArgs } = tc.args;
+                if (onToolCall) onToolCall(tc.name, displayArgs);
                 const callArgs = this.enviaToken
-                    ? { api_key: this.enviaToken, ...tc.args }
+                    ? { ...tc.args, api_key: this.enviaToken }
                     : tc.args;
-                debug('mcp-call', `${tc.name}()`, tc.args);
+                debug('mcp-call', `${tc.name}()`, displayArgs);
                 try {
                     const result = await this.mcpClient.callTool(tc.name, callArgs);
                     const text = result.content?.map((c) => c.text).join('\n') ?? JSON.stringify(result);

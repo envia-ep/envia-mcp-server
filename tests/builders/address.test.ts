@@ -140,6 +140,24 @@ describe('buildRateAddress', () => {
         expect(result).not.toHaveProperty('name');
         expect(result).not.toHaveProperty('phone');
     });
+
+    it('should include district when provided', () => {
+        const result = buildRateAddress({
+            city: 'Ciudad Apodaca',
+            state: 'NL',
+            country: 'MX',
+            postalCode: '66612',
+            district: 'Andalucía',
+        });
+
+        expect(result.district).toBe('Andalucía');
+    });
+
+    it('should omit district when not provided', () => {
+        const result = buildRateAddress({ country: 'MX', postalCode: '64000' });
+
+        expect(result).not.toHaveProperty('district');
+    });
 });
 
 // ---------------------------------------------------------------------------
