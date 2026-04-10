@@ -91,10 +91,17 @@ function createEnviaServer(): McpServer {
     const config = loadConfig();
     const client = new EnviaApiClient(config);
 
-    const server = new McpServer({
-        name: 'envia',
-        version: pkg.version,
-    });
+    const server = new McpServer(
+        {
+            name: 'envia',
+            version: pkg.version,
+        },
+        {
+            capabilities: {
+                tools: { listChanged: true },
+            },
+        },
+    );
 
     registerValidateAddress(server, client, config);
     registerListCarriers(server, client, config);
