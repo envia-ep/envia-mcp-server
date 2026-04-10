@@ -214,7 +214,7 @@ describe("Input Injection Resistance", () => {
                 }),
             );
 
-            const result = await callHandler("envia_classify_hscode", {
+            const result = await callHandler("classify_hscode", {
                 description: "cotton $(rm -rf /)",
                 include_alternatives: true,
             });
@@ -344,7 +344,7 @@ describe("Input Injection Resistance", () => {
             );
 
             const longDescription = "A".repeat(10_000);
-            const result = await callHandler("envia_classify_hscode", {
+            const result = await callHandler("classify_hscode", {
                 description: longDescription,
                 include_alternatives: true,
             });

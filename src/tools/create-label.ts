@@ -26,10 +26,17 @@ import { buildGenerateAddress, buildGenerateAddressFromLocation, buildGenerateAd
 import { buildManualPackage, validateInsuranceExclusivity } from '../builders/package.js';
 import { buildPackagesFromV4 } from '../builders/package.js';
 import { buildAdditionalServices } from '../builders/additional-service.js';
-import type { PackageItem, InsuranceServiceType } from '../types/carriers-api.js';
+import type { GenerateAddress, PackageItem, InsuranceServiceType, XmlDataEntry } from '../types/carriers-api.js';
 import { buildEcommerceSection } from '../builders/ecommerce.js';
 import { EcommerceOrderService } from '../services/ecommerce-order.js';
 import type { V4Order } from '../types/ecommerce-order.js';
+import { buildDcePayload, authorizeDce, buildXmlDataFromResponse } from '../services/dce.js';
+import {
+    fetchGenericForm,
+    getRequiredFields,
+    validateAddressCompleteness,
+    type RequiredFieldDescriptor,
+} from '../services/generic-form.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -115,6 +122,10 @@ export function registerCreateLabel(
                 'Two modes: (1) pass order_identifier to auto-create from an ecommerce order, ' +
                 'or (2) provide addresses and package details manually. ' +
                 'City and state are resolved automatically from postal codes. ' +
+                'Addresses are validated against country-specific required fields before generation. ' +
+                'For BR-to-BR shipments, DCe (Declaracao de Conteudo Eletronica) authorization with SEFAZ ' +
+                'is performed automatically — items with productCode (NCM) and identificationNumber (CPF/CNPJ) ' +
+                'on both addresses are required. Pass xml_data to skip auto-authorization if you already have it. ' +
                 'Returns: tracking number, label PDF URL, and tracking URL.',
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
@@ -133,15 +144,15 @@ export function registerCreateLabel(
                 origin_name: z.string().optional().describe('Sender full name'),
                 origin_phone: z.string().optional().describe('Sender phone number'),
                 origin_street: z.string().optional().describe(
-                    'Sender full street address (e.g. "Av. Constitución 123"). ' +
-                    'For MX, put only the street name here and use origin_number for the exterior number.',
+                    'Sender street name (e.g. "Av. Constitución" for MX, "Rua Paracatu" for BR). ' +
+                    'For MX and BR, put only the street name here and use origin_number for the exterior number.',
                 ),
                 origin_number: z.string().optional().describe(
-                    'Sender exterior house/building number. Only used for MX addresses (e.g. "123"). ' +
-                    'For non-MX countries the number is already part of origin_street and this field is ignored.',
+                    'Sender exterior house/building number. Required for MX and BR addresses (e.g. "123", "60"). ' +
+                    'For other countries the number is already part of origin_street and this field is ignored.',
                 ),
                 origin_district: z.string().optional().describe(
-                    'Sender neighborhood / colonia. Auto-resolved from postal code for MX. ' +
+                    'Sender neighborhood (colonia for MX, bairro for BR). Auto-resolved from postal code for MX. ' +
                     'Provide explicitly to override the auto-resolved value.',
                 ),
                 origin_city: z.string().optional().describe(
@@ -159,22 +170,23 @@ export function registerCreateLabel(
                 origin_email: z.string().optional().describe('Sender email address'),
                 origin_reference: z.string().optional().describe('Origin address reference / landmark'),
                 origin_identification_number: z.string().optional().describe(
-                    'Sender tax/national ID (e.g. RFC for MX, CNPJ/CPF for BR, NIT for CO)',
+                    'Sender tax/national ID (e.g. RFC for MX, CNPJ/CPF for BR, NIT for CO). ' +
+                    'Required for BR shipments (DCe authorization).',
                 ),
 
                 // Destination (required in manual mode)
                 destination_name: z.string().optional().describe('Recipient full name'),
                 destination_phone: z.string().optional().describe('Recipient phone number'),
                 destination_street: z.string().optional().describe(
-                    'Recipient full street address (e.g. "Calle Reforma 456"). ' +
-                    'For MX, put only the street name here and use destination_number for the exterior number.',
+                    'Recipient street name (e.g. "Calle Reforma" for MX, "Rua Célio Nascimento" for BR). ' +
+                    'For MX and BR, put only the street name here and use destination_number for the exterior number.',
                 ),
                 destination_number: z.string().optional().describe(
-                    'Recipient exterior house/building number. Only used for MX addresses (e.g. "456"). ' +
-                    'For non-MX countries the number is already part of destination_street and this field is ignored.',
+                    'Recipient exterior house/building number. Required for MX and BR addresses (e.g. "456", "196"). ' +
+                    'For other countries the number is already part of destination_street and this field is ignored.',
                 ),
                 destination_district: z.string().optional().describe(
-                    'Recipient neighborhood / colonia. Auto-resolved from postal code for MX. ' +
+                    'Recipient neighborhood (colonia for MX, bairro for BR). Auto-resolved from postal code for MX. ' +
                     'Provide explicitly to override the auto-resolved value.',
                 ),
                 destination_city: z.string().optional().describe(
@@ -192,7 +204,8 @@ export function registerCreateLabel(
                 destination_email: z.string().optional().describe('Recipient email address'),
                 destination_reference: z.string().optional().describe('Destination address reference / landmark'),
                 destination_identification_number: z.string().optional().describe(
-                    'Recipient tax/national ID (e.g. RFC for MX, CNPJ/CPF for BR, NIT for CO)',
+                    'Recipient tax/national ID (e.g. RFC for MX, CNPJ/CPF for BR, NIT for CO). ' +
+                    'Required for BR shipments (DCe authorization).',
                 ),
 
                 // Package (required in manual mode)
@@ -203,7 +216,7 @@ export function registerCreateLabel(
                 package_content: z.string().default('General merchandise').describe('Description of contents'),
                 package_declared_value: z.number().default(0).describe('Declared value for insurance'),
 
-                // Package items (REQUIRED for international shipments — customs documentation)
+                // Package items (REQUIRED for international and BR-to-BR shipments)
                 items: z.array(z.object({
                     description: z.string().optional().describe(
                         'Item description for customs (use English to avoid delays). ' +
@@ -216,7 +229,9 @@ export function registerCreateLabel(
                     weight: z.number().min(0).optional().describe('Weight per unit in KG.'),
                     sku: z.string().optional().describe('Stock keeping unit identifier.'),
                     productCode: z.string().optional().describe(
-                        'HS / tariff code (e.g. "4202.21.6000"). Recommended for international.',
+                        'HS / tariff code, also known as NCM code in Brazil (e.g. "4202.21.6000", "8528.72.00"). ' +
+                        'Required for international shipments and BR-to-BR domestic shipments. ' +
+                        'Use classify_hscode to look up the correct code for a product.',
                     ),
                     countryOfManufacture: z.string().optional().describe(
                         'ISO 2-letter country where manufactured (e.g. "MX", "CN").',
@@ -225,8 +240,23 @@ export function registerCreateLabel(
                         'ISO 4217 currency of the price (e.g. "USD", "MXN").',
                     ),
                 })).optional().describe(
-                    'REQUIRED for international shipments. Array of items in the package for customs ' +
-                    'documentation and landed cost calculation. Each item needs at least quantity and price.',
+                    'REQUIRED for international shipments and BR-to-BR domestic shipments. ' +
+                    'Array of items in the package for customs documentation and DCe authorization. ' +
+                    'Each item needs at least quantity and price. For BR, productCode (NCM) is also required.',
+                ),
+
+                // Pre-authorized DCe data (skips auto-authorization for BR shipments)
+                xml_data: z.array(z.object({
+                    documentType: z.string().describe('Document type (e.g. "dce").'),
+                    dceNumber: z.string().optional().describe('DCe document number.'),
+                    dceSerie: z.string().optional().describe('DCe series.'),
+                    dceDate: z.string().optional().describe('DCe emission date (ISO 8601).'),
+                    dceKey: z.string().optional().describe('DCe access key (44-digit SEFAZ key).'),
+                    dceValue: z.string().optional().describe('Total DCe declared value.'),
+                })).optional().describe(
+                    'Pre-authorized DCe (Declaracao de Conteudo Eletronica) data for BR shipments. ' +
+                    'When provided, auto-authorization with SEFAZ is skipped. ' +
+                    'Obtain this via a prior call to the /dce/autorizar endpoint.',
                 ),
 
                 // Shipment
@@ -347,8 +377,70 @@ async function handleEcommerceMode(
 
     const { carrier, service, carrierId } = carrierResult;
 
-    const isInternational = location.country_code !== order.shipment_data.shipping_address.country_code;
-    const packages = buildPackagesFromV4(activePackages, isInternational);
+    const originAddr = buildGenerateAddressFromLocation(location);
+    const destAddr = buildGenerateAddressFromShippingAddress(order.shipment_data.shipping_address);
+
+    const originCountryCode = location.country_code?.toUpperCase() || '';
+    const destCountryCode = order.shipment_data.shipping_address.country_code?.toUpperCase() || '';
+
+    // --- Generic-form address validation (all countries) ---
+    const formValidationError = await validateAddressesViaGenericForm(
+        originAddr, destAddr, originCountryCode, destCountryCode, client, config,
+    );
+    if (formValidationError) return formValidationError;
+
+    const isInternational = originCountryCode !== destCountryCode;
+    const isBrDomestic = originCountryCode === 'BR' && destCountryCode === 'BR';
+    const packages = buildPackagesFromV4(activePackages, isInternational || isBrDomestic);
+
+    // --- BR-to-BR DCe authorization ---
+    const userXmlData = args.xml_data as XmlDataEntry[] | undefined;
+
+    if (isBrDomestic) {
+        const hasExistingXmlData = packages.some((pkg) => pkg.xmlData && pkg.xmlData.length > 0);
+
+        if (!hasExistingXmlData) {
+            if (userXmlData && userXmlData.length > 0) {
+                for (const pkg of packages) {
+                    pkg.xmlData = userXmlData;
+                }
+            } else {
+                if (!originAddr.identificationNumber) {
+                    return textResponse(
+                        'Error: origin identification number (CPF/CNPJ) is required for BR-to-BR shipments.\n' +
+                        'Provide origin_identification_number or ensure the origin location has an identification number.',
+                    );
+                }
+
+                const itemsForDce: PackageItem[] = packages.flatMap((pkg) => pkg.items || []);
+                if (itemsForDce.length === 0) {
+                    return textResponse(
+                        'Error: items are required for BR-to-BR shipments (DCe authorization).\n' +
+                        'The ecommerce order packages must include products with descriptions and prices.',
+                    );
+                }
+
+                const dceResult = await authorizeDce(
+                    buildDcePayload(originAddr, destAddr, itemsForDce, carrier),
+                    client,
+                    config,
+                );
+                if (!dceResult.success) {
+                    return textResponse(
+                        `DCe authorization failed: ${dceResult.xMotivo || 'Unknown SEFAZ error'}\n` +
+                        (dceResult.cStat ? `SEFAZ code: ${dceResult.cStat}\n` : '') +
+                        '\nCheck that addresses have valid CPF/CNPJ, items have correct NCM codes, ' +
+                        'and the carrier is registered for DCe.',
+                    );
+                }
+
+                const xmlData = buildXmlDataFromResponse(dceResult);
+                for (const pkg of packages) {
+                    pkg.xmlData = xmlData;
+                }
+            }
+        }
+    }
 
     const printOverrides = {
         printFormat: args.print_format as string | undefined,
@@ -359,8 +451,8 @@ async function handleEcommerceMode(
     );
 
     const body: Record<string, unknown> = {
-        origin: buildGenerateAddressFromLocation(location),
-        destination: buildGenerateAddressFromShippingAddress(order.shipment_data.shipping_address),
+        origin: originAddr,
+        destination: destAddr,
         packages,
         shipment: {
             type: (args.shipment_type as number) ?? 1,
@@ -503,6 +595,12 @@ async function handleManualMode(
         identificationNumber: args.destination_identification_number as string | undefined,
     });
 
+    // --- Generic-form address validation (all countries) ---
+    const formValidationError = await validateAddressesViaGenericForm(
+        origin, destination, originResolved.country, destResolved.country, client, config,
+    );
+    if (formValidationError) return formValidationError;
+
     const trimmedCarrier = carrier.trim().toLowerCase();
     const trimmedService = service.trim();
 
@@ -521,36 +619,61 @@ async function handleManualMode(
     }
 
     const isInternational = originResolved.country.toUpperCase() !== destResolved.country.toUpperCase();
+    const isBrDomestic = originResolved.country.toUpperCase() === 'BR' && destResolved.country.toUpperCase() === 'BR';
 
     let items: PackageItem[] | undefined;
-    if (isInternational) {
-        const rawItems = args.items as Array<Record<string, unknown>> | undefined;
+    const rawItems = args.items as Array<Record<string, unknown>> | undefined;
+
+    if (isInternational || isBrDomestic) {
         if (!rawItems || rawItems.length === 0) {
+            const reason = isBrDomestic
+                ? 'BR-to-BR shipments require items for DCe (Declaracao de Conteudo Eletronica) authorization.'
+                : 'Carriers need package items with at least quantity and price for customs documentation.';
             return textResponse(
-                'Error: items array is required for international shipments.\n' +
-                'Carriers need package items with at least quantity and price for customs documentation.\n\n' +
-                'Provide items: [{ quantity, price, description?, productCode?, countryOfManufacture?, currency? }]',
+                `Error: items array is required.\n${reason}\n\n` +
+                'Provide items: [{ quantity, price, description?, productCode? (NCM for BR), currency? }]',
             );
         }
 
-        items = rawItems.map((raw) => {
-            const item: PackageItem = {
-                quantity: (raw.quantity as number) ?? 1,
-                price: raw.price as number,
-            };
+        items = parseRawItems(rawItems, args.package_content as string);
 
-            const desc = (raw.description as string | undefined) || (args.package_content as string);
-            if (desc) item.description = desc;
-            if (raw.weight != null) item.weight = raw.weight as number;
-            if (raw.sku) item.sku = raw.sku as string;
-            if (raw.productCode) item.productCode = raw.productCode as string;
-            if (raw.countryOfManufacture) {
-                item.countryOfManufacture = (raw.countryOfManufacture as string).trim().toUpperCase();
+        if (isBrDomestic) {
+            const missingNcm = items.some((it) => !it.productCode);
+            if (missingNcm) {
+                return textResponse(
+                    'Error: productCode (NCM) is required for every item in BR-to-BR shipments.\n' +
+                    'The NCM code is needed for DCe authorization with SEFAZ.\n\n' +
+                    'Example: items: [{ description: "T-shirt", quantity: 1, price: 50, productCode: "6109.10.00" }]',
+                );
             }
-            if (raw.currency) item.currency = (raw.currency as string).trim().toUpperCase();
+        }
+    } else if (rawItems && rawItems.length > 0) {
+        items = parseRawItems(rawItems, args.package_content as string);
+    }
 
-            return item;
-        });
+    // --- BR-to-BR DCe authorization ---
+    let xmlData: XmlDataEntry[] | undefined;
+    const userXmlData = args.xml_data as XmlDataEntry[] | undefined;
+
+    if (isBrDomestic) {
+        if (userXmlData && userXmlData.length > 0) {
+            xmlData = userXmlData;
+        } else {
+            const dceResult = await authorizeDce(
+                buildDcePayload(origin, destination, items!, trimmedCarrier),
+                client,
+                config,
+            );
+            if (!dceResult.success) {
+                return textResponse(
+                    `DCe authorization failed: ${dceResult.xMotivo || 'Unknown SEFAZ error'}\n` +
+                    (dceResult.cStat ? `SEFAZ code: ${dceResult.cStat}\n` : '') +
+                    '\nCheck that addresses have valid CPF/CNPJ, items have correct NCM codes, ' +
+                    'and the carrier is registered for DCe.',
+                );
+            }
+            xmlData = buildXmlDataFromResponse(dceResult);
+        }
     }
 
     const additionalServices = buildAdditionalServices(
@@ -580,6 +703,7 @@ async function handleManualMode(
                 declaredValue: args.package_declared_value as number,
                 items,
                 additionalServices: additionalServices.length > 0 ? additionalServices : undefined,
+                xmlData,
             }),
         ],
         shipment: {
@@ -595,6 +719,119 @@ async function handleManualMode(
     // it is used to debug the payload
     console.error(JSON.stringify(body));
     return postGenerateAndFormat(body, client, config);
+}
+
+// ---------------------------------------------------------------------------
+// Shared validation and parsing helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Parse raw item objects from tool input into typed PackageItem array.
+ *
+ * @param rawItems - Untyped item objects from tool arguments
+ * @param fallbackDescription - Default description when item omits it
+ * @returns Array of typed PackageItem objects
+ */
+function parseRawItems(rawItems: Array<Record<string, unknown>>, fallbackDescription?: string): PackageItem[] {
+    return rawItems.map((raw) => {
+        const item: PackageItem = {
+            quantity: (raw.quantity as number) ?? 1,
+            price: raw.price as number,
+        };
+
+        const desc = (raw.description as string | undefined) || fallbackDescription;
+        if (desc) item.description = desc;
+        if (raw.weight != null) item.weight = raw.weight as number;
+        if (raw.sku) item.sku = raw.sku as string;
+        if (raw.productCode) item.productCode = raw.productCode as string;
+        if (raw.countryOfManufacture) {
+            item.countryOfManufacture = (raw.countryOfManufacture as string).trim().toUpperCase();
+        }
+        if (raw.currency) item.currency = (raw.currency as string).trim().toUpperCase();
+
+        return item;
+    });
+}
+
+/**
+ * Validate both origin and destination addresses against their country's
+ * generic-form required fields.
+ *
+ * Returns an error response when validation fails, or null when both
+ * addresses are complete. On API failure, logs a warning and returns null
+ * (graceful degradation).
+ *
+ * @param origin - Origin generate address
+ * @param destination - Destination generate address
+ * @param originCountry - Origin ISO country code
+ * @param destCountry - Destination ISO country code
+ * @param client - Envia API client
+ * @param config - Server configuration
+ * @returns Error response or null when valid
+ */
+async function validateAddressesViaGenericForm(
+    origin: GenerateAddress,
+    destination: GenerateAddress,
+    originCountry: string,
+    destCountry: string,
+    client: EnviaApiClient,
+    config: EnviaConfig,
+): Promise<McpTextResponse | null> {
+    const [originForm, destForm] = await Promise.all([
+        fetchGenericForm(originCountry, client, config),
+        originCountry.toUpperCase() === destCountry.toUpperCase()
+            ? fetchGenericForm(originCountry, client, config)
+            : fetchGenericForm(destCountry, client, config),
+    ]);
+
+    const originRequired = getRequiredFields(originForm);
+    const destRequired = getRequiredFields(destForm);
+
+    const originMissing = validateAddressCompleteness(origin as unknown as Record<string, unknown>, originRequired);
+    const destMissing = validateAddressCompleteness(destination as unknown as Record<string, unknown>, destRequired);
+
+    if (originMissing.length > 0 || destMissing.length > 0) {
+        return textResponse(formatMissingFieldsError(originMissing, destMissing, originCountry, destCountry));
+    }
+
+    return null;
+}
+
+/**
+ * Format a user-friendly error message listing missing required address fields.
+ *
+ * @param originMissing - Missing fields for origin address
+ * @param destMissing - Missing fields for destination address
+ * @param originCountry - Origin country code
+ * @param destCountry - Destination country code
+ * @returns Formatted error message
+ */
+function formatMissingFieldsError(
+    originMissing: RequiredFieldDescriptor[],
+    destMissing: RequiredFieldDescriptor[],
+    originCountry: string,
+    destCountry: string,
+): string {
+    const lines: string[] = ['Error: Required address fields are missing.', ''];
+
+    if (originMissing.length > 0) {
+        lines.push(`Origin (${originCountry.toUpperCase()}) is missing:`);
+        for (const f of originMissing) {
+            lines.push(`  - ${f.fieldLabel} (use origin_${f.toolParam})`);
+        }
+        lines.push('');
+    }
+
+    if (destMissing.length > 0) {
+        lines.push(`Destination (${destCountry.toUpperCase()}) is missing:`);
+        for (const f of destMissing) {
+            lines.push(`  - ${f.fieldLabel} (use destination_${f.toolParam})`);
+        }
+        lines.push('');
+    }
+
+    lines.push('Provide the missing fields and try again.');
+    return lines.join('\n');
 }
 
 // ---------------------------------------------------------------------------

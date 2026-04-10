@@ -1,8 +1,9 @@
 /**
- * Tool: envia_classify_hscode
+ * Tool: classify_hscode
  *
- * Uses AI to classify a product description into a Harmonized System (HS) code,
- * which is required for international shipments to clear customs.
+ * Uses AI to classify a product description into a Harmonized System (HS) code
+ * (known as NCM in Brazil), required for international shipments and BR domestic
+ * shipments (DCe authorization).
  */
 
 import { z } from "zod";
@@ -36,15 +37,16 @@ export function registerClassifyHscode(
         "classify_hscode",
         {
             description:
-                "Classify a product into an HS code for international customs. " +
+                "Classify a product into an HS code (known as NCM in Brazil) for customs and regulatory compliance. " +
                 "Describe the product in plain language and optionally specify destination countries. " +
-                "Returns the recommended HS code and alternatives. " +
-                "Use the HS code in the package items when calling quote_shipment or create_shipment for international shipments.",
+                "Returns the recommended HS/NCM code and alternatives. " +
+                "Use the code as productCode in items when calling quote_shipment or create_shipment " +
+                "for international shipments and BR-to-BR domestic shipments (required for DCe authorization).",
             inputSchema: z.object({
                 api_key: optionalApiKeySchema,
                 description: z
                     .string()
-                    .describe("Product description in plain language (e.g. 'cotton t-shirt', 'ceramic coffee mug'). Use english for better results."),
+                    .describe("Product description in plain language (e.g. 'cotton t-shirt', 'ceramic coffee mug', 'smart TV'). Use English for better results."),
                 hs_code_provided: z
                     .string()
                     .optional()
@@ -128,7 +130,7 @@ export function registerClassifyHscode(
 
             lines.push(
                 "",
-                "Use this HS code in the package items when creating an international label.",
+                "Use this HS/NCM code as productCode in items when creating international or BR domestic labels.",
             );
 
             return { content: [{ type: "text", text: lines.join("\n") }] };

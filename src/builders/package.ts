@@ -11,7 +11,7 @@
  * All package types are defined in src/types/carriers-api.ts.
  */
 
-import type { ShipmentPackage, PackageItem, AdditionalServiceEntry } from '../types/carriers-api.js';
+import type { ShipmentPackage, PackageItem, AdditionalServiceEntry, XmlDataEntry } from '../types/carriers-api.js';
 import { INSURANCE_SERVICES } from '../types/carriers-api.js';
 import type { V4Package, V4Product } from '../types/ecommerce-order.js';
 
@@ -44,6 +44,7 @@ export interface ManualPackageInput {
     lengthUnit?: string;
     items?: PackageItem[];
     additionalServices?: AdditionalServiceEntry[];
+    xmlData?: XmlDataEntry[];
 }
 
 /**
@@ -77,6 +78,7 @@ export function buildManualPackage(input: ManualPackageInput): ShipmentPackage {
     if (input.additionalServices && input.additionalServices.length > 0) {
         pkg.additionalServices = input.additionalServices;
     }
+    if (input.xmlData && input.xmlData.length > 0) pkg.xmlData = input.xmlData;
 
     return pkg;
 }

@@ -15,6 +15,7 @@ import type { EnviaApiClient } from "../utils/api-client.js";
 import { resolveClient } from "../utils/api-client.js";
 import type { EnviaConfig } from "../config.js";
 import { countrySchema, optionalApiKeySchema } from "../utils/schemas.js";
+import { fetchGenericForm, getRequiredFields } from "../services/generic-form.js";
 
 /** Shape of a single zipcode result from GET /zipcode/{country}/{code}. */
 interface ZipcodeEntry {
@@ -148,6 +149,20 @@ export function registerValidateAddress(
 
                         results.push(lines.join("\n"));
                     }
+                }
+            }
+
+            // 3. Surface required fields from generic-form
+            const formFields = await fetchGenericForm(countryCode, activeClient, config);
+            if (formFields.length > 0) {
+                const required = getRequiredFields(formFields);
+                if (required.length > 0) {
+                    const fieldLines = required.map(
+                        (f) => `  - ${f.fieldLabel} (${f.toolParam})`,
+                    );
+                    results.push(
+                        `Required fields for ${countryCode}:\n` + fieldLines.join("\n"),
+                    );
                 }
             }
 

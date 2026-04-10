@@ -100,6 +100,22 @@ export const INSURANCE_SERVICES = ['envia_insurance', 'insurance', 'high_value_p
 export type InsuranceServiceType = typeof INSURANCE_SERVICES[number];
 
 /**
+ * XML document data entry attached to a package.
+ *
+ * Used for regulatory documents like Brazil's DCe (Declaracao de Conteudo
+ * Eletronica). The carriers API expects an array of these entries inside
+ * `packages[].xmlData`.
+ */
+export interface XmlDataEntry {
+    documentType: string;
+    dceNumber?: string;
+    dceSerie?: string;
+    dceDate?: string;
+    dceKey?: string;
+    dceValue?: string;
+}
+
+/**
  * Bill of Lading complement entry (Mexican carta porte / SAT data).
  *
  * Used for domestic MX freight shipments requiring SAT catalog codes.
@@ -134,7 +150,7 @@ export interface ShipmentPackage {
     boxCode?: string;
     items?: PackageItem[];
     additionalServices?: AdditionalServiceEntry[];
-    xmlData?: string | null;
+    xmlData?: XmlDataEntry[] | null;
     packageId?: string | null;
     bolComplement?: BolComplementEntry[];
 }

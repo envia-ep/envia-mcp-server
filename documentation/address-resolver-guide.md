@@ -110,6 +110,7 @@ Orchestrator that combines postal code geocoding, Colombian DANE translation, an
 ### Current consumers
 
 - `src/tools/get-shipping-rates.ts` — uses `resolveAddress` to resolve both origin and destination from minimal input.
+- `src/tools/create-label.ts` — uses `resolveAddress` in manual mode to resolve origin and destination before label generation.
 
 ### Adopting in other tools
 
@@ -134,10 +135,11 @@ Tools that need full addresses (name, phone, street) should resolve the geograph
 
 - `address-resolver.ts` resolves **what** the city/state are (external API calls)
 - `address.ts` builds **the shape** the Envia API expects (data transformation)
-- `buildQuoteAddress()` includes a hardcoded placeholder street (`"Calle 1 #100"`) because the Envia rate API requires it even for price comparison — users never provide it for quoting
+- `buildRateAddress()` includes a hardcoded placeholder street (`"Calle 1 #100"`) because the Envia rate API requires it even for price comparison — users never provide it for quoting
+- `buildGenerateAddress()` handles the `number` field: for MX and BR it is sent as a separate field; for all other countries it remains empty (number is part of the street)
 
 ```
-User input → resolveAddress() → buildQuoteAddress() or buildAddress() → API payload
+User input → resolveAddress() → buildRateAddress() or buildGenerateAddress() → API payload
 ```
 
 ---

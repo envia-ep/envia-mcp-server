@@ -229,8 +229,8 @@ describe('requiresSeparateNumber', () => {
         expect(requiresSeparateNumber('CO')).toBe(false);
     });
 
-    it('should return false for BR', () => {
-        expect(requiresSeparateNumber('BR')).toBe(false);
+    it('should return true for BR', () => {
+        expect(requiresSeparateNumber('BR')).toBe(true);
     });
 });
 
@@ -431,8 +431,16 @@ describe('buildGenerateAddressFromShippingAddress', () => {
         expect(result.number).toBe('789');
     });
 
-    it('should set number to empty string for non-MX shipping address', () => {
+    it('should pass address_2 as number for BR shipping address', () => {
         const addr = makeShippingAddress({ country_code: 'BR', address_2: '789' });
+
+        const result = buildGenerateAddressFromShippingAddress(addr);
+
+        expect(result.number).toBe('789');
+    });
+
+    it('should set number to empty string for non-MX/BR shipping address', () => {
+        const addr = makeShippingAddress({ country_code: 'US', address_2: '789' });
 
         const result = buildGenerateAddressFromShippingAddress(addr);
 

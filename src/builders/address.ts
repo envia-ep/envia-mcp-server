@@ -24,7 +24,7 @@ export const PLACEHOLDER_STREET = 'Calle 1 #100';
  * For all other countries the full raw address goes into `street` and
  * `number` is sent as an empty string.
  */
-export const SEPARATE_NUMBER_COUNTRIES: ReadonlySet<string> = new Set(['MX']);
+export const SEPARATE_NUMBER_COUNTRIES: ReadonlySet<string> = new Set(['MX', 'BR']);
 
 /** Empty fallback — never invent address data; leave blank if the user did not provide it. */
 export const DEFAULT_SEPARATE_NUMBER = '';

@@ -7,6 +7,7 @@ import {
 } from "../helpers/fixtures.js";
 import { EnviaApiClient } from "../../src/utils/api-client.js";
 import { registerValidateAddress } from "../../src/tools/validate-address.js";
+import { clearFormCache } from "../../src/services/generic-form.js";
 
 describe("envia_validate_address", () => {
   let handler: ToolHandler;
@@ -14,6 +15,7 @@ describe("envia_validate_address", () => {
 
   beforeEach(() => {
     vi.restoreAllMocks();
+    clearFormCache();
     mockFetch = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
@@ -29,6 +31,7 @@ describe("envia_validate_address", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    clearFormCache();
   });
 
   // -------------------------------------------------------------------------
@@ -37,7 +40,8 @@ describe("envia_validate_address", () => {
   it("validates postal code via GET /zipcode/{country}/{code}", async () => {
     await handler({ country: "MX", postal_code: "03100" });
 
-    expect(mockFetch).toHaveBeenCalledOnce();
+    // 1 zipcode call + 1 generic-form call
+    expect(mockFetch).toHaveBeenCalledTimes(2);
     const [url, opts] = mockFetch.mock.calls[0];
     expect(url).toBe(`${MOCK_CONFIG.geocodesBase}/zipcode/MX/03100`);
     expect(opts.method).toBe("GET");
@@ -55,7 +59,8 @@ describe("envia_validate_address", () => {
 
     await handler({ country: "MX", city: "Monterrey" });
 
-    expect(mockFetch).toHaveBeenCalledOnce();
+    // 1 locate call + 1 generic-form call
+    expect(mockFetch).toHaveBeenCalledTimes(2);
     const [url, opts] = mockFetch.mock.calls[0];
     expect(url).toBe(`${MOCK_CONFIG.geocodesBase}/locate/MX/Monterrey`);
     expect(opts.method).toBe("GET");
@@ -84,7 +89,8 @@ describe("envia_validate_address", () => {
       city: "Monterrey",
     });
 
-    expect(mockFetch).toHaveBeenCalledTimes(2);
+    // 1 zipcode + 1 locate + 1 generic-form
+    expect(mockFetch).toHaveBeenCalledTimes(3);
     const text = result.content[0].text;
     expect(text).toContain("Postal code 03100 is valid");
     expect(text).toContain("City lookup results for");

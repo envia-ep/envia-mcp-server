@@ -33,6 +33,7 @@ import { registerClassifyHscode } from "../../src/tools/classify-hscode.js";
 import { registerCreateCommercialInvoice } from "../../src/tools/create-commercial-invoice.js";
 import { registerResources } from "../../src/resources/api-docs.js";
 import { resolveAddress } from "../../src/utils/address-resolver.js";
+import { clearFormCache } from "../../src/services/generic-form.js";
 
 vi.mock("../../src/utils/address-resolver.js", () => ({
     resolveAddress: vi.fn(),
@@ -45,6 +46,8 @@ describe("Full workflow integration", () => {
     let mockFetch: ReturnType<typeof vi.fn>;
 
     beforeEach(() => {
+        clearFormCache();
+
         resolveAddressMock.mockResolvedValue({
             postalCode: "64000",
             country: "MX",
@@ -73,16 +76,23 @@ describe("Full workflow integration", () => {
 
     afterEach(() => {
         vi.restoreAllMocks();
+        clearFormCache();
     });
 
     describe("Domestic workflow: validate → rates → label → track", () => {
         it("complete domestic shipping flow succeeds end-to-end", async () => {
-            // Step 1: Validate address
-            mockFetch.mockResolvedValueOnce({
-                ok: true,
-                status: 200,
-                json: () => Promise.resolve(MOCK_ZIPCODE_RESPONSE),
-            });
+            // Step 1: Validate address (zipcode + generic-form)
+            mockFetch
+                .mockResolvedValueOnce({
+                    ok: true,
+                    status: 200,
+                    json: () => Promise.resolve(MOCK_ZIPCODE_RESPONSE),
+                })
+                .mockResolvedValueOnce({
+                    ok: true,
+                    status: 200,
+                    json: () => Promise.resolve({ data: [] }),
+                });
 
             const validateHandler = handlers.get("envia_validate_address")!;
             const validateResult = await validateHandler({
@@ -106,7 +116,7 @@ describe("Full workflow integration", () => {
             expect(ratesResult.content[0].text).toContain("rate(s)");
             expect(ratesResult.content[0].text).toContain("dhl");
 
-            // Step 3: Create label
+            // Step 3: Create label (generic-form cached from Step 1)
             mockFetch.mockResolvedValueOnce({
                 ok: true,
                 status: 200,
@@ -141,12 +151,18 @@ describe("Full workflow integration", () => {
         });
 
         it("handles rate comparison failure mid-workflow gracefully", async () => {
-            // Step 1: Validate succeeds
-            mockFetch.mockResolvedValueOnce({
-                ok: true,
-                status: 200,
-                json: () => Promise.resolve(MOCK_ZIPCODE_RESPONSE),
-            });
+            // Step 1: Validate succeeds (zipcode + generic-form)
+            mockFetch
+                .mockResolvedValueOnce({
+                    ok: true,
+                    status: 200,
+                    json: () => Promise.resolve(MOCK_ZIPCODE_RESPONSE),
+                })
+                .mockResolvedValueOnce({
+                    ok: true,
+                    status: 200,
+                    json: () => Promise.resolve({ data: [] }),
+                });
 
             const validateHandler = handlers.get("envia_validate_address")!;
             await validateHandler({ country: "MX", postal_code: "64000" });
@@ -172,12 +188,18 @@ describe("Full workflow integration", () => {
 
     describe("International workflow: validate → classify → rates → invoice → label", () => {
         it("complete international flow succeeds end-to-end", async () => {
-            // Step 1: Validate
-            mockFetch.mockResolvedValueOnce({
-                ok: true,
-                status: 200,
-                json: () => Promise.resolve(MOCK_ZIPCODE_RESPONSE),
-            });
+            // Step 1: Validate (zipcode + generic-form)
+            mockFetch
+                .mockResolvedValueOnce({
+                    ok: true,
+                    status: 200,
+                    json: () => Promise.resolve(MOCK_ZIPCODE_RESPONSE),
+                })
+                .mockResolvedValueOnce({
+                    ok: true,
+                    status: 200,
+                    json: () => Promise.resolve({ data: [] }),
+                });
             const validateHandler = handlers.get("envia_validate_address")!;
             await validateHandler({ country: "US", postal_code: "90210" });
 
@@ -187,7 +209,7 @@ describe("Full workflow integration", () => {
                 status: 200,
                 json: () => Promise.resolve(MOCK_HSCODE_RESPONSE),
             });
-            const classifyHandler = handlers.get("envia_classify_hscode")!;
+            const classifyHandler = handlers.get("classify_hscode")!;
             const hsResult = await classifyHandler({
                 description: "cotton t-shirt",
                 include_alternatives: true,
@@ -227,12 +249,23 @@ describe("Full workflow integration", () => {
             });
             expect(invoiceResult.content[0].text).toContain("invoice created");
 
-            // Step 5: Create label
-            mockFetch.mockResolvedValueOnce({
-                ok: true,
-                status: 200,
-                json: () => Promise.resolve(MOCK_LABEL_RESPONSE),
-            });
+            // Step 5: Create label (2x generic-form via Promise.all + generate)
+            mockFetch
+                .mockResolvedValueOnce({
+                    ok: true,
+                    status: 200,
+                    json: () => Promise.resolve({ data: [] }),
+                })
+                .mockResolvedValueOnce({
+                    ok: true,
+                    status: 200,
+                    json: () => Promise.resolve({ data: [] }),
+                })
+                .mockResolvedValueOnce({
+                    ok: true,
+                    status: 200,
+                    json: () => Promise.resolve(MOCK_LABEL_RESPONSE),
+                });
             const labelHandler = handlers.get("create_shipment")!;
             const labelResult = await labelHandler({
                 ...VALID_ORIGIN_ARGS,
@@ -248,12 +281,23 @@ describe("Full workflow integration", () => {
 
     describe("Cancel workflow: create-label → cancel", () => {
         it("cancels a label using tracking number from creation step", async () => {
-            // Create label
-            mockFetch.mockResolvedValueOnce({
-                ok: true,
-                status: 200,
-                json: () => Promise.resolve(MOCK_LABEL_RESPONSE),
-            });
+            // Create label (2x generic-form via Promise.all + generate)
+            mockFetch
+                .mockResolvedValueOnce({
+                    ok: true,
+                    status: 200,
+                    json: () => Promise.resolve({ data: [] }),
+                })
+                .mockResolvedValueOnce({
+                    ok: true,
+                    status: 200,
+                    json: () => Promise.resolve({ data: [] }),
+                })
+                .mockResolvedValueOnce({
+                    ok: true,
+                    status: 200,
+                    json: () => Promise.resolve(MOCK_LABEL_RESPONSE),
+                });
             const labelHandler = handlers.get("create_shipment")!;
             await labelHandler({
                 ...VALID_ORIGIN_ARGS,
@@ -282,12 +326,23 @@ describe("Full workflow integration", () => {
 
     describe("Pickup workflow: create-label → schedule-pickup → track", () => {
         it("schedules pickup using tracking numbers from label creation", async () => {
-            // Create label
-            mockFetch.mockResolvedValueOnce({
-                ok: true,
-                status: 200,
-                json: () => Promise.resolve(MOCK_LABEL_RESPONSE),
-            });
+            // Create label (2x generic-form via Promise.all + generate)
+            mockFetch
+                .mockResolvedValueOnce({
+                    ok: true,
+                    status: 200,
+                    json: () => Promise.resolve({ data: [] }),
+                })
+                .mockResolvedValueOnce({
+                    ok: true,
+                    status: 200,
+                    json: () => Promise.resolve({ data: [] }),
+                })
+                .mockResolvedValueOnce({
+                    ok: true,
+                    status: 200,
+                    json: () => Promise.resolve(MOCK_LABEL_RESPONSE),
+                });
             const labelHandler = handlers.get("create_shipment")!;
             await labelHandler({
                 ...VALID_ORIGIN_ARGS,
@@ -341,7 +396,7 @@ describe("Full workflow integration", () => {
                 "envia_track_package",
                 "envia_cancel_shipment",
                 "envia_schedule_pickup",
-                "envia_classify_hscode",
+                "classify_hscode",
                 "envia_create_commercial_invoice",
             ];
 

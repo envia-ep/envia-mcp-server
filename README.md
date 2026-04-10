@@ -108,17 +108,17 @@ npm run start:stdio
 
 | Tool | `api_key` | Description |
 |------|-----------|-------------|
-| `envia_validate_address` | optional | Validate postal codes and look up cities |
+| `envia_validate_address` | optional | Validate postal codes, look up cities, and surface country-specific required fields |
 | `envia_list_carriers` | **required** | List available carriers and services for a country |
 | `list_additional_services` | **required** | List optional add-ons (insurance, COD, signatures) for a route |
 | `quote_shipment` | **required** | Compare rates across carriers with auto-resolved addresses |
-| `create_shipment` | **required** | Purchase a shipping label — manual or one-step ecommerce mode |
+| `create_shipment` | **required** | Purchase a shipping label with dynamic address validation and BR DCe support |
 | `envia_get_ecommerce_order` | **required** | Fetch ecommerce order details and build shipment payloads |
 | `envia_track_package` | optional | Track one or more shipments |
 | `envia_cancel_shipment` | **required** | Void a label and reclaim balance |
 | `envia_schedule_pickup` | **required** | Schedule carrier pickup |
 | `envia_get_shipment_history` | **required** | List shipments by month |
-| `classify_hscode` | optional | Classify product HS code for customs |
+| `classify_hscode` | optional | Classify product HS/NCM code for customs and BR DCe |
 | `envia_create_commercial_invoice` | **required** | Generate customs invoice PDF |
 
 ### Authentication
@@ -151,9 +151,26 @@ For **MX addresses**, the district (colonia/neighborhood) is particularly import
 - **Manual mode** — Provide addresses, package details, carrier, and service directly. For international shipments, an `items` array with customs data (quantity, price, HS code) is required.
 - **Ecommerce mode** — Pass an `order_identifier` and the tool fetches the order, extracts addresses/packages/carrier, resolves print settings, and generates the label in a single step.
 
+#### Dynamic address validation
+
+Before creating any label, `create_shipment` validates both origin and destination addresses against the country's generic-form rules (fetched from the Envia API). Each country defines which address fields are required — for example, BR requires `identificationNumber` (CPF/CNPJ), while other countries may require `district` or `reference`. Missing fields are reported with the exact tool parameter name to provide.
+
+The `envia_validate_address` tool also surfaces these required fields, so agents can proactively discover what's needed before calling `create_shipment`.
+
+#### Brazil DCe pre-authorization
+
+For BR-to-BR domestic shipments, Brazilian regulations require a Declaracao de Conteudo Eletronica (DCe) authorization from SEFAZ before labels can be generated. `create_shipment` handles this automatically:
+
+1. Validates that `items` are provided with `productCode` (NCM code) for each item
+2. Validates that both origin and destination have `identificationNumber` (CPF or CNPJ)
+3. Calls the DCe authorization endpoint to obtain SEFAZ approval
+4. Injects the resulting `xmlData` into the package payload
+
+If you already have DCe authorization data (e.g., from an external system), pass it via the `xml_data` parameter to skip auto-authorization.
+
 ### Country-specific address handling
 
-For MX addresses, the exterior number (`number`) is sent as a separate field. For all other countries, the number is part of the `street` field and `number` is left empty. This is handled automatically by the address builders.
+For MX and BR addresses, the exterior number (`number`) is sent as a separate field — provide `origin_number` / `destination_number` explicitly. For all other countries, the number is part of the `street` field and `number` is left empty. This is handled automatically by the address builders.
 
 ## Example conversations
 
@@ -216,6 +233,26 @@ AI:  [lists services with list_additional_services for CO]
        ...
 ```
 
+### Brazil domestic (DCe)
+
+```
+You: Ship a Smart TV AIWA 32" worth R$800 from São Paulo (01310-100)
+     to Rio de Janeiro (20040-020) via Correios SEDEX.
+     Sender CPF: 123.456.789-09, recipient CPF: 987.654.321-00.
+
+AI:  [validates addresses with envia_validate_address — confirms BR
+      requires identificationNumber, address fields complete]
+     [creates label with create_shipment, including items with
+      productCode "8528.72.00" and both identification numbers]
+
+     DCe authorized by SEFAZ!
+     Label created!
+       Tracking: BR123456789
+       Label PDF: https://...
+       Carrier: correios / sedex
+       DCe Key: 35260412345678900199...
+```
+
 ### Ecommerce order (one-step)
 
 ```
@@ -243,7 +280,9 @@ src/
 ├── services/              # Business logic and API orchestration
 │   ├── ecommerce-order.ts #   Fetch and transform V4 orders
 │   ├── carrier.ts         #   Carrier list fetching
-│   └── additional-service.ts  # Query available additional services
+│   ├── additional-service.ts  # Query available additional services
+│   ├── dce.ts             #   BR DCe authorization with SEFAZ
+│   └── generic-form.ts    #   Country-specific address field validation
 ├── tools/                 # MCP tool registrations (one file per tool)
 ├── types/                 # TypeScript interfaces
 │   ├── carriers-api.ts    #   Carriers API payload types (source of truth)
