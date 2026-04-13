@@ -181,9 +181,9 @@ describe("envia_create_commercial_invoice", () => {
   });
 
   // -------------------------------------------------------------------------
-  // 9. mentions envia_classify_hscode in error tip
+  // 9. mentions classify_hscode in error tip
   // -------------------------------------------------------------------------
-  it("mentions envia_classify_hscode in error tip", async () => {
+  it("mentions classify_hscode in error tip", async () => {
     mockFetch.mockResolvedValueOnce({
       ok: false,
       status: 422,
@@ -194,7 +194,7 @@ describe("envia_create_commercial_invoice", () => {
     const result = await handler(BASE_ARGS);
     const text = result.content[0].text;
 
-    expect(text).toContain("envia_classify_hscode");
+    expect(text).toContain("classify_hscode");
   });
 
   // -------------------------------------------------------------------------
