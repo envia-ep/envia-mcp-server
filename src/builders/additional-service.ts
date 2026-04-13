@@ -21,7 +21,9 @@ interface RawAdditionalServiceInput {
  *
  * Merges explicit `additional_services` entries with the convenience
  * shortcuts `insurance_type` and `cash_on_delivery_amount`, avoiding
- * duplicates.
+ * duplicates. Service names are trimmed and lowercased before deduplication
+ * and payload output so that whitespace variants and mixed-case inputs are
+ * treated as the same service.
  *
  * @param rawServices         - Explicit additional service entries from tool input
  * @param insuranceType       - Insurance convenience shortcut
@@ -40,10 +42,11 @@ export function buildAdditionalServices(
 
     if (rawServices) {
         for (const raw of rawServices) {
-            if (seen.has(raw.service)) continue;
-            seen.add(raw.service);
+            const name = raw.service.trim().toLowerCase();
+            if (!name || seen.has(name)) continue;
+            seen.add(name);
 
-            const entry: AdditionalServiceEntry = { service: raw.service };
+            const entry: AdditionalServiceEntry = { service: name };
             if (raw.amount != null && raw.amount > 0) {
                 entry.data = { amount: raw.amount };
             }

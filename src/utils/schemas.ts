@@ -28,15 +28,22 @@ export const postalCodeSchema = z
     .regex(/^[A-Za-z0-9 -]{3,10}$/, "Postal code must be 3-10 alphanumeric characters");
 
 /**
- * Required API key parameter — used by tools that always need
- * a user-specific key (rates, labels, pickups, etc.).
+ * Account-sensitive API key parameter — used by tools that perform
+ * account-level operations (rates, labels, pickups, cancellations, etc.).
+ *
+ * Optional: when omitted the server-level ENVIA_API_KEY is used. Provide a
+ * user-specific key to scope the request to a different account (multi-tenant
+ * usage). If provided the value must be non-empty after trimming.
  */
 export const requiredApiKeySchema = z
     .string()
     .trim()
-    .min(1, 'API key must not be empty')
+    .min(1, 'API key must not be empty when provided')
+    .optional()
     .describe(
-        'Envia API key. Overrides the server default. ' +
+        'Optional Envia API key. When provided, overrides the server-level ENVIA_API_KEY ' +
+        'for this request (multi-tenant / per-user usage). ' +
+        'When omitted, the server default key is used. ' +
         'Works with session token or API key. ' +
         'Get yours at https://shipping.envia.com/settings/developers',
     );

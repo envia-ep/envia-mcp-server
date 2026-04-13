@@ -151,6 +151,10 @@ export function registerCreateLabel(
                     'Sender exterior house/building number. Required for MX and BR addresses (e.g. "123", "60"). ' +
                     'For other countries the number is already part of origin_street and this field is ignored.',
                 ),
+                origin_interior_number: z.string().optional().describe(
+                    'Sender interior number / suite / apartment (e.g. "4B", "Piso 2"). ' +
+                    'Required when the country\'s address form marks interior number as mandatory.',
+                ),
                 origin_district: z.string().optional().describe(
                     'Sender neighborhood (colonia for MX, bairro for BR). Auto-resolved from postal code for MX. ' +
                     'Provide explicitly to override the auto-resolved value.',
@@ -184,6 +188,10 @@ export function registerCreateLabel(
                 destination_number: z.string().optional().describe(
                     'Recipient exterior house/building number. Required for MX and BR addresses (e.g. "456", "196"). ' +
                     'For other countries the number is already part of destination_street and this field is ignored.',
+                ),
+                destination_interior_number: z.string().optional().describe(
+                    'Recipient interior number / suite / apartment (e.g. "4B", "Piso 2"). ' +
+                    'Required when the country\'s address form marks interior number as mandatory.',
                 ),
                 destination_district: z.string().optional().describe(
                     'Recipient neighborhood (colonia for MX, bairro for BR). Auto-resolved from postal code for MX. ' +
@@ -589,6 +597,7 @@ async function handleManualMode(
         postalCode: originResolved.postalCode ?? (args.origin_postal_code as string) ?? '',
         phone: args.origin_phone as string | undefined,
         number: args.origin_number as string | undefined,
+        interior_number: args.origin_interior_number as string | undefined,
         district: (args.origin_district as string | undefined) || originResolved.district,
         company: args.origin_company as string | undefined,
         email: args.origin_email as string | undefined,
@@ -605,6 +614,7 @@ async function handleManualMode(
         postalCode: destResolved.postalCode ?? (args.destination_postal_code as string) ?? '',
         phone: args.destination_phone as string | undefined,
         number: args.destination_number as string | undefined,
+        interior_number: args.destination_interior_number as string | undefined,
         district: (args.destination_district as string | undefined) || destResolved.district,
         company: args.destination_company as string | undefined,
         email: args.destination_email as string | undefined,

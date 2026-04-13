@@ -249,13 +249,8 @@ describe("Full workflow integration", () => {
             });
             expect(invoiceResult.content[0].text).toContain("invoice created");
 
-            // Step 5: Create label (2x generic-form via Promise.all + generate)
+            // Step 5: Create label (1x generic-form — same country MX→MX + generate)
             mockFetch
-                .mockResolvedValueOnce({
-                    ok: true,
-                    status: 200,
-                    json: () => Promise.resolve({ data: [] }),
-                })
                 .mockResolvedValueOnce({
                     ok: true,
                     status: 200,
@@ -281,13 +276,8 @@ describe("Full workflow integration", () => {
 
     describe("Cancel workflow: create-label → cancel", () => {
         it("cancels a label using tracking number from creation step", async () => {
-            // Create label (2x generic-form via Promise.all + generate)
+            // Create label (1x generic-form — same country MX→MX + generate)
             mockFetch
-                .mockResolvedValueOnce({
-                    ok: true,
-                    status: 200,
-                    json: () => Promise.resolve({ data: [] }),
-                })
                 .mockResolvedValueOnce({
                     ok: true,
                     status: 200,
@@ -326,13 +316,8 @@ describe("Full workflow integration", () => {
 
     describe("Pickup workflow: create-label → schedule-pickup → track", () => {
         it("schedules pickup using tracking numbers from label creation", async () => {
-            // Create label (2x generic-form via Promise.all + generate)
+            // Create label (1x generic-form — same country MX→MX + generate)
             mockFetch
-                .mockResolvedValueOnce({
-                    ok: true,
-                    status: 200,
-                    json: () => Promise.resolve({ data: [] }),
-                })
                 .mockResolvedValueOnce({
                     ok: true,
                     status: 200,
