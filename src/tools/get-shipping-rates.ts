@@ -385,8 +385,15 @@ export function registerGetShippingRates(
 
 /**
  * Collect the set of additional service names that appear in the rate
- * response — from `costAdditionalServices` plus the dedicated insurance
- * and COD fields.
+ * response — from `costAdditionalServices` plus the dedicated COD field.
+ *
+ * Insurance services are NOT inferred from `rate.insurance > 0` because that
+ * field is a rolled-up monetary total and does not identify which insurance
+ * product (envia_insurance, insurance, high_value_protection) was applied.
+ * Adding all three identifiers unconditionally would suppress the "not
+ * applied" warning for the two variants that were not requested. Insurance
+ * services are already captured by name via `costAdditionalServices` when the
+ * carrier populates that field.
  *
  * @param rate - A single rate entry from the carriers API
  * @returns Set of applied service name strings
@@ -399,12 +406,6 @@ function extractAppliedServiceNames(rate: RateEntry): Set<string> {
         for (const svc of summary.costAdditionalServices) {
             names.add(svc.additionalService);
         }
-    }
-
-    if (rate.insurance > 0) {
-        names.add('envia_insurance');
-        names.add('insurance');
-        names.add('high_value_protection');
     }
 
     if (rate.cashOnDeliveryCommission > 0 || rate.cashOnDeliveryAmount > 0) {

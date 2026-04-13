@@ -36,7 +36,14 @@ export function registerCreateCommercialInvoice(
                 // Origin
                 origin_name: z.string().describe("Shipper / exporter full name"),
                 origin_phone: z.string().describe("Shipper phone number"),
-                origin_street: z.string().describe("Shipper street address"),
+                origin_street: z.string().describe(
+                    'Shipper street name. For MX and BR, put only the street name here ' +
+                    'and use origin_number for the exterior number.',
+                ),
+                origin_number: z.string().optional().describe(
+                    'Shipper exterior house/building number. Required for MX and BR addresses (e.g. "123"). ' +
+                    'For other countries the number is already part of origin_street and this field is ignored.',
+                ),
                 origin_city: z.string().describe("Shipper city"),
                 origin_state: z.string().describe("Shipper state / province code"),
                 origin_country: countrySchema.describe("Shipper country (ISO 3166-1 alpha-2, e.g. MX)"),
@@ -45,7 +52,14 @@ export function registerCreateCommercialInvoice(
                 // Destination
                 destination_name: z.string().describe("Recipient / importer full name"),
                 destination_phone: z.string().describe("Recipient phone number"),
-                destination_street: z.string().describe("Recipient street address"),
+                destination_street: z.string().describe(
+                    'Recipient street name. For MX and BR, put only the street name here ' +
+                    'and use destination_number for the exterior number.',
+                ),
+                destination_number: z.string().optional().describe(
+                    'Recipient exterior house/building number. Required for MX and BR addresses (e.g. "456"). ' +
+                    'For other countries the number is already part of destination_street and this field is ignored.',
+                ),
                 destination_city: z.string().describe("Recipient city"),
                 destination_state: z.string().describe("Recipient state / province code"),
                 destination_country: countrySchema.describe("Recipient country (ISO 3166-1 alpha-2)"),
@@ -78,6 +92,7 @@ export function registerCreateCommercialInvoice(
                 origin: buildGenerateAddress({
                     name: args.origin_name,
                     street: args.origin_street,
+                    number: args.origin_number,
                     city: args.origin_city,
                     state: args.origin_state,
                     country: args.origin_country,
@@ -87,6 +102,7 @@ export function registerCreateCommercialInvoice(
                 destination: buildGenerateAddress({
                     name: args.destination_name,
                     street: args.destination_street,
+                    number: args.destination_number,
                     city: args.destination_city,
                     state: args.destination_state,
                     country: args.destination_country,
@@ -131,7 +147,7 @@ export function registerCreateCommercialInvoice(
                     content: [
                         {
                             type: "text",
-                            text: `Commercial invoice creation failed: ${res.error}\n\nTip: Verify the HS code with envia_classify_hscode, and ensure all address fields are complete.`,
+                            text: `Commercial invoice creation failed: ${res.error}\n\nTip: Verify the HS code with classify_hscode, and ensure all address fields are complete.`,
                         },
                     ],
                 };
