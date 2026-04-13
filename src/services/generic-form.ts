@@ -69,9 +69,20 @@ const FIELD_TO_TOOL_PARAM: Record<string, string> = {
     district_select: 'district',
     identificationNumber: 'identification_number',
     reference: 'reference',
-    alias: 'alias',
-    state_registration: 'state_registration',
 };
+
+/**
+ * Generic-form field IDs that `create_shipment` does not support.
+ *
+ * These fields have no corresponding tool parameter and are not sent to the
+ * carrier API. When a country marks them as required the validation skips them
+ * (with a server-side warning) rather than surfacing an unsatisfiable error to
+ * the caller. The shipment is attempted without those fields; if the carrier
+ * rejects it, the error will come back from the API.
+ *
+ * Extend this set when new unsupported fields are discovered.
+ */
+const UNSUPPORTED_FIELD_IDS: ReadonlySet<string> = new Set(['alias', 'state_registration']);
 
 /**
  * Maps generic_forms `fieldId` values to GenerateAddress property names for
@@ -163,14 +174,26 @@ export async function fetchGenericForm(
 /**
  * Extract descriptors for all required fields from a form definition.
  *
- * Only considers visible fields whose `rules.required` is truthy.
+ * Only considers visible fields whose `rules.required` is truthy. Fields
+ * listed in {@link UNSUPPORTED_FIELD_IDS} are excluded with a warning — the
+ * tool has no parameter for them and cannot satisfy the requirement.
  *
  * @param formFields - Array of form field definitions
  * @returns Descriptors for required fields with fieldId, label, and tool param name
  */
 export function getRequiredFields(formFields: GenericFormField[]): RequiredFieldDescriptor[] {
     return formFields
-        .filter((f) => f.rules?.required && f.visible !== false)
+        .filter((f) => {
+            if (!f.rules?.required || f.visible === false) return false;
+            if (UNSUPPORTED_FIELD_IDS.has(f.fieldId)) {
+                console.warn(
+                    `[generic-form] Required field "${f.fieldId}" is not supported by create_shipment ` +
+                    `and will be skipped. The carrier may reject the request if this field is mandatory.`,
+                );
+                return false;
+            }
+            return true;
+        })
         .map((f) => ({
             fieldId: f.fieldId,
             fieldLabel: f.fieldLabel || f.fieldName || f.fieldId,

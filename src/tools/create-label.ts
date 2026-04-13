@@ -420,6 +420,23 @@ async function handleEcommerceMode(
                     );
                 }
 
+                const itemsMissingNcm = itemsForDce.filter((it) => !it.productCode);
+                if (itemsMissingNcm.length > 0) {
+                    const missing = itemsMissingNcm
+                        .map((it) => `  - "${it.description || 'unnamed'}"`)
+                        .join('\n');
+                    return textResponse(
+                        'Error: productCode (NCM) is required for every item in BR-to-BR shipments (DCe authorization).\n' +
+                        'Ecommerce order products do not include NCM codes, so auto-authorization cannot proceed.\n\n' +
+                        `Items missing NCM:\n${missing}\n\n` +
+                        'Options:\n' +
+                        '  1. Pre-authorize the DCe manually and pass the result as xml_data.\n' +
+                        '  2. Use manual mode (omit order_identifier) and supply items with productCode (NCM) for each product.\n' +
+                        '     Use classify_hscode to look up the correct NCM code for each item.\n' +
+                        '     Example: items: [{ description: "T-shirt", quantity: 1, price: 50, productCode: "6109.10.00" }]',
+                    );
+                }
+
                 const dceResult = await authorizeDce(
                     buildDcePayload(originAddr, destAddr, itemsForDce, carrier),
                     client,
@@ -715,9 +732,6 @@ async function handleManualMode(
         settings,
     };
 
-    // do not remove this console.error
-    // it is used to debug the payload
-    console.error(JSON.stringify(body));
     return postGenerateAndFormat(body, client, config);
 }
 
@@ -777,12 +791,13 @@ async function validateAddressesViaGenericForm(
     client: EnviaApiClient,
     config: EnviaConfig,
 ): Promise<McpTextResponse | null> {
-    const [originForm, destForm] = await Promise.all([
-        fetchGenericForm(originCountry, client, config),
-        originCountry.toUpperCase() === destCountry.toUpperCase()
-            ? fetchGenericForm(originCountry, client, config)
-            : fetchGenericForm(destCountry, client, config),
-    ]);
+    const isSameCountry = originCountry.toUpperCase() === destCountry.toUpperCase();
+    const [originForm, destForm] = isSameCountry
+        ? await fetchGenericForm(originCountry, client, config).then((form) => [form, form] as const)
+        : await Promise.all([
+              fetchGenericForm(originCountry, client, config),
+              fetchGenericForm(destCountry, client, config),
+          ]);
 
     const originRequired = getRequiredFields(originForm);
     const destRequired = getRequiredFields(destForm);

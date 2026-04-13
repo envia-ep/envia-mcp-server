@@ -253,7 +253,7 @@ describe('buildGenerateAddress', () => {
         postalCode: '90001',
     };
 
-    it('should default number to S/N for MX when not provided', () => {
+    it('should default number to empty string for MX when number is absent from input', () => {
         const result = buildGenerateAddress(mxInput);
 
         expect(result).toEqual({
@@ -308,7 +308,7 @@ describe('buildGenerateAddress', () => {
         expect(result.identificationNumber).toBe('ABCD123456XYZ');
     });
 
-    it('should default number to S/N for MX when empty string', () => {
+    it('should default number to empty string for MX when not provided', () => {
         const result = buildGenerateAddress({ ...mxInput, number: '' });
 
         expect(result.number).toBe(DEFAULT_SEPARATE_NUMBER);
@@ -352,7 +352,7 @@ describe('buildGenerateAddress', () => {
 // ---------------------------------------------------------------------------
 
 describe('buildGenerateAddressFromLocation', () => {
-    it('should default number to S/N for MX location', () => {
+    it('should default number to empty string for MX location when address_2 is absent', () => {
         const loc = makeLocation();
 
         const result = buildGenerateAddressFromLocation(loc);
@@ -406,7 +406,7 @@ describe('buildGenerateAddressFromLocation', () => {
 // ---------------------------------------------------------------------------
 
 describe('buildGenerateAddressFromShippingAddress', () => {
-    it('should default number to S/N for MX shipping address', () => {
+    it('should default number to empty string for MX shipping address when address_2 is absent', () => {
         const addr = makeShippingAddress();
 
         const result = buildGenerateAddressFromShippingAddress(addr);

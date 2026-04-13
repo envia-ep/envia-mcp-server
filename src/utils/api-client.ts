@@ -183,8 +183,9 @@ export function resolveClient(
     apiKey: string | undefined,
     config: EnviaConfig,
 ): EnviaApiClient {
-    if (apiKey && apiKey.trim() !== config.apiKey) {
-        return new EnviaApiClient({ ...config, apiKey: apiKey.trim() });
+    const key = apiKey?.trim();
+    if (key && key !== config.apiKey) {
+        return new EnviaApiClient({ ...config, apiKey: key });
     }
     return client;
 }

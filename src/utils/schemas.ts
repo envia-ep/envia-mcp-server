@@ -31,17 +31,26 @@ export const postalCodeSchema = z
  * Required API key parameter — used by tools that always need
  * a user-specific key (rates, labels, pickups, etc.).
  */
-export const requiredApiKeySchema = z.string().describe(
-    'Envia API key. Overrides the server default. ' +
-    'Works with session token or API key' +
-    'Get yours at https://shipping.envia.com/settings/developers',
-);
+export const requiredApiKeySchema = z
+    .string()
+    .trim()
+    .min(1, 'API key must not be empty')
+    .describe(
+        'Envia API key. Overrides the server default. ' +
+        'Works with session token or API key. ' +
+        'Get yours at https://shipping.envia.com/settings/developers',
+    );
 
 /**
  * Optional API key parameter — used by tools that can work with
  * the server default but accept an override (tracking, validation, HS codes).
  */
-export const optionalApiKeySchema = z.string().optional().describe(
-    'Optional Envia API key to override the server default.' +
-    'Works with session token or API key',
-);
+export const optionalApiKeySchema = z
+    .string()
+    .trim()
+    .min(1, 'API key must not be empty when provided')
+    .optional()
+    .describe(
+        'Optional Envia API key to override the server default. ' +
+        'Works with session token or API key.',
+    );
