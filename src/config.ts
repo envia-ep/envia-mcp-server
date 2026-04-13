@@ -47,7 +47,7 @@ const GEOCODES_BASE = "https://geocodes.envia.com";
  *   ENVIA_ENVIRONMENT — "sandbox" (default) | "production"
  */
 export function loadConfig(): EnviaConfig {
-    const apiKey = process.env.ENVIA_API_KEY;
+    const apiKey = process.env.ENVIA_API_KEY?.trim();
     if (!apiKey) {
         throw new Error(
             "ENVIA_API_KEY is required. Set it as an environment variable.\n" +

@@ -5,12 +5,13 @@
  * Required by customs for cross-border shipments.
  */
 
-import { z } from "zod";
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { EnviaApiClient } from "../utils/api-client.js";
-import type { EnviaConfig } from "../config.js";
-import { countrySchema, carrierSchema } from "../utils/schemas.js";
-import { buildGenerateAddress } from "../builders/address.js";
+import { z } from 'zod';
+import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { EnviaApiClient } from '../utils/api-client.js';
+import { resolveClient } from '../utils/api-client.js';
+import type { EnviaConfig } from '../config.js';
+import { countrySchema, carrierSchema, requiredApiKeySchema } from '../utils/schemas.js';
+import { buildGenerateAddress } from '../builders/address.js';
 
 interface InvoiceData {
     invoiceId?: string;
@@ -31,10 +32,18 @@ export function registerCreateCommercialInvoice(
                 "Customs authorities require this document for cross-border shipments. " +
                 "Provide origin/destination, item details (description, HS code, quantity, price), and export reason.",
             inputSchema: z.object({
+                api_key: requiredApiKeySchema,
                 // Origin
                 origin_name: z.string().describe("Shipper / exporter full name"),
                 origin_phone: z.string().describe("Shipper phone number"),
-                origin_street: z.string().describe("Shipper street address"),
+                origin_street: z.string().describe(
+                    'Shipper street name. For MX and BR, put only the street name here ' +
+                    'and use origin_number for the exterior number.',
+                ),
+                origin_number: z.string().optional().describe(
+                    'Shipper exterior house/building number. Required for MX and BR addresses (e.g. "123"). ' +
+                    'For other countries the number is already part of origin_street and this field is ignored.',
+                ),
                 origin_city: z.string().describe("Shipper city"),
                 origin_state: z.string().describe("Shipper state / province code"),
                 origin_country: countrySchema.describe("Shipper country (ISO 3166-1 alpha-2, e.g. MX)"),
@@ -43,7 +52,14 @@ export function registerCreateCommercialInvoice(
                 // Destination
                 destination_name: z.string().describe("Recipient / importer full name"),
                 destination_phone: z.string().describe("Recipient phone number"),
-                destination_street: z.string().describe("Recipient street address"),
+                destination_street: z.string().describe(
+                    'Recipient street name. For MX and BR, put only the street name here ' +
+                    'and use destination_number for the exterior number.',
+                ),
+                destination_number: z.string().optional().describe(
+                    'Recipient exterior house/building number. Required for MX and BR addresses (e.g. "456"). ' +
+                    'For other countries the number is already part of destination_street and this field is ignored.',
+                ),
                 destination_city: z.string().describe("Recipient city"),
                 destination_state: z.string().describe("Recipient state / province code"),
                 destination_country: countrySchema.describe("Recipient country (ISO 3166-1 alpha-2)"),
@@ -71,10 +87,12 @@ export function registerCreateCommercialInvoice(
             }),
         },
         async (args) => {
+            const activeClient = resolveClient(client, args.api_key, config);
             const body = {
                 origin: buildGenerateAddress({
                     name: args.origin_name,
                     street: args.origin_street,
+                    number: args.origin_number,
                     city: args.origin_city,
                     state: args.origin_state,
                     country: args.origin_country,
@@ -84,6 +102,7 @@ export function registerCreateCommercialInvoice(
                 destination: buildGenerateAddress({
                     name: args.destination_name,
                     street: args.destination_street,
+                    number: args.destination_number,
                     city: args.destination_city,
                     state: args.destination_state,
                     country: args.destination_country,
@@ -121,14 +140,14 @@ export function registerCreateCommercialInvoice(
             };
 
             const url = `${config.shippingBase}/ship/commercial-invoice`;
-            const res = await client.post<{ data: InvoiceData }>(url, body);
+            const res = await activeClient.post<{ data: InvoiceData }>(url, body);
 
             if (!res.ok) {
                 return {
                     content: [
                         {
                             type: "text",
-                            text: `Commercial invoice creation failed: ${res.error}\n\nTip: Verify the HS code with envia_classify_hscode, and ensure all address fields are complete.`,
+                            text: `Commercial invoice creation failed: ${res.error}\n\nTip: Verify the HS code with classify_hscode, and ensure all address fields are complete.`,
                         },
                     ],
                 };
@@ -148,7 +167,7 @@ export function registerCreateCommercialInvoice(
                 "Next steps:",
                 "  • Download and print the invoice PDF",
                 "  • Attach it to the outside of the package (with the shipping label)",
-                "  • Use envia_create_label to generate the shipping label",
+                "  • Use create_shipment to generate the shipping label",
             );
 
             return { content: [{ type: "text", text: lines.join("\n") }] };

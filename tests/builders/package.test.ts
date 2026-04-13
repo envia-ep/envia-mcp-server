@@ -11,6 +11,7 @@ import {
     buildPackageFromV4,
     buildPackagesFromV4,
     buildItemsFromV4,
+    validateInsuranceExclusivity,
 } from '../../src/builders/package.js';
 import type { V4Package, V4Product } from '../../src/types/ecommerce-order.js';
 
@@ -91,9 +92,30 @@ describe('buildManualPackage', () => {
         expect(result.type).toBe('box');
         expect(result.content).toBe('General merchandise');
         expect(result.amount).toBe(1);
-        expect(result.declaredValue).toBe(0);
+        expect(result.declaredValue).toBeUndefined();
         expect(result.weightUnit).toBe('KG');
         expect(result.lengthUnit).toBe('CM');
+    });
+
+    it('should include insurance and boxCode when provided', () => {
+        const result = buildManualPackage({
+            weight: 1,
+            length: 10,
+            width: 10,
+            height: 10,
+            insurance: 1000,
+            boxCode: 'FLAT_MED',
+        });
+
+        expect(result.insurance).toBe(1000);
+        expect(result.boxCode).toBe('FLAT_MED');
+    });
+
+    it('should omit insurance and boxCode when not provided', () => {
+        const result = buildManualPackage({ weight: 1, length: 10, width: 10, height: 10 });
+
+        expect(result.insurance).toBeUndefined();
+        expect(result.boxCode).toBeUndefined();
     });
 
     it('should allow overriding type, amount, and units', () => {
@@ -112,6 +134,38 @@ describe('buildManualPackage', () => {
         expect(result.amount).toBe(3);
         expect(result.weightUnit).toBe('LB');
         expect(result.lengthUnit).toBe('IN');
+    });
+
+    it('should include items when provided', () => {
+        const result = buildManualPackage({
+            weight: 2,
+            length: 10,
+            width: 10,
+            height: 10,
+            items: [{ description: 'Leather handbag', quantity: 1, price: 299, productCode: '4202.21' }],
+        });
+
+        expect(result.items).toEqual([
+            { description: 'Leather handbag', quantity: 1, price: 299, productCode: '4202.21' },
+        ]);
+    });
+
+    it('should omit items when array is empty', () => {
+        const result = buildManualPackage({
+            weight: 1,
+            length: 10,
+            width: 10,
+            height: 10,
+            items: [],
+        });
+
+        expect(result.items).toBeUndefined();
+    });
+
+    it('should omit items when not provided', () => {
+        const result = buildManualPackage({ weight: 1, length: 10, width: 10, height: 10 });
+
+        expect(result.items).toBeUndefined();
     });
 });
 
@@ -135,6 +189,57 @@ describe('buildPackageFromV4', () => {
         expect(result.dimensions).toEqual({ length: 20, width: 15, height: 10 });
     });
 
+    it('should omit declaredValue when zero', () => {
+        const pkg = makePackage({ declared_value: 0 });
+
+        const result = buildPackageFromV4(pkg, false);
+
+        expect(result.declaredValue).toBeUndefined();
+    });
+
+    it('should include insurance when greater than zero', () => {
+        const pkg = makePackage({ insurance: 2000 });
+
+        const result = buildPackageFromV4(pkg, false);
+
+        expect(result.insurance).toBe(2000);
+    });
+
+    it('should omit insurance when zero', () => {
+        const pkg = makePackage({ insurance: 0 });
+
+        const result = buildPackageFromV4(pkg, false);
+
+        expect(result.insurance).toBeUndefined();
+    });
+
+    it('should include boxCode when present', () => {
+        const pkg = makePackage({ box_code: 'FLAT_RATE_SM' });
+
+        const result = buildPackageFromV4(pkg, false);
+
+        expect(result.boxCode).toBe('FLAT_RATE_SM');
+    });
+
+    it('should omit boxCode when null', () => {
+        const pkg = makePackage({ box_code: null });
+
+        const result = buildPackageFromV4(pkg, false);
+
+        expect(result.boxCode).toBeUndefined();
+    });
+
+    it('should include additionalServices when present', () => {
+        const pkg = makePackage({
+            additional_services: [{ service: 'insurance', data: { amount: 500 } }],
+        });
+
+        const result = buildPackageFromV4(pkg, false);
+
+        expect(result.additionalServices).toHaveLength(1);
+        expect(result.additionalServices![0]).toEqual({ service: 'insurance', data: { amount: 500 } });
+    });
+
     it('should include items when includeItems is true', () => {
         const pkg = makePackage();
 
@@ -142,7 +247,7 @@ describe('buildPackageFromV4', () => {
 
         expect(result.items).toBeDefined();
         expect(result.items).toHaveLength(1);
-        expect(result.items![0].name).toBe('Blue T-Shirt');
+        expect(result.items![0].description).toBe('Blue T-Shirt');
     });
 
     it('should omit items when includeItems is false', () => {
@@ -203,14 +308,14 @@ describe('buildPackagesFromV4', () => {
 // ---------------------------------------------------------------------------
 
 describe('buildItemsFromV4', () => {
-    it('should map V4 products to package items', () => {
+    it('should map V4 products to package items using schema field names', () => {
         const products = [makeProduct()];
 
         const result = buildItemsFromV4(products);
 
         expect(result).toHaveLength(1);
         expect(result[0]).toEqual({
-            name: 'Blue T-Shirt',
+            description: 'Blue T-Shirt',
             sku: 'TSH-001',
             quantity: 2,
             price: 299.99,
@@ -218,19 +323,139 @@ describe('buildItemsFromV4', () => {
         });
     });
 
-    it('should default sku to empty string when null', () => {
+    it('should omit sku when null', () => {
         const products = [makeProduct({ sku: null })];
 
         const result = buildItemsFromV4(products);
 
-        expect(result[0].sku).toBe('');
+        expect(result[0].sku).toBeUndefined();
     });
 
-    it('should default weight to 0 when null', () => {
+    it('should omit weight when null', () => {
         const products = [makeProduct({ weight: null })];
 
         const result = buildItemsFromV4(products);
 
-        expect(result[0].weight).toBe(0);
+        expect(result[0].weight).toBeUndefined();
+    });
+
+    it('should omit weight when zero', () => {
+        const products = [makeProduct({ weight: 0 })];
+
+        const result = buildItemsFromV4(products);
+
+        expect(result[0].weight).toBeUndefined();
+    });
+});
+
+// ---------------------------------------------------------------------------
+// buildManualPackage — additional services
+// ---------------------------------------------------------------------------
+
+describe('buildManualPackage — additional services', () => {
+    it('should include additionalServices when provided', () => {
+        const result = buildManualPackage({
+            weight: 2,
+            length: 10,
+            width: 10,
+            height: 10,
+            additionalServices: [{ service: 'adult_signature_required' }],
+        });
+
+        expect(result.additionalServices).toEqual([{ service: 'adult_signature_required' }]);
+    });
+
+    it('should include additionalServices with amount data', () => {
+        const result = buildManualPackage({
+            weight: 2,
+            length: 10,
+            width: 10,
+            height: 10,
+            additionalServices: [
+                { service: 'cash_on_delivery', data: { amount: 500 } },
+                { service: 'envia_insurance', data: { amount: 1000 } },
+            ],
+        });
+
+        expect(result.additionalServices).toHaveLength(2);
+        expect(result.additionalServices![0]).toEqual({ service: 'cash_on_delivery', data: { amount: 500 } });
+        expect(result.additionalServices![1]).toEqual({ service: 'envia_insurance', data: { amount: 1000 } });
+    });
+
+    it('should omit additionalServices when array is empty', () => {
+        const result = buildManualPackage({
+            weight: 1,
+            length: 10,
+            width: 10,
+            height: 10,
+            additionalServices: [],
+        });
+
+        expect(result.additionalServices).toBeUndefined();
+    });
+
+    it('should omit additionalServices when not provided', () => {
+        const result = buildManualPackage({ weight: 1, length: 10, width: 10, height: 10 });
+
+        expect(result.additionalServices).toBeUndefined();
+    });
+});
+
+// ---------------------------------------------------------------------------
+// validateInsuranceExclusivity
+// ---------------------------------------------------------------------------
+
+describe('validateInsuranceExclusivity', () => {
+    it('should return null when no insurance services are present', () => {
+        const result = validateInsuranceExclusivity([
+            { service: 'cash_on_delivery', data: { amount: 100 } },
+            { service: 'adult_signature_required' },
+        ]);
+
+        expect(result).toBeNull();
+    });
+
+    it('should return null when exactly one insurance service is present', () => {
+        const result = validateInsuranceExclusivity([
+            { service: 'envia_insurance', data: { amount: 500 } },
+            { service: 'cash_on_delivery', data: { amount: 100 } },
+        ]);
+
+        expect(result).toBeNull();
+    });
+
+    it('should return error when two insurance services are present', () => {
+        const result = validateInsuranceExclusivity([
+            { service: 'envia_insurance', data: { amount: 500 } },
+            { service: 'high_value_protection', data: { amount: 500 } },
+        ]);
+
+        expect(result).not.toBeNull();
+        expect(result).toContain('envia_insurance');
+        expect(result).toContain('high_value_protection');
+    });
+
+    it('should return error when all three insurance services are present', () => {
+        const result = validateInsuranceExclusivity([
+            { service: 'envia_insurance', data: { amount: 500 } },
+            { service: 'insurance', data: { amount: 500 } },
+            { service: 'high_value_protection', data: { amount: 500 } },
+        ]);
+
+        expect(result).not.toBeNull();
+    });
+
+    it('should return null for empty array', () => {
+        const result = validateInsuranceExclusivity([]);
+
+        expect(result).toBeNull();
+    });
+
+    it('should return null when only carrier insurance is present', () => {
+        const result = validateInsuranceExclusivity([
+            { service: 'insurance', data: { amount: 200 } },
+        ]);
+
+        expect(result).toBeNull();
     });
 });

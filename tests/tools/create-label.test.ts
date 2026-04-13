@@ -1,5 +1,5 @@
 /**
- * Tests for the envia_create_label tool (dual-mode: manual + ecommerce).
+ * Tests for the create_shipment tool (dual-mode: manual + ecommerce).
  *
  * Manual mode: address resolution is mocked at the module level.
  * Ecommerce mode: order fetch, print settings, and generate API are mocked via global fetch.
@@ -153,7 +153,7 @@ const VALID_MANUAL_ARGS = {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('envia_create_label', () => {
+describe('create_shipment', () => {
     let handler: ToolHandler;
     let mockFetch: ReturnType<typeof vi.fn>;
 
@@ -177,7 +177,7 @@ describe('envia_create_label', () => {
         const { server, handlers } = createMockServer();
         const client = new EnviaApiClient(MOCK_CONFIG);
         registerCreateLabel(server, client, MOCK_CONFIG);
-        handler = handlers.get('envia_create_label')!;
+        handler = handlers.get('create_shipment')!;
     });
 
     afterEach(() => {

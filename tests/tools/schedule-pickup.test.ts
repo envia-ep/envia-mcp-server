@@ -111,6 +111,7 @@ describe("envia_schedule_pickup", () => {
       name: VALID_ORIGIN_ARGS.origin_name,
       phone: VALID_ORIGIN_ARGS.origin_phone,
       street: VALID_ORIGIN_ARGS.origin_street,
+      number: '',
       city: VALID_ORIGIN_ARGS.origin_city,
       state: VALID_ORIGIN_ARGS.origin_state,
       country: VALID_ORIGIN_ARGS.origin_country.toUpperCase(),

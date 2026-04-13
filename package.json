@@ -1,6 +1,6 @@
 {
   "name": "@envia/envia-mcp",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "MCP server for Envia shipping APIs — quote rates, create labels, track packages, and more from your AI assistant.",
   "keywords": [
     "mcp",
@@ -36,6 +36,7 @@
     "build": "tsc",
     "dev": "tsc --watch",
     "start": "node dist/index.js",
+    "start:stdio": "MCP_TRANSPORT=stdio node dist/index.js",
     "lint": "eslint src/",
     "test": "vitest run",
     "test:watch": "vitest",

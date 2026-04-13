@@ -333,7 +333,7 @@ describe("Resource Abuse / DoS Prevention", () => {
             shipment_type: 1,
         };
 
-        const result = await callHandler("envia_create_label", args);
+        const result = await callHandler("create_shipment", args);
 
         expect(result.content[0].text).toBeDefined();
         expect(result.content[0].text).toContain("Label created successfully");

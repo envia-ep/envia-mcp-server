@@ -25,6 +25,8 @@ export interface RateAddress {
     state?: string;
     country: string;
     postalCode?: string;
+    /** Neighborhood / colonia. Important for MX where some carriers validate at this level. */
+    district?: string;
 }
 
 /**
@@ -37,7 +39,8 @@ export interface RateAddress {
 export interface GenerateAddress {
     name: string;
     street: string;
-    number?: string;
+    /** Exterior house/building number. Required by the generate schema. */
+    number: string;
     district?: string;
     interior_number?: string;
     city: string;
@@ -63,33 +66,93 @@ export interface PackageDimensions {
 }
 
 /**
- * Product item within a package.
- * Used for international shipments and customs declarations.
+ * Product item within a package (definitions.packageItem).
+ *
+ * Used for international shipments, landed-cost calculation, and customs.
+ * Required: quantity, price. All other fields are optional.
  */
 export interface PackageItem {
-    name: string;
-    sku: string;
+    description?: string;
     quantity: number;
     price: number;
-    weight: number;
+    weight?: number | null;
+    productCode?: string | null;
+    countryOfManufacture?: string | null;
+    currency?: string | null;
+    sku?: string | null;
+    cfop?: string | null;
+}
+
+/**
+ * Additional service attached to a package (e.g. insurance, COD, signatures).
+ *
+ * Matches the `{ service, data }` structure expected by the carriers API
+ * inside `packages[].additionalServices`.
+ */
+export interface AdditionalServiceEntry {
+    service: string;
+    data?: { amount?: number };
+}
+
+/** Insurance-type service identifiers. Only one may be selected per package. */
+export const INSURANCE_SERVICES = ['envia_insurance', 'insurance', 'high_value_protection'] as const;
+
+export type InsuranceServiceType = typeof INSURANCE_SERVICES[number];
+
+/**
+ * XML document data entry attached to a package.
+ *
+ * Used for regulatory documents like Brazil's DCe (Declaracao de Conteudo
+ * Eletronica). The carriers API expects an array of these entries inside
+ * `packages[].xmlData`.
+ */
+export interface XmlDataEntry {
+    documentType: string;
+    dceNumber?: string;
+    dceSerie?: string;
+    dceDate?: string;
+    dceKey?: string;
+    dceValue?: string;
+}
+
+/**
+ * Bill of Lading complement entry (Mexican carta porte / SAT data).
+ *
+ * Used for domestic MX freight shipments requiring SAT catalog codes.
+ */
+export interface BolComplementEntry {
+    productDescription?: string | null;
+    productCode?: string | null;
+    weightUnit?: string | null;
+    packagingType?: string | null;
+    quantity?: number | null;
+    unitPrice?: number | null;
 }
 
 /**
  * Package payload for both rate quoting and label generation.
  *
- * Matches the `definitions.singlePackage` in rate.v1.schema and
- * generate.v1.schema (shared core structure).
+ * Matches `definitions.singlePackage` in rate.v1.schema and
+ * generate.v1.schema.
+ *
+ * Required: content, amount, type, dimensions, weight.
  */
 export interface ShipmentPackage {
     type: string;
     content: string;
     amount: number;
-    declaredValue: number;
     weight: number;
     weightUnit: string;
     lengthUnit: string;
     dimensions: PackageDimensions;
+    declaredValue?: number | null;
+    insurance?: number | null;
+    boxCode?: string;
     items?: PackageItem[];
+    additionalServices?: AdditionalServiceEntry[];
+    xmlData?: XmlDataEntry[] | null;
+    packageId?: string | null;
+    bolComplement?: BolComplementEntry[];
 }
 
 // ---------------------------------------------------------------------------
@@ -143,4 +206,35 @@ export interface EcommerceSection {
     order_name: string;
     order_number: string;
     type_generate: 'multi_generate';
+}
+
+// ---------------------------------------------------------------------------
+// Rate response types
+// ---------------------------------------------------------------------------
+
+/** A line item inside `costSummary[].costAdditionalServices` or `costAdditionalCharges`. */
+export interface CostAdditionalServiceEntry {
+    additionalService: string;
+    translationTag?: string;
+    commission: number;
+    taxes: number;
+    cost: number;
+}
+
+/** Cost summary for a single package inside a rate response entry. */
+export interface RateCostSummary {
+    basePrice: number;
+    basePriceTaxes: number;
+    additionalServices: number;
+    additionalServicesTaxes: number;
+    additionalCharges: number;
+    additionalChargesTaxes: number;
+    taxes: number;
+    totalPrice: number;
+    insurance: number;
+    cashOnDeliveryCommission: number;
+    cashOnDeliveryAmount: number;
+    costAdditionalServices?: CostAdditionalServiceEntry[];
+    costAdditionalCharges?: CostAdditionalServiceEntry[];
+    currency?: string;
 }

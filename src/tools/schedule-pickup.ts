@@ -5,12 +5,13 @@
  * and date/time window.
  */
 
-import { z } from "zod";
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { EnviaApiClient } from "../utils/api-client.js";
-import type { EnviaConfig } from "../config.js";
-import { countrySchema, carrierSchema, dateSchema } from "../utils/schemas.js";
-import { buildGenerateAddress } from "../builders/address.js";
+import { z } from 'zod';
+import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { EnviaApiClient } from '../utils/api-client.js';
+import { resolveClient } from '../utils/api-client.js';
+import type { EnviaConfig } from '../config.js';
+import { countrySchema, carrierSchema, dateSchema, requiredApiKeySchema } from '../utils/schemas.js';
+import { buildGenerateAddress } from '../builders/address.js';
 
 interface PickupData {
     carrier?: string;
@@ -31,9 +32,10 @@ export function registerSchedulePickup(
         {
             description:
                 "Schedule a carrier pickup at a specific address and date/time window. " +
-                "You must have already created labels with envia_create_label — provide the tracking numbers. " +
+                "You must have already created labels with create_shipment — provide the tracking numbers. " +
                 "The carrier will arrive between time_from and time_to on the chosen date.",
             inputSchema: z.object({
+                api_key: requiredApiKeySchema,
                 // Origin address for pickup
                 origin_name: z.string().describe("Contact name at pickup location"),
                 origin_phone: z.string().describe("Contact phone at pickup location"),
@@ -70,6 +72,7 @@ export function registerSchedulePickup(
             }),
         },
         async (args) => {
+            const activeClient = resolveClient(client, args.api_key, config);
             const trackingNumbers = args.tracking_numbers
                 .split(",")
                 .map((s) => s.trim())
@@ -80,7 +83,7 @@ export function registerSchedulePickup(
                     content: [
                         {
                             type: "text",
-                            text: "Error: Provide at least one tracking number. Create labels first with envia_create_label.",
+                            text: "Error: Provide at least one tracking number. Create labels first with create_shipment.",
                         },
                     ],
                 };
@@ -113,7 +116,7 @@ export function registerSchedulePickup(
             };
 
             const url = `${config.shippingBase}/ship/pickup/`;
-            const res = await client.post<{ data: PickupData }>(url, body);
+            const res = await activeClient.post<{ data: PickupData }>(url, body);
 
             if (!res.ok) {
                 return {

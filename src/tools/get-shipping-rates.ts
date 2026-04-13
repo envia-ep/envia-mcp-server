@@ -12,12 +12,15 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { EnviaApiClient } from '../utils/api-client.js';
+import { resolveClient } from '../utils/api-client.js';
 import type { EnviaConfig } from '../config.js';
-import { countrySchema } from '../utils/schemas.js';
+import type { RateCostSummary } from '../types/carriers-api.js';
+import { countrySchema, requiredApiKeySchema } from '../utils/schemas.js';
 import { resolveAddress } from '../utils/address-resolver.js';
 import { textResponse } from '../utils/mcp-response.js';
 import { buildRateAddress } from '../builders/address.js';
-import { buildManualPackage } from '../builders/package.js';
+import { buildManualPackage, validateInsuranceExclusivity } from '../builders/package.js';
+import { buildAdditionalServices } from '../builders/additional-service.js';
 import { fetchAvailableCarriers, type CarrierInfo } from '../services/carrier.js';
 
 /** A single rate option returned by the carriers API. */
@@ -26,8 +29,16 @@ interface RateEntry {
     service: string;
     serviceDescription?: string;
     deliveryEstimate?: string;
+    basePrice: number;
     totalPrice: string;
     currency?: string;
+    insurance: number;
+    additionalServices: number;
+    additionalCharges: number;
+    taxes: number;
+    cashOnDeliveryCommission: number;
+    cashOnDeliveryAmount: number;
+    costSummary?: RateCostSummary[];
 }
 
 /** Maximum number of individual carrier requests when not using "all". */
@@ -56,6 +67,7 @@ export function registerGetShippingRates(
                 'city names are translated to DANE codes automatically. ' +
                 'Returns available services sorted by price (cheapest first).',
             inputSchema: z.object({
+                api_key: requiredApiKeySchema,
                 origin_postal_code: z.string().optional().describe(
                     'Origin postal / ZIP code. City and state are resolved automatically. ' +
                     'Required for most countries (MX, US, CA, BR, etc.). ' +
@@ -90,6 +102,14 @@ export function registerGetShippingRates(
                     'Destination state / department code. Required for CO (e.g. "VAC" for Cali, "DC" for Bogota). ' +
                     'For other countries: resolved automatically from postal code.',
                 ),
+                origin_district: z.string().optional().describe(
+                    'Origin neighborhood / colonia. Encouraged for MX addresses — some carriers ' +
+                    'validate availability at this level. Auto-resolved from postal code if not provided.',
+                ),
+                destination_district: z.string().optional().describe(
+                    'Destination neighborhood / colonia. Encouraged for MX addresses — some carriers ' +
+                    'validate availability at this level. Auto-resolved from postal code if not provided.',
+                ),
 
                 length: z.number().positive().default(10).describe('Package length in CM (default: 10)'),
                 width: z.number().positive().default(10).describe('Package width in CM (default: 10)'),
@@ -104,9 +124,31 @@ export function registerGetShippingRates(
                 currency: z.string().optional().describe(
                     'ISO 4217 currency code for pricing (e.g. "MXN", "USD"). Optional.',
                 ),
+
+                additional_services: z.array(z.object({
+                    service: z.string().describe('Service name (e.g. "adult_signature_required", "proof_of_delivery").'),
+                    amount: z.number().min(0).optional().describe(
+                        'Monetary amount when the service requires it (e.g. insurance value, COD amount).',
+                    ),
+                })).optional().describe(
+                    'Optional additional services for the shipment. ' +
+                    'Use list_additional_services to discover available services for a route. ' +
+                    'Example: [{ "service": "adult_signature_required" }]',
+                ),
+                insurance_type: z.enum(['envia_insurance', 'insurance', 'high_value_protection']).optional().describe(
+                    'Shortcut to add an insurance service. Sets additionalServices with the declared_value as amount. ' +
+                    'Only one insurance type allowed. "insurance" is carrier-native (CO/BR). ' +
+                    '"envia_insurance" is Envia platform insurance. "high_value_protection" for high-value packages.',
+                ),
+                cash_on_delivery_amount: z.number().positive().optional().describe(
+                    'Cash on delivery amount to collect from recipient. ' +
+                    'Adds a cash_on_delivery additional service automatically.',
+                ),
             }),
         },
         async (args) => {
+            const activeClient = resolveClient(client, args.api_key, config);
+
             if (!args.origin_postal_code && !args.origin_city) {
                 return textResponse(
                     'Error: Provide either origin_postal_code or origin_city. ' +
@@ -128,7 +170,7 @@ export function registerGetShippingRates(
                         city: args.origin_city,
                         state: args.origin_state,
                     },
-                    client,
+                    activeClient,
                     config,
                 ),
                 resolveAddress(
@@ -138,13 +180,32 @@ export function registerGetShippingRates(
                         city: args.destination_city,
                         state: args.destination_state,
                     },
-                    client,
+                    activeClient,
                     config,
                 ),
             ]);
 
+            if (args.origin_district) origin.district = args.origin_district;
+            if (args.destination_district) destination.district = args.destination_district;
+
             const originAddress = buildRateAddress(origin);
             const destinationAddress = buildRateAddress(destination);
+
+            const additionalServices = buildAdditionalServices(
+                args.additional_services,
+                args.insurance_type,
+                args.declared_value,
+                args.cash_on_delivery_amount,
+            );
+
+            if (additionalServices.length > 0) {
+                const validationError = validateInsuranceExclusivity(additionalServices);
+                if (validationError) {
+                    return textResponse(`Error: ${validationError}`);
+                }
+            }
+
+            const requestedServiceNames = additionalServices.map((s) => s.service);
 
             const packages = [
                 buildManualPackage({
@@ -154,6 +215,7 @@ export function registerGetShippingRates(
                     height: args.height,
                     content: args.content,
                     declaredValue: args.declared_value,
+                    additionalServices: additionalServices.length > 0 ? additionalServices : undefined,
                 }),
             ];
 
@@ -178,7 +240,7 @@ export function registerGetShippingRates(
                 carrierList = await fetchAvailableCarriers(
                     originCountry,
                     isInternational,
-                    client,
+                    activeClient,
                     config,
                     isInternational ? destinationCountry : undefined,
                 );
@@ -209,7 +271,7 @@ export function registerGetShippingRates(
             }
 
             const promises = carrierList.map((carrier) =>
-                client
+                activeClient
                     .post<{ data: RateEntry[] }>(rateUrl, {
                         origin: originAddress,
                         destination: destinationAddress,
@@ -269,10 +331,42 @@ export function registerGetShippingRates(
             ];
 
             for (const r of allRates) {
-                const price = `$${r.totalPrice} ${r.currency ?? 'MXN'}`;
+                const cur = r.currency ?? 'MXN';
                 const delivery = r.deliveryEstimate ? ` | ${r.deliveryEstimate}` : '';
                 const desc = r.serviceDescription ? ` (${r.serviceDescription})` : '';
-                lines.push(`• ${r.carrier} / ${r.service}${desc}: ${price}${delivery}`);
+                lines.push(`• ${r.carrier} / ${r.service}${desc}: $${r.totalPrice} ${cur}${delivery}`);
+
+                const summary = r.costSummary?.[0];
+                if (summary) {
+                    lines.push(`    Base: $${summary.basePrice} | Taxes: $${summary.taxes}`);
+
+                    if (summary.costAdditionalServices && summary.costAdditionalServices.length > 0) {
+                        for (const svc of summary.costAdditionalServices) {
+                            lines.push(`    + ${svc.additionalService}: $${svc.cost}`);
+                        }
+                    }
+
+                    if (summary.costAdditionalCharges && summary.costAdditionalCharges.length > 0) {
+                        for (const charge of summary.costAdditionalCharges) {
+                            lines.push(`    + ${charge.additionalService} (carrier charge): $${charge.cost}`);
+                        }
+                    }
+
+                    if (r.insurance > 0) {
+                        lines.push(`    Insurance: $${r.insurance}`);
+                    }
+                    if (r.cashOnDeliveryAmount > 0) {
+                        lines.push(`    COD amount: $${r.cashOnDeliveryAmount} (commission: $${r.cashOnDeliveryCommission})`);
+                    }
+                }
+
+                if (requestedServiceNames.length > 0) {
+                    const appliedNames = extractAppliedServiceNames(r);
+                    const missing = requestedServiceNames.filter((name) => !appliedNames.has(name));
+                    if (missing.length > 0) {
+                        lines.push(`    ⚠ Requested service(s) not applied: ${missing.join(', ')}`);
+                    }
+                }
             }
 
             if (errors.length) {
@@ -281,10 +375,42 @@ export function registerGetShippingRates(
 
             lines.push(
                 '',
-                'Next step: use envia_create_label with the chosen carrier and service to purchase the label.',
+                'Next step: use create_shipment with the chosen carrier and service to purchase the label.',
             );
 
             return textResponse(lines.join('\n'));
         },
     );
+}
+
+/**
+ * Collect the set of additional service names that appear in the rate
+ * response — from `costAdditionalServices` plus the dedicated COD field.
+ *
+ * Insurance services are NOT inferred from `rate.insurance > 0` because that
+ * field is a rolled-up monetary total and does not identify which insurance
+ * product (envia_insurance, insurance, high_value_protection) was applied.
+ * Adding all three identifiers unconditionally would suppress the "not
+ * applied" warning for the two variants that were not requested. Insurance
+ * services are already captured by name via `costAdditionalServices` when the
+ * carrier populates that field.
+ *
+ * @param rate - A single rate entry from the carriers API
+ * @returns Set of applied service name strings
+ */
+function extractAppliedServiceNames(rate: RateEntry): Set<string> {
+    const names = new Set<string>();
+
+    const summary = rate.costSummary?.[0];
+    if (summary?.costAdditionalServices) {
+        for (const svc of summary.costAdditionalServices) {
+            names.add(svc.additionalService);
+        }
+    }
+
+    if (rate.cashOnDeliveryCommission > 0 || rate.cashOnDeliveryAmount > 0) {
+        names.add('cash_on_delivery');
+    }
+
+    return names;
 }

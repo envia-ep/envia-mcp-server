@@ -5,10 +5,12 @@
  * Useful for auditing, reconciliation, and reporting.
  */
 
-import { z } from "zod";
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { EnviaApiClient } from "../utils/api-client.js";
-import type { EnviaConfig } from "../config.js";
+import { z } from 'zod';
+import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { EnviaApiClient } from '../utils/api-client.js';
+import { resolveClient } from '../utils/api-client.js';
+import type { EnviaConfig } from '../config.js';
+import { requiredApiKeySchema } from '../utils/schemas.js';
 
 interface ShipmentEntry {
     tracking_number?: string;
@@ -37,6 +39,7 @@ export function registerGetShipmentHistory(
                 "Returns tracking numbers, carriers, statuses, and route summaries. " +
                 "Useful for reports and reconciliation.",
             inputSchema: z.object({
+                api_key: requiredApiKeySchema,
                 month: z
                     .number()
                     .int()
@@ -50,10 +53,12 @@ export function registerGetShipmentHistory(
                     .describe("Four-digit year (e.g. 2026)"),
             }),
         },
-        async ({ month, year }) => {
+        async (args) => {
+            const { month, year } = args;
+            const activeClient = resolveClient(client, args.api_key, config);
             const mm = String(month).padStart(2, "0");
             const url = `${config.queriesBase}/guide/${mm}/${year}`;
-            const res = await client.get<{ data: ShipmentEntry[] }>(url);
+            const res = await activeClient.get<{ data: ShipmentEntry[] }>(url);
 
             if (!res.ok) {
                 return {

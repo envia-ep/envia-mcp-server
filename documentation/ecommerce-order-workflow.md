@@ -167,6 +167,7 @@ Packages with a `tracking_number` are considered **fulfilled** and are excluded 
 | `first_name` + `last_name` | `name` | Joined with space |
 | `phone` | `phone` | |
 | `address_1` | `street` | |
+| `address_2` | `number` | For MX and BR only; empty for other countries |
 | `city` | `city` | |
 | `state_code` | `state` | |
 | `country_code` | `country` | Uppercased |
@@ -174,6 +175,7 @@ Packages with a `tracking_number` are considered **fulfilled** and are excluded 
 | `email` | `email` | Optional — omitted if empty |
 | `company` | `company` | Optional — omitted if null |
 | `reference` | `reference` | Optional — omitted if null |
+| `identification_number` | `identificationNumber` | Required for BR (CPF/CNPJ) |
 
 ### Origin Address Mapping
 
@@ -216,9 +218,12 @@ For rate quoting, only geographic fields are needed. A placeholder street is use
 | `dimensions.length` | `dimensions.length` | |
 | `dimensions.width` | `dimensions.width` | |
 | `dimensions.height` | `dimensions.height` | |
-| `products[]` | `items[]` | Only for international shipments |
+| `products[]` | `items[]` | For international and BR-to-BR shipments |
+| (auto-generated) | `xmlData` | Injected by DCe authorization for BR-to-BR shipments |
 
-### Product/Item Mapping (International Only)
+### Product/Item Mapping (International and BR Domestic)
+
+Items are required for international shipments and BR-to-BR domestic shipments (DCe regulation). For BR, each item's `productCode` (NCM) must also be provided.
 
 | V4 Field | Shipping API Field |
 |---|---|
@@ -274,7 +279,7 @@ These are generic defaults from the ecommerce platform checkout and do not repre
 If no package in a location has a valid quote, the generate payload is **not produced**. The user must:
 1. Use `quote_shipment` to compare rates for the origin/destination
 2. Choose a carrier and service from the results
-3. Use `envia_create_label` with the chosen carrier and the address data from the order
+3. Use `create_shipment` with the chosen carrier and the address data from the order
 
 ---
 
@@ -330,7 +335,7 @@ For reference, here is the complete pipeline that the `envia-clients` frontend (
 | 4. Fulfill | `processGenerationResponse` | Sends fulfillment to ecommerce store via `tmpFulfillment` |
 | 5. Download | `downloadLabels` | Downloads or prints label PDF |
 
-The MCP `envia_get_ecommerce_order` tool covers **Step 1** (payload preparation). Steps 2-3 correspond to `envia_create_label`. Steps 4-5 (store fulfillment and label download) will be implemented in a future iteration.
+The MCP `envia_get_ecommerce_order` tool covers **Step 1** (payload preparation). Steps 2-3 correspond to `create_shipment`. Steps 4-5 (store fulfillment and label download) will be implemented in a future iteration.
 
 ---
 

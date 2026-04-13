@@ -35,7 +35,7 @@ Available tools (11):
   1. envia_validate_address   — Validate postal codes and city names
   2. envia_list_carriers      — List carriers and services for a country
   3. quote_shipment           — Compare rates across carriers
-  4. envia_create_label       — Purchase a label (charges balance). Dual-mode:
+  4. create_shipment       — Purchase a label (charges balance). Dual-mode:
                                  manual (addresses + carrier) or ecommerce
                                  (order_identifier for one-step label creation).
                                  Auto-resolves city/state from postal codes and
@@ -49,19 +49,19 @@ Available tools (11):
  11. envia_get_ecommerce_order — Fetch ecommerce order and build shipment payloads
 
 Typical domestic workflow:
-  validate_address → list_carriers → quote_shipment → envia_create_label → track_package
+  validate_address → list_carriers → quote_shipment → create_shipment → track_package
 
 Typical international workflow:
-  validate_address → classify_hscode → quote_shipment → envia_create_commercial_invoice → envia_create_label → track_package
+  validate_address → classify_hscode → quote_shipment → envia_create_commercial_invoice → create_shipment → track_package
 
 Ecommerce order workflow (one-step):
-  envia_create_label (order_identifier) → track_package
+  create_shipment (order_identifier) → track_package
 
 Ecommerce order workflow (with rate comparison):
-  envia_get_ecommerce_order → quote_shipment → envia_create_label (order_identifier + carrier override) → track_package
+  envia_get_ecommerce_order → quote_shipment → create_shipment (order_identifier + carrier override) → track_package
 
 High-volume / warehouse workflow:
-  (loop) envia_create_label → schedule_pickup → track_package
+  (loop) create_shipment → schedule_pickup → track_package
 
 Full docs: https://docs.envia.com
 `,

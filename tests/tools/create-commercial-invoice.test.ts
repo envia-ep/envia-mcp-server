@@ -76,6 +76,7 @@ describe("envia_create_commercial_invoice", () => {
       name: VALID_ORIGIN_ARGS.origin_name,
       phone: VALID_ORIGIN_ARGS.origin_phone,
       street: VALID_ORIGIN_ARGS.origin_street,
+      number: '',
       city: VALID_ORIGIN_ARGS.origin_city,
       state: VALID_ORIGIN_ARGS.origin_state,
       country: VALID_ORIGIN_ARGS.origin_country.toUpperCase(),
@@ -86,6 +87,7 @@ describe("envia_create_commercial_invoice", () => {
       name: VALID_DESTINATION_ARGS.destination_name,
       phone: VALID_DESTINATION_ARGS.destination_phone,
       street: VALID_DESTINATION_ARGS.destination_street,
+      number: '',
       city: VALID_DESTINATION_ARGS.destination_city,
       state: VALID_DESTINATION_ARGS.destination_state,
       country: VALID_DESTINATION_ARGS.destination_country.toUpperCase(),
@@ -179,9 +181,9 @@ describe("envia_create_commercial_invoice", () => {
   });
 
   // -------------------------------------------------------------------------
-  // 9. mentions envia_classify_hscode in error tip
+  // 9. mentions classify_hscode in error tip
   // -------------------------------------------------------------------------
-  it("mentions envia_classify_hscode in error tip", async () => {
+  it("mentions classify_hscode in error tip", async () => {
     mockFetch.mockResolvedValueOnce({
       ok: false,
       status: 422,
@@ -192,7 +194,7 @@ describe("envia_create_commercial_invoice", () => {
     const result = await handler(BASE_ARGS);
     const text = result.content[0].text;
 
-    expect(text).toContain("envia_classify_hscode");
+    expect(text).toContain("classify_hscode");
   });
 
   // -------------------------------------------------------------------------
@@ -217,6 +219,6 @@ describe("envia_create_commercial_invoice", () => {
     const text = result.content[0].text;
 
     expect(text).toContain("Next steps:");
-    expect(text).toContain("envia_create_label");
+    expect(text).toContain("create_shipment");
   });
 });

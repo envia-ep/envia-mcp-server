@@ -13,7 +13,9 @@ import {
     buildGenerateAddress,
     buildGenerateAddressFromLocation,
     buildGenerateAddressFromShippingAddress,
+    requiresSeparateNumber,
     PLACEHOLDER_STREET,
+    DEFAULT_SEPARATE_NUMBER,
 } from '../../src/builders/address.js';
 import type { RateAddressInput, GenerateAddressInput } from '../../src/builders/address.js';
 import type { V4Location, V4ShippingAddress } from '../../src/types/ecommerce-order.js';
@@ -138,6 +140,24 @@ describe('buildRateAddress', () => {
         expect(result).not.toHaveProperty('name');
         expect(result).not.toHaveProperty('phone');
     });
+
+    it('should include district when provided', () => {
+        const result = buildRateAddress({
+            city: 'Ciudad Apodaca',
+            state: 'NL',
+            country: 'MX',
+            postalCode: '66612',
+            district: 'Andalucía',
+        });
+
+        expect(result.district).toBe('Andalucía');
+    });
+
+    it('should omit district when not provided', () => {
+        const result = buildRateAddress({ country: 'MX', postalCode: '64000' });
+
+        expect(result).not.toHaveProperty('district');
+    });
 });
 
 // ---------------------------------------------------------------------------
@@ -188,8 +208,34 @@ describe('buildRateAddressFromShippingAddress', () => {
 // buildGenerateAddress
 // ---------------------------------------------------------------------------
 
+describe('requiresSeparateNumber', () => {
+    it('should return true for MX', () => {
+        expect(requiresSeparateNumber('MX')).toBe(true);
+    });
+
+    it('should be case-insensitive', () => {
+        expect(requiresSeparateNumber('mx')).toBe(true);
+    });
+
+    it('should trim whitespace', () => {
+        expect(requiresSeparateNumber('  MX  ')).toBe(true);
+    });
+
+    it('should return false for US', () => {
+        expect(requiresSeparateNumber('US')).toBe(false);
+    });
+
+    it('should return false for CO', () => {
+        expect(requiresSeparateNumber('CO')).toBe(false);
+    });
+
+    it('should return true for BR', () => {
+        expect(requiresSeparateNumber('BR')).toBe(true);
+    });
+});
+
 describe('buildGenerateAddress', () => {
-    const requiredInput: GenerateAddressInput = {
+    const mxInput: GenerateAddressInput = {
         name: 'Juan Perez',
         street: 'Av. Constitucion',
         city: 'Monterrey',
@@ -198,12 +244,22 @@ describe('buildGenerateAddress', () => {
         postalCode: '64000',
     };
 
-    it('should map required fields and uppercase country', () => {
-        const result = buildGenerateAddress(requiredInput);
+    const usInput: GenerateAddressInput = {
+        name: 'John Doe',
+        street: '123 Main Street',
+        city: 'Los Angeles',
+        state: 'CA',
+        country: 'US',
+        postalCode: '90001',
+    };
+
+    it('should default number to empty string for MX when number is absent from input', () => {
+        const result = buildGenerateAddress(mxInput);
 
         expect(result).toEqual({
             name: 'Juan Perez',
             street: 'Av. Constitucion',
+            number: DEFAULT_SEPARATE_NUMBER,
             city: 'Monterrey',
             state: 'NL',
             country: 'MX',
@@ -211,9 +267,27 @@ describe('buildGenerateAddress', () => {
         });
     });
 
+    it('should use explicit number for MX when provided', () => {
+        const result = buildGenerateAddress({ ...mxInput, number: '123' });
+
+        expect(result.number).toBe('123');
+    });
+
+    it('should set number to empty string for non-MX countries', () => {
+        const result = buildGenerateAddress(usInput);
+
+        expect(result.number).toBe('');
+    });
+
+    it('should set number to empty string for non-MX even when number is provided', () => {
+        const result = buildGenerateAddress({ ...usInput, number: '456' });
+
+        expect(result.number).toBe('');
+    });
+
     it('should include optional fields when provided', () => {
         const result = buildGenerateAddress({
-            ...requiredInput,
+            ...mxInput,
             phone: '+528180001234',
             number: '123',
             district: 'Centro',
@@ -234,26 +308,29 @@ describe('buildGenerateAddress', () => {
         expect(result.identificationNumber).toBe('ABCD123456XYZ');
     });
 
-    it('should omit optional fields when empty strings', () => {
+    it('should default number to empty string for MX when not provided', () => {
+        const result = buildGenerateAddress({ ...mxInput, number: '' });
+
+        expect(result.number).toBe(DEFAULT_SEPARATE_NUMBER);
+    });
+
+    it('should omit optional fields when empty', () => {
         const result = buildGenerateAddress({
-            ...requiredInput,
+            ...mxInput,
             phone: '',
-            number: '',
             district: '',
             company: '',
         });
 
         expect(result).not.toHaveProperty('phone');
-        expect(result).not.toHaveProperty('number');
         expect(result).not.toHaveProperty('district');
         expect(result).not.toHaveProperty('company');
     });
 
     it('should omit optional fields when undefined', () => {
-        const result = buildGenerateAddress(requiredInput);
+        const result = buildGenerateAddress(mxInput);
 
         expect(result).not.toHaveProperty('phone');
-        expect(result).not.toHaveProperty('number');
         expect(result).not.toHaveProperty('district');
         expect(result).not.toHaveProperty('interior_number');
         expect(result).not.toHaveProperty('company');
@@ -263,9 +340,10 @@ describe('buildGenerateAddress', () => {
     });
 
     it('should trim country whitespace', () => {
-        const result = buildGenerateAddress({ ...requiredInput, country: '  co  ' });
+        const result = buildGenerateAddress({ ...mxInput, country: '  co  ' });
 
         expect(result.country).toBe('CO');
+        expect(result.number).toBe('');
     });
 });
 
@@ -274,7 +352,7 @@ describe('buildGenerateAddress', () => {
 // ---------------------------------------------------------------------------
 
 describe('buildGenerateAddressFromLocation', () => {
-    it('should map location fields to a full generate address', () => {
+    it('should default number to empty string for MX location when address_2 is absent', () => {
         const loc = makeLocation();
 
         const result = buildGenerateAddressFromLocation(loc);
@@ -282,11 +360,28 @@ describe('buildGenerateAddressFromLocation', () => {
         expect(result.name).toBe('Warehouse Norte');
         expect(result.phone).toBe('+528180001234');
         expect(result.street).toBe('Av. Constitucion 123');
+        expect(result.number).toBe(DEFAULT_SEPARATE_NUMBER);
         expect(result.city).toBe('Monterrey');
         expect(result.state).toBe('NL');
         expect(result.country).toBe('MX');
         expect(result.postalCode).toBe('64000');
         expect(result.company).toBe('ACME Corp');
+    });
+
+    it('should use address_2 as number for MX when available', () => {
+        const loc = makeLocation({ address_2: '456' });
+
+        const result = buildGenerateAddressFromLocation(loc);
+
+        expect(result.number).toBe('456');
+    });
+
+    it('should set number to empty string for non-MX location', () => {
+        const loc = makeLocation({ country_code: 'US', address_2: '456' });
+
+        const result = buildGenerateAddressFromLocation(loc);
+
+        expect(result.number).toBe('');
     });
 
     it('should handle null last_name gracefully', () => {
@@ -311,7 +406,7 @@ describe('buildGenerateAddressFromLocation', () => {
 // ---------------------------------------------------------------------------
 
 describe('buildGenerateAddressFromShippingAddress', () => {
-    it('should map shipping address fields to a full generate address', () => {
+    it('should default number to empty string for MX shipping address when address_2 is absent', () => {
         const addr = makeShippingAddress();
 
         const result = buildGenerateAddressFromShippingAddress(addr);
@@ -319,12 +414,53 @@ describe('buildGenerateAddressFromShippingAddress', () => {
         expect(result.name).toBe('Maria Lopez');
         expect(result.phone).toBe('+528180005678');
         expect(result.street).toBe('Calle Reforma 456');
+        expect(result.number).toBe(DEFAULT_SEPARATE_NUMBER);
         expect(result.city).toBe('Mexico City');
         expect(result.state).toBe('CDMX');
         expect(result.country).toBe('MX');
         expect(result.postalCode).toBe('03100');
         expect(result.email).toBe('maria@example.com');
         expect(result.reference).toBe('Near the park');
+    });
+
+    it('should use address_2 as number for MX when available', () => {
+        const addr = makeShippingAddress({ address_2: '789' });
+
+        const result = buildGenerateAddressFromShippingAddress(addr);
+
+        expect(result.number).toBe('789');
+    });
+
+    it('should pass address_2 as number for BR shipping address', () => {
+        const addr = makeShippingAddress({ country_code: 'BR', address_2: '789' });
+
+        const result = buildGenerateAddressFromShippingAddress(addr);
+
+        expect(result.number).toBe('789');
+    });
+
+    it('should set number to empty string for non-MX/BR shipping address', () => {
+        const addr = makeShippingAddress({ country_code: 'US', address_2: '789' });
+
+        const result = buildGenerateAddressFromShippingAddress(addr);
+
+        expect(result.number).toBe('');
+    });
+
+    it('should use address_3 as district when available', () => {
+        const addr = makeShippingAddress({ address_3: 'Col. Del Valle' });
+
+        const result = buildGenerateAddressFromShippingAddress(addr);
+
+        expect(result.district).toBe('Col. Del Valle');
+    });
+
+    it('should include identification_number when present', () => {
+        const addr = makeShippingAddress({ identification_number: 'RFC123456' });
+
+        const result = buildGenerateAddressFromShippingAddress(addr);
+
+        expect(result.identificationNumber).toBe('RFC123456');
     });
 
     it('should uppercase the country code', () => {

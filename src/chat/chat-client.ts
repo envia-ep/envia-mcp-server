@@ -40,6 +40,7 @@ interface LlmOrchestratorConfig {
     apiKey: string;
     mcpClient: McpClient;
     model?: string;
+    enviaToken?: string;
 }
 
 interface ToolCall {
@@ -204,13 +205,36 @@ export class McpClient {
         this.sessionId = null;
     }
 
-    /** Get tools formatted for LLM consumption */
+    /**
+     * Get tools formatted for LLM consumption.
+     * Strips the `api_key` property from schemas so the LLM never
+     * sees or attempts to fill it — the orchestrator injects it at call time.
+     */
     getToolsForLLM(): LlmTool[] {
         return this.tools.map((t) => ({
             name: t.name,
             description: t.description,
-            input_schema: t.inputSchema,
+            input_schema: McpClient._stripApiKey(t.inputSchema),
         }));
+    }
+
+    /** Remove `api_key` from a JSON Schema properties object and required array. */
+    static _stripApiKey(schema?: Record<string, unknown>): Record<string, unknown> | undefined {
+        if (!schema) return schema;
+
+        const copy = { ...schema };
+        const props = copy['properties'] as Record<string, unknown> | undefined;
+        if (props && 'api_key' in props) {
+            const { api_key: _, ...rest } = props;
+            copy['properties'] = rest;
+        }
+
+        const required = copy['required'];
+        if (Array.isArray(required)) {
+            copy['required'] = (required as string[]).filter((r) => r !== 'api_key');
+        }
+
+        return copy;
     }
 }
 
@@ -224,6 +248,7 @@ export class LLMOrchestrator {
     private mcpClient: McpClient;
     private model: string;
     private messages: Array<Record<string, unknown>>;
+    private enviaToken: string | undefined;
 
     constructor(config: LlmOrchestratorConfig) {
         this.provider = config.provider;
@@ -231,6 +256,7 @@ export class LLMOrchestrator {
         this.mcpClient = config.mcpClient;
         this.model = config.model ?? (config.provider === 'anthropic' ? 'claude-sonnet-4-5-20250929' : 'gpt-4o');
         this.messages = [];
+        this.enviaToken = config.enviaToken;
     }
 
     /**
@@ -273,10 +299,14 @@ export class LLMOrchestrator {
 
             const toolResults: ToolResult[] = [];
             for (const tc of response.toolCalls) {
-                if (onToolCall) onToolCall(tc.name, tc.args);
-                debug('mcp-call', `${tc.name}()`, tc.args);
+                const { api_key: _stripped, ...displayArgs } = tc.args;
+                if (onToolCall) onToolCall(tc.name, displayArgs);
+                const callArgs = this.enviaToken
+                    ? { ...tc.args, api_key: this.enviaToken }
+                    : tc.args;
+                debug('mcp-call', `${tc.name}()`, displayArgs);
                 try {
-                    const result = await this.mcpClient.callTool(tc.name, tc.args);
+                    const result = await this.mcpClient.callTool(tc.name, callArgs);
                     const text = result.content?.map((c) => c.text).join('\n') ?? JSON.stringify(result);
                     toolResults.push({ id: tc.id, name: tc.name, result: text, isError: result.isError ?? false });
                     debug('mcp-resp', `${tc.name} → ${result.isError ? 'ERROR' : 'OK'} (${text.length} chars)`, {

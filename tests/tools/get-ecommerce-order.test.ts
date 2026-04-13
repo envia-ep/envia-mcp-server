@@ -357,7 +357,7 @@ describe('envia_get_ecommerce_order', () => {
         expect(text).toContain('quote_shipment');
     });
 
-    it('should suggest envia_create_label when carrier is available', async () => {
+    it('should suggest create_shipment when carrier is available', async () => {
         const order = makeV4OrderResponse();
         mockFetch.mockResolvedValueOnce({
             ok: true,
@@ -368,7 +368,7 @@ describe('envia_get_ecommerce_order', () => {
         const result = await handler({ order_identifier: 'SHOP-1234', payload_type: 'both' });
         const text = result.content[0].text;
 
-        expect(text).toContain('envia_create_label');
+        expect(text).toContain('create_shipment');
     });
 
     it('should suggest envia_track_package when all packages are fulfilled', async () => {

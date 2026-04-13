@@ -471,7 +471,7 @@ describe('quote_shipment', () => {
         const text = result.content[0].text;
 
         expect(text).toContain('Next step:');
-        expect(text).toContain('envia_create_label');
+        expect(text).toContain('create_shipment');
     });
 
     // -----------------------------------------------------------------------

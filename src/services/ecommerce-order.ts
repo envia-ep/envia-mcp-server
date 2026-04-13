@@ -296,7 +296,7 @@ export class EcommerceOrderService {
         if (!carrier && activePackages.length > 0) {
             warnings.push(
                 'No carrier pre-selected for this location. ' +
-                'Use quote_shipment to compare rates, then pass carrier and service to envia_create_label.',
+                'Use quote_shipment to compare rates, then pass carrier and service to create_shipment.',
             );
         }
 
