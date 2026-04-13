@@ -128,7 +128,11 @@ function createEnviaServer(): McpServer {
 const TRANSPORT = (process.env.MCP_TRANSPORT ?? 'http').toLowerCase();
 
 if (TRANSPORT === 'stdio') {
-    startStdioMode();
+    startStdioMode().catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(`Fatal: stdio mode failed to start: ${message}`);
+        process.exit(1);
+    });
 } else {
     startHttpMode();
 }
