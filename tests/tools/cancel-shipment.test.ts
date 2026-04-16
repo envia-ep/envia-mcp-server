@@ -72,14 +72,15 @@ describe("envia_cancel_shipment", () => {
     expect(text).toContain("7520610403");
   });
 
-  it("includes balance returned 'Yes' when balanceReturned is true", async () => {
+  it("reports refund 'Yes (amount not yet posted)' when balanceReturned is true without amount", async () => {
     const result = await handler({ ...baseArgs });
     const text = result.content[0].text;
 
-    expect(text).toContain("Balance returned: Yes");
+    expect(text).toContain("Refund:");
+    expect(text).toContain("Yes (amount not yet posted)");
   });
 
-  it("includes balance returned 'No (pending)' when balanceReturned is false", async () => {
+  it("reports refund 'Pending' when balanceReturned is false", async () => {
     mockFetch.mockReset();
     mockFetch.mockResolvedValue({
       ok: true,
@@ -97,15 +98,84 @@ describe("envia_cancel_shipment", () => {
     const result = await handler({ ...baseArgs });
     const text = result.content[0].text;
 
-    expect(text).toContain("Balance returned: No (pending)");
+    expect(text).toContain("Refund:           Pending");
   });
 
-  it("includes balance return date when present", async () => {
+  it("includes refund date when balanceReturnDate is present", async () => {
     const result = await handler({ ...baseArgs });
     const text = result.content[0].text;
 
-    expect(text).toContain("Return date:");
+    expect(text).toContain("Refund date:");
     expect(text).toContain("2026-03-06");
+  });
+
+  it("shows refund amount with currency when provided", async () => {
+    mockFetch.mockReset();
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () =>
+        Promise.resolve({
+          data: {
+            carrier: "dhl",
+            trackingNumber: "7520610403",
+            balanceReturned: true,
+            refundAmount: 250,
+            refundCurrency: "MXN",
+          },
+        }),
+    });
+
+    const result = await handler({ ...baseArgs });
+    const text = result.content[0].text;
+
+    expect(text).toContain("250.00 MXN");
+  });
+
+  it("surfaces daily-limit warning when backend flags it", async () => {
+    mockFetch.mockReset();
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () =>
+        Promise.resolve({
+          data: {
+            carrier: "dhl",
+            trackingNumber: "7520610403",
+            balanceReturned: false,
+            dailyLimitExceeded: true,
+            dailyLimitReason: "5 cancellations per day exceeded",
+          },
+        }),
+    });
+
+    const result = await handler({ ...baseArgs });
+    const text = result.content[0].text;
+
+    expect(text).toContain("Daily refund limit reached");
+  });
+
+  it("surfaces COD chargeback hint when backend triggered one", async () => {
+    mockFetch.mockReset();
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () =>
+        Promise.resolve({
+          data: {
+            carrier: "dhl",
+            trackingNumber: "7520610403",
+            codChargeback: true,
+            codAmount: 500,
+          },
+        }),
+    });
+
+    const result = await handler({ ...baseArgs });
+    const text = result.content[0].text;
+
+    expect(text).toContain("COD chargeback");
+    expect(text).toContain("500");
   });
 
   it("returns error message when API fails", async () => {
@@ -123,7 +193,7 @@ describe("envia_cancel_shipment", () => {
     expect(text).toContain("Cannot cancel shipment");
   });
 
-  it("mentions cancellation window in error note", async () => {
+  it("should include mapped suggestion in error response", async () => {
     mockFetch.mockReset();
     mockFetch.mockResolvedValue({
       ok: false,
@@ -134,8 +204,8 @@ describe("envia_cancel_shipment", () => {
     const result = await handler({ ...baseArgs });
     const text = result.content[0].text;
 
-    expect(text).toContain("Note:");
-    expect(text).toContain("cancellation window");
+    expect(text).toContain("Cancellation failed:");
+    expect(text).toContain("Suggestion:");
   });
 
   it("falls back to input args when response data fields are missing", async () => {

@@ -12,6 +12,7 @@ import type { EnviaApiClient } from "../utils/api-client.js";
 import { resolveClient } from "../utils/api-client.js";
 import type { EnviaConfig } from "../config.js";
 import { optionalApiKeySchema } from "../utils/schemas.js";
+import { mapCarrierError } from '../utils/error-mapper.js';
 
 interface HsCodeAlternative {
     hsCode?: string;
@@ -85,8 +86,9 @@ export function registerClassifyHscode(
             const res = await activeClient.post<{ data: HsCodeData; success?: boolean }>(url, body);
 
             if (!res.ok) {
+                const mapped = mapCarrierError(res.status, res.error ?? '');
                 return {
-                    content: [{ type: "text", text: `HS code classification failed: ${res.error}` }],
+                    content: [{ type: "text", text: `HS code classification failed: ${mapped.userMessage}\n\nSuggestion: ${mapped.suggestion}` }],
                 };
             }
 

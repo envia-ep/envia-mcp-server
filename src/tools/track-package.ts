@@ -11,6 +11,7 @@ import type { EnviaApiClient } from "../utils/api-client.js";
 import { resolveClient } from "../utils/api-client.js";
 import type { EnviaConfig } from "../config.js";
 import { optionalApiKeySchema } from "../utils/schemas.js";
+import { mapCarrierError } from '../utils/error-mapper.js';
 
 interface TrackEvent {
     timestamp?: string;
@@ -71,8 +72,9 @@ export function registerTrackPackage(
             });
 
             if (!res.ok) {
+                const mapped = mapCarrierError(res.status, res.error ?? '');
                 return {
-                    content: [{ type: "text", text: `Tracking failed: ${res.error}` }],
+                    content: [{ type: "text", text: `Tracking failed: ${mapped.userMessage}\n\nSuggestion: ${mapped.suggestion}` }],
                 };
             }
 

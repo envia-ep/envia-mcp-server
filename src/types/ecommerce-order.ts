@@ -38,6 +38,13 @@ export interface V4Order {
     shipment_data: V4ShipmentData;
     tags?: V4Tag[];
     is_favorite?: boolean;
+
+    // Plan V2 §5 — enrichment fields (optional, may be absent on older orders).
+    fulfillment_status_id?: number;
+    fulfillment_status_name?: string;
+    partial_available?: number;
+    fraud_risk?: boolean;
+    order_comment?: string | null;
 }
 
 /** Ecommerce-specific order identifiers and metadata. */
@@ -135,6 +142,12 @@ export interface V4Package {
     products: V4Product[];
     additional_services?: V4AdditionalService[];
     is_return?: boolean;
+
+    // Plan V2 §5 — per-package enrichment.
+    cod_active?: number;
+    cod_value?: number;
+    fulfillment_info?: string | null;
+    assigned_package?: string | null;
 }
 
 /** Package physical dimensions. */
@@ -180,6 +193,11 @@ export interface V4Product {
     weight: number | null;
     identifier: string | null;
     variant_id: string | null;
+
+    // Plan V2 §5 — customs-related fields for international shipments.
+    harmonized_system_code?: string | null;
+    country_code_origin?: string | null;
+    return_reason?: string | null;
 }
 
 /** Additional service attached to a package (e.g. insurance, COD). */
@@ -251,6 +269,13 @@ export interface OrderSummary {
     currency: string;
     statusPayment: string;
     fulfillmentWarnings: string[];
+
+    // Plan V2 §5 — short flags surfaced in LIST context (kept compact for chat).
+    fulfillmentStatus?: string;
+    hasCod?: boolean;
+    isFraudRisk?: boolean;
+    isPartiallyAvailable?: boolean;
+    orderComment?: string | null;
 }
 
 /** A single location with its transformed payloads and warnings. */

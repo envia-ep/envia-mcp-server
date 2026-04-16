@@ -11,6 +11,7 @@ import type { EnviaApiClient } from '../utils/api-client.js';
 import { resolveClient } from '../utils/api-client.js';
 import type { EnviaConfig } from '../config.js';
 import { countrySchema, requiredApiKeySchema } from '../utils/schemas.js';
+import { mapCarrierError } from '../utils/error-mapper.js';
 
 interface CarrierEntry {
     /** Carrier code used in API calls (e.g. "dhl", "fedex"). */
@@ -64,8 +65,9 @@ export function registerListCarriers(
             const carriersRes = await activeClient.get<{ data: CarrierEntry[] }>(carriersUrl);
 
             if (!carriersRes.ok) {
+                const mapped = mapCarrierError(carriersRes.status, carriersRes.error ?? '');
                 return {
-                    content: [{ type: "text", text: `Failed to list carriers: ${carriersRes.error}` }],
+                    content: [{ type: "text", text: `Failed to list carriers: ${mapped.userMessage}\n\nSuggestion: ${mapped.suggestion}` }],
                 };
             }
 

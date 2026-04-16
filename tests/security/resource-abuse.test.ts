@@ -27,6 +27,7 @@ import { resolveAddress } from "../../src/utils/address-resolver.js";
 
 vi.mock("../../src/utils/address-resolver.js", () => ({
     resolveAddress: vi.fn(),
+    transformPostalCode: vi.fn((_, pc: string) => pc),
 }));
 
 const resolveAddressMock = vi.mocked(resolveAddress);

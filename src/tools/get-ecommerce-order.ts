@@ -20,6 +20,7 @@ import { requiredApiKeySchema } from '../utils/schemas.js';
 import { textResponse } from '../utils/mcp-response.js';
 import { EcommerceOrderService } from '../services/ecommerce-order.js';
 import type { TransformedOrder, TransformedLocation } from '../types/ecommerce-order.js';
+import { DOMESTIC_AS_INTERNATIONAL } from '../services/country-rules.js';
 
 /** Supported payload output modes. */
 const PAYLOAD_TYPES = ['quote', 'generate', 'both'] as const;
@@ -54,12 +55,30 @@ function formatOutput(
     lines.push(`  Payment:     ${summary.statusPayment}`);
     lines.push(`  Locations:   ${locations.length}`);
 
+    // Plan V2 §5 — compact status flags (only rendered when relevant).
+    if (summary.fulfillmentStatus) {
+        lines.push(`  Fulfillment: ${summary.fulfillmentStatus}`);
+    }
+    const flags: string[] = [];
+    if (summary.hasCod) flags.push('💳 COD');
+    if (summary.isFraudRisk) flags.push('⚠️ fraud risk');
+    if (summary.isPartiallyAvailable) flags.push('🔀 partially available');
+    if (flags.length > 0) {
+        lines.push(`  Flags:       ${flags.join('  ')}`);
+    }
+
     if (summary.fulfillmentWarnings.length > 0) {
         lines.push('');
         lines.push('--- Fulfillment Warnings ---');
         for (const warning of summary.fulfillmentWarnings) {
             lines.push(`  ⚠ ${warning}`);
         }
+    }
+
+    if (summary.orderComment) {
+        lines.push('');
+        lines.push('--- Internal Note ---');
+        lines.push(`  ${summary.orderComment}`);
     }
 
     for (const loc of locations) {
@@ -88,6 +107,29 @@ function formatOutput(
         if (payloadType === 'generate' || payloadType === 'both') {
             lines.push('');
             lines.push(...formatGeneratePayload(loc));
+        }
+    }
+
+    // Check if any location has a domestic route that requires international treatment
+    for (const loc of locations) {
+        const originCountry = loc.quotePayload.origin.country;
+        const destCountry = loc.quotePayload.destination.country;
+
+        if (
+            originCountry &&
+            destCountry &&
+            originCountry === destCountry &&
+            DOMESTIC_AS_INTERNATIONAL.has(originCountry.toUpperCase())
+        ) {
+            lines.push('');
+            lines.push(
+                `Note: ${originCountry}\u2192${destCountry} domestic shipments require items in each package (fiscal/customs requirement).`,
+            );
+            lines.push(
+                '  Ensure all products have descriptions, quantities, prices, and productCode (NCM/HS code).',
+            );
+            lines.push('  Use classify_hscode to look up the correct code for each product.');
+            break; // Only show the warning once
         }
     }
 

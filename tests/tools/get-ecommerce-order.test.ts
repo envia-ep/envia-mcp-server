@@ -408,4 +408,75 @@ describe('envia_get_ecommerce_order', () => {
 
         expect(text).toContain('Av. Constitucion 123, Monterrey, NL');
     });
+
+    // -----------------------------------------------------------------------
+    // Plan V2 §5 — lean-list flags surfaced in summary output
+    // -----------------------------------------------------------------------
+
+    it('should render fulfillment status row when backend provides fulfillment_status_name', async () => {
+        const order = makeV4OrderResponse({ fulfillment_status_name: 'Shipped' });
+        mockFetch.mockResolvedValueOnce({
+            ok: true, status: 200, json: () => Promise.resolve(makeApiResponse(order)),
+        });
+
+        const result = await handler({ order_identifier: 'SHOP-1234', payload_type: 'both' });
+
+        expect(result.content[0].text).toContain('Fulfillment: Shipped');
+    });
+
+    it('should render COD flag when order has cod > 0', async () => {
+        const base = makeV4OrderResponse();
+        const order = { ...base, order: { ...base.order, cod: 500 } };
+        mockFetch.mockResolvedValueOnce({
+            ok: true, status: 200, json: () => Promise.resolve(makeApiResponse(order)),
+        });
+
+        const result = await handler({ order_identifier: 'SHOP-1234', payload_type: 'both' });
+
+        expect(result.content[0].text).toContain('💳 COD');
+    });
+
+    it('should render fraud-risk flag when fraud_risk is true', async () => {
+        const order = makeV4OrderResponse({ fraud_risk: true });
+        mockFetch.mockResolvedValueOnce({
+            ok: true, status: 200, json: () => Promise.resolve(makeApiResponse(order)),
+        });
+
+        const result = await handler({ order_identifier: 'SHOP-1234', payload_type: 'both' });
+
+        expect(result.content[0].text).toContain('⚠️ fraud risk');
+    });
+
+    it('should render partial-availability flag when partial_available is 1', async () => {
+        const order = makeV4OrderResponse({ partial_available: 1 });
+        mockFetch.mockResolvedValueOnce({
+            ok: true, status: 200, json: () => Promise.resolve(makeApiResponse(order)),
+        });
+
+        const result = await handler({ order_identifier: 'SHOP-1234', payload_type: 'both' });
+
+        expect(result.content[0].text).toContain('🔀 partially available');
+    });
+
+    it('should render internal note block when order_comment is populated', async () => {
+        const order = makeV4OrderResponse({ order_comment: 'Leave at front desk' });
+        mockFetch.mockResolvedValueOnce({
+            ok: true, status: 200, json: () => Promise.resolve(makeApiResponse(order)),
+        });
+
+        const result = await handler({ order_identifier: 'SHOP-1234', payload_type: 'both' });
+
+        expect(result.content[0].text).toContain('Leave at front desk');
+    });
+
+    it('should NOT render flags row when no flags are set', async () => {
+        const order = makeV4OrderResponse();
+        mockFetch.mockResolvedValueOnce({
+            ok: true, status: 200, json: () => Promise.resolve(makeApiResponse(order)),
+        });
+
+        const result = await handler({ order_identifier: 'SHOP-1234', payload_type: 'both' });
+
+        expect(result.content[0].text).not.toContain('Flags:');
+    });
 });

@@ -688,4 +688,82 @@ describe('quote_shipment', () => {
         const body = JSON.parse(mockFetch.mock.calls[0][1].body);
         expect(body.shipment.type).toBe(1);
     });
+
+    // -----------------------------------------------------------------------
+    // International route warnings
+    // -----------------------------------------------------------------------
+
+    describe('international route warnings', () => {
+        it('should include items warning for BR→BR route', async () => {
+            resolveAddressMock.mockResolvedValue({
+                postalCode: '01310-100',
+                country: 'BR',
+                city: 'Sao Paulo',
+                state: 'SP',
+            });
+
+            const result = await handler({
+                ...VALID_QUOTE_ARGS,
+                origin_country: 'BR',
+                destination_country: 'BR',
+                carriers: 'dhl',
+            });
+            const text = result.content[0].text;
+
+            expect(text).toContain('requires items[]');
+            expect(text).toContain('fiscal/customs requirements');
+        });
+
+        it('should include items warning for IN→IN route', async () => {
+            resolveAddressMock.mockResolvedValue({
+                postalCode: '110001',
+                country: 'IN',
+                city: 'New Delhi',
+                state: 'DL',
+            });
+
+            const result = await handler({
+                ...VALID_QUOTE_ARGS,
+                origin_country: 'IN',
+                destination_country: 'IN',
+                carriers: 'dhl',
+            });
+            const text = result.content[0].text;
+
+            expect(text).toContain('requires items[]');
+            expect(text).toContain('fiscal/customs requirements');
+        });
+
+        it('should include items warning for MX→US route', async () => {
+            resolveAddressMock.mockResolvedValue({
+                postalCode: '64000',
+                country: 'MX',
+                city: 'Monterrey',
+                state: 'NL',
+            });
+
+            const result = await handler({
+                ...VALID_QUOTE_ARGS,
+                origin_country: 'MX',
+                destination_country: 'US',
+                carriers: 'dhl',
+            });
+            const text = result.content[0].text;
+
+            expect(text).toContain('requires items[]');
+            expect(text).not.toContain('fiscal/customs');
+        });
+
+        it('should not include items warning for MX→MX route', async () => {
+            const result = await handler({
+                ...VALID_QUOTE_ARGS,
+                origin_country: 'MX',
+                destination_country: 'MX',
+                carriers: 'dhl',
+            });
+            const text = result.content[0].text;
+
+            expect(text).not.toContain('requires items[]');
+        });
+    });
 });

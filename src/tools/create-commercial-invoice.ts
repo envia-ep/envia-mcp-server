@@ -12,6 +12,7 @@ import { resolveClient } from '../utils/api-client.js';
 import type { EnviaConfig } from '../config.js';
 import { countrySchema, carrierSchema, requiredApiKeySchema } from '../utils/schemas.js';
 import { buildGenerateAddress } from '../builders/address.js';
+import { mapCarrierError } from '../utils/error-mapper.js';
 
 interface InvoiceData {
     invoiceId?: string;
@@ -143,11 +144,12 @@ export function registerCreateCommercialInvoice(
             const res = await activeClient.post<{ data: InvoiceData }>(url, body);
 
             if (!res.ok) {
+                const mapped = mapCarrierError(res.status, res.error ?? '');
                 return {
                     content: [
                         {
                             type: "text",
-                            text: `Commercial invoice creation failed: ${res.error}\n\nTip: Verify the HS code with classify_hscode, and ensure all address fields are complete.`,
+                            text: `Commercial invoice creation failed: ${mapped.userMessage}\n\nSuggestion: ${mapped.suggestion}`,
                         },
                     ],
                 };

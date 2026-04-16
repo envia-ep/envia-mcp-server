@@ -420,7 +420,7 @@ describe('create_shipment', () => {
         const text = result.content[0].text;
 
         expect(text).toContain('Label creation failed:');
-        expect(text).toContain('envia_validate_address');
+        expect(text).toContain('Suggestion:');
     });
 
     it('should return message when tracking number is missing in response', async () => {
@@ -966,5 +966,138 @@ describe('create_shipment', () => {
         await handler({ order_identifier: 'SHOP-1234' });
 
         expect(resolveAddressMock).not.toHaveBeenCalled();
+    });
+
+    // -----------------------------------------------------------------------
+    // Manual mode — identification validation
+    // -----------------------------------------------------------------------
+
+    describe('identification validation', () => {
+        it('should error when BR origin has all-same-digit CPF', async () => {
+            resolveAddressMock.mockResolvedValue({
+                postalCode: '01310-100',
+                country: 'BR',
+                city: 'Sao Paulo',
+                state: 'SP',
+            });
+
+            const result = await handler({
+                ...VALID_MANUAL_ARGS,
+                origin_country: 'BR',
+                origin_postal_code: '01310-100',
+                destination_country: 'BR',
+                destination_postal_code: '20040-020',
+                origin_identification_number: '11111111111',
+                destination_identification_number: '52998224725',
+            });
+
+            expect(result.content[0].text).toContain('CPF is invalid');
+        });
+
+        it('should error when CO origin is missing NIT', async () => {
+            resolveAddressMock.mockResolvedValue({
+                postalCode: '110111',
+                country: 'CO',
+                city: 'Bogota',
+                state: 'DC',
+            });
+
+            const result = await handler({
+                ...VALID_MANUAL_ARGS,
+                origin_country: 'CO',
+                origin_postal_code: '110111',
+                destination_country: 'CO',
+                destination_postal_code: '760001',
+            });
+
+            expect(result.content[0].text).toContain('identification number is required');
+        });
+
+        it('should error when CO NIT is too short', async () => {
+            resolveAddressMock.mockResolvedValue({
+                postalCode: '110111',
+                country: 'CO',
+                city: 'Bogota',
+                state: 'DC',
+            });
+
+            const result = await handler({
+                ...VALID_MANUAL_ARGS,
+                origin_country: 'CO',
+                origin_postal_code: '110111',
+                destination_country: 'CO',
+                destination_postal_code: '760001',
+                origin_identification_number: '12345',
+                destination_identification_number: '9001234567',
+            });
+
+            expect(result.content[0].text).toContain('NIT is invalid');
+        });
+
+        it('should not error for MX domestic without identification', async () => {
+            const result = await handler({ ...VALID_MANUAL_ARGS });
+            const text = result.content[0].text;
+
+            expect(text).not.toContain('Identification validation failed');
+        });
+    });
+
+    // -----------------------------------------------------------------------
+    // Manual mode — items requirement check
+    // -----------------------------------------------------------------------
+
+    describe('items requirement check', () => {
+        it('should error when BR to BR has no items', async () => {
+            resolveAddressMock.mockResolvedValue({
+                postalCode: '01310-100',
+                country: 'BR',
+                city: 'Sao Paulo',
+                state: 'SP',
+            });
+
+            const result = await handler({
+                ...VALID_MANUAL_ARGS,
+                origin_country: 'BR',
+                origin_postal_code: '01310-100',
+                destination_country: 'BR',
+                destination_postal_code: '20040-020',
+                origin_identification_number: '52998224725',
+                destination_identification_number: '52998224725',
+            });
+
+            expect(result.content[0].text).toContain('requires items');
+        });
+
+        it('should error when MX to US has no items', async () => {
+            resolveAddressMock
+                .mockResolvedValueOnce({
+                    postalCode: '64000',
+                    country: 'MX',
+                    city: 'Monterrey',
+                    state: 'NL',
+                })
+                .mockResolvedValueOnce({
+                    postalCode: '90210',
+                    country: 'US',
+                    city: 'Beverly Hills',
+                    state: 'CA',
+                });
+
+            const result = await handler({
+                ...VALID_MANUAL_ARGS,
+                origin_country: 'MX',
+                destination_country: 'US',
+                destination_postal_code: '90210',
+            });
+
+            expect(result.content[0].text).toContain('requires items');
+        });
+
+        it('should not error when MX to MX has no items', async () => {
+            const result = await handler({ ...VALID_MANUAL_ARGS });
+            const text = result.content[0].text;
+
+            expect(text).not.toContain('requires items');
+        });
     });
 });

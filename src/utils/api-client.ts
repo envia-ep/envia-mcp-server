@@ -163,6 +163,14 @@ export class EnviaApiClient {
     async post<T = unknown>(url: string, body: Record<string, unknown>): Promise<ApiResponse<T>> {
         return this.request<T>({ url, method: "POST", body });
     }
+
+    async put<T = unknown>(url: string, body: Record<string, unknown>): Promise<ApiResponse<T>> {
+        return this.request<T>({ url, method: "PUT", body });
+    }
+
+    async delete<T = unknown>(url: string): Promise<ApiResponse<T>> {
+        return this.request<T>({ url, method: "DELETE" });
+    }
 }
 
 // ---------------------------------------------------------------------------

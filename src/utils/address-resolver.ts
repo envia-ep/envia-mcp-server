@@ -17,6 +17,9 @@
 
 import type { EnviaApiClient } from './api-client.js';
 import type { EnviaConfig } from '../config.js';
+import { transformPostalCode, transformPhone } from '../services/country-rules.js';
+
+export { transformPostalCode, transformPhone };
 
 // ---------------------------------------------------------------------------
 // Types
@@ -250,16 +253,17 @@ export async function resolveAddress(
     config: EnviaConfig,
 ): Promise<ResolvedAddress> {
     const country = params.country.trim().toUpperCase();
+    const normalizedPostal = params.postalCode ? transformPostalCode(country, params.postalCode) : params.postalCode;
 
     let resolved: ResolvedAddress = { country };
 
-    if (params.postalCode) {
-        resolved = await resolvePostalCode(params.postalCode, country, client, config);
+    if (normalizedPostal) {
+        resolved = await resolvePostalCode(normalizedPostal, country, client, config);
     }
 
     if (params.city) resolved.city = params.city;
     if (params.state) resolved.state = params.state;
-    if (params.postalCode) resolved.postalCode = params.postalCode;
+    if (normalizedPostal) resolved.postalCode = normalizedPostal;
 
     if (country === 'CO' && resolved.city) {
         const located = await resolveColombianCity(resolved.city, resolved.state ?? '', country, client, config);
@@ -277,4 +281,45 @@ export async function resolveAddress(
     }
 
     return resolved;
+}
+
+// ---------------------------------------------------------------------------
+// Island detection
+// ---------------------------------------------------------------------------
+
+/** Result of island detection for a postal code. */
+export interface IslandDetection {
+    /** Whether the postal code belongs to an island region. */
+    isIsland: boolean;
+    /** Island group name (empty string if not an island). */
+    type: string;
+}
+
+/**
+ * Detect whether a postal code belongs to an island region.
+ *
+ * Relevant for Italy (Sicily, Sardinia) and Spain (Canary Islands, Balearic Islands).
+ * Island shipments may have different pricing or carrier restrictions.
+ *
+ * @param country - ISO 3166-1 alpha-2 country code
+ * @param postalCode - Postal code to check
+ * @returns Island detection result
+ */
+export function detectIsland(country: string, postalCode: string): IslandDetection {
+    const cc = country.toUpperCase().trim();
+    const pc = postalCode.trim();
+
+    if (cc === 'IT' && pc.length >= 2) {
+        const prefix = pc.slice(0, 2);
+        const num = parseInt(prefix, 10);
+        if (num >= 90 && num <= 98) return { isIsland: true, type: 'Sicily' };
+        if (prefix === '07' || prefix === '08' || prefix === '09') return { isIsland: true, type: 'Sardinia' };
+    }
+
+    if (cc === 'ES' && pc.length >= 2) {
+        if (pc.startsWith('35') || pc.startsWith('38')) return { isIsland: true, type: 'Canary Islands' };
+        if (pc.startsWith('07')) return { isIsland: true, type: 'Balearic Islands' };
+    }
+
+    return { isIsland: false, type: '' };
 }

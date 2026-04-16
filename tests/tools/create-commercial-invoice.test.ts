@@ -183,7 +183,7 @@ describe("envia_create_commercial_invoice", () => {
   // -------------------------------------------------------------------------
   // 9. mentions classify_hscode in error tip
   // -------------------------------------------------------------------------
-  it("mentions classify_hscode in error tip", async () => {
+  it("should include mapped suggestion in error response", async () => {
     mockFetch.mockResolvedValueOnce({
       ok: false,
       status: 422,
@@ -194,7 +194,8 @@ describe("envia_create_commercial_invoice", () => {
     const result = await handler(BASE_ARGS);
     const text = result.content[0].text;
 
-    expect(text).toContain("classify_hscode");
+    expect(text).toContain("Commercial invoice creation failed:");
+    expect(text).toContain("Suggestion:");
   });
 
   // -------------------------------------------------------------------------

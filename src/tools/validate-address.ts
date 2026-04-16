@@ -16,6 +16,7 @@ import { resolveClient } from "../utils/api-client.js";
 import type { EnviaConfig } from "../config.js";
 import { countrySchema, optionalApiKeySchema } from "../utils/schemas.js";
 import { fetchGenericForm, getRequiredFields } from "../services/generic-form.js";
+import { transformPostalCode } from "../utils/address-resolver.js";
 
 /** Shape of a single zipcode result from GET /zipcode/{country}/{code}. */
 interface ZipcodeEntry {
@@ -82,8 +83,9 @@ export function registerValidateAddress(
             // 1. Validate postal code
             if (postal_code) {
                 const pc = postal_code.trim();
+                const normalizedPc = transformPostalCode(countryCode, pc);
                 // URL-encode both path segments to prevent path traversal
-                const url = `${config.geocodesBase}/zipcode/${encodeURIComponent(countryCode)}/${encodeURIComponent(pc)}`;
+                const url = `${config.geocodesBase}/zipcode/${encodeURIComponent(countryCode)}/${encodeURIComponent(normalizedPc)}`;
                 const res = await activeClient.get<ZipcodeEntry[]>(url);
 
                 if (!res.ok) {
@@ -102,8 +104,11 @@ export function registerValidateAddress(
                         const stateCode = d.state?.code?.["2digit"] ?? "";
                         const stateDisplay = stateCode ? `${stateName} (${stateCode})` : stateName;
 
+                        const pcDisplay = normalizedPc !== pc
+                            ? `Postal code ${pc} (normalized to ${normalizedPc}) is valid.`
+                            : `Postal code ${pc} is valid.`;
                         const lines = [
-                            `Postal code ${pc} is valid.`,
+                            pcDisplay,
                             `  City:    ${d.locality ?? "—"}`,
                             `  State:   ${stateDisplay}`,
                             `  Country: ${countryCode}`,

@@ -11,6 +11,7 @@ import type { EnviaApiClient } from '../utils/api-client.js';
 import { resolveClient } from '../utils/api-client.js';
 import type { EnviaConfig } from '../config.js';
 import { requiredApiKeySchema } from '../utils/schemas.js';
+import { mapCarrierError } from '../utils/error-mapper.js';
 
 interface ShipmentEntry {
     tracking_number?: string;
@@ -61,8 +62,9 @@ export function registerGetShipmentHistory(
             const res = await activeClient.get<{ data: ShipmentEntry[] }>(url);
 
             if (!res.ok) {
+                const mapped = mapCarrierError(res.status, res.error ?? '');
                 return {
-                    content: [{ type: "text", text: `Failed to retrieve shipment history: ${res.error}` }],
+                    content: [{ type: "text", text: `Failed to retrieve shipment history: ${mapped.userMessage}\n\nSuggestion: ${mapped.suggestion}` }],
                 };
             }
 

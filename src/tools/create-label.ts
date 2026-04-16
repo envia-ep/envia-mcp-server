@@ -37,6 +37,11 @@ import {
     validateAddressCompleteness,
     type RequiredFieldDescriptor,
 } from '../services/generic-form.js';
+import { shouldApplyTaxes } from '../services/tax-rules.js';
+import { DOMESTIC_AS_INTERNATIONAL } from '../services/country-rules.js';
+import { validateCPF, validateCNPJ, validateNIT, isIdentificationRequired } from '../services/identification-validator.js';
+import { detectBrazilianDocumentType } from '../services/country-rules.js';
+import { mapCarrierError } from '../utils/error-mapper.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -399,7 +404,8 @@ async function handleEcommerceMode(
 
     const isInternational = originCountryCode !== destCountryCode;
     const isBrDomestic = originCountryCode === 'BR' && destCountryCode === 'BR';
-    const packages = buildPackagesFromV4(activePackages, isInternational || isBrDomestic);
+    const isInDomestic = originCountryCode === 'IN' && destCountryCode === 'IN';
+    const packages = buildPackagesFromV4(activePackages, isInternational || isBrDomestic || isInDomestic);
 
     // --- BR-to-BR DCe authorization ---
     const userXmlData = args.xml_data as XmlDataEntry[] | undefined;
@@ -494,6 +500,64 @@ async function handleEcommerceMode(
     };
 
     return postGenerateAndFormat(body, client, config);
+}
+
+// ---------------------------------------------------------------------------
+// Identification validation
+// ---------------------------------------------------------------------------
+
+/**
+ * Validate identification numbers based on country requirements.
+ * Returns an error message string if validation fails, undefined if OK.
+ *
+ * @param originCountry - ISO 3166-1 alpha-2 origin country code
+ * @param destCountry - ISO 3166-1 alpha-2 destination country code
+ * @param originId - Origin identification number (CPF/CNPJ/NIT/etc.)
+ * @param destId - Destination identification number
+ * @returns Error message if validation fails, undefined if OK
+ */
+function validateIdentificationNumbers(
+    originCountry: string,
+    destCountry: string,
+    originId: string | undefined,
+    destId: string | undefined,
+): string | undefined {
+    const req = isIdentificationRequired(originCountry, destCountry, 'generate');
+    if (!req.required) return undefined;
+
+    const errors: string[] = [];
+
+    if (req.fields.includes('origin')) {
+        if (!originId || originId.trim() === '') {
+            errors.push(`Origin identification number is required for ${originCountry} shipments.`);
+        } else if (originCountry === 'BR') {
+            const docType = detectBrazilianDocumentType(originId);
+            if (docType === 'CPF' && !validateCPF(originId)) {
+                errors.push('Origin CPF is invalid (checksum failed). Expected format: 11 digits (e.g. 529.982.247-25).');
+            } else if (docType === 'CNPJ' && !validateCNPJ(originId)) {
+                errors.push('Origin CNPJ is invalid (checksum failed). Expected format: 14 digits (e.g. 11.222.333/0001-81).');
+            }
+        } else if (originCountry === 'CO' && !validateNIT(originId)) {
+            errors.push('Origin NIT is invalid. Must be 7-10 numeric digits.');
+        }
+    }
+
+    if (req.fields.includes('destination')) {
+        if (!destId || destId.trim() === '') {
+            errors.push(`Destination identification number is required for shipments from ${originCountry}.`);
+        } else if (destCountry === 'BR') {
+            const docType = detectBrazilianDocumentType(destId);
+            if (docType === 'CPF' && !validateCPF(destId)) {
+                errors.push('Destination CPF is invalid (checksum failed). Expected format: 11 digits.');
+            } else if (docType === 'CNPJ' && !validateCNPJ(destId)) {
+                errors.push('Destination CNPJ is invalid (checksum failed). Expected format: 14 digits.');
+            }
+        } else if (destCountry === 'CO' && !validateNIT(destId)) {
+            errors.push('Destination NIT is invalid. Must be 7-10 numeric digits.');
+        }
+    }
+
+    return errors.length > 0 ? errors.join('\n') : undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -627,6 +691,39 @@ async function handleManualMode(
         origin, destination, originResolved.country, destResolved.country, client, config,
     );
     if (formValidationError) return formValidationError;
+
+    // --- Identification validation ---
+    const originCC = (originCountry ?? 'MX').toUpperCase();
+    const destCC = (destCountry ?? 'MX').toUpperCase();
+
+    const idError = validateIdentificationNumbers(
+        originCC,
+        destCC,
+        args.origin_identification_number as string | undefined,
+        args.destination_identification_number as string | undefined,
+    );
+    if (idError) {
+        return textResponse(`Identification validation failed:\n${idError}`);
+    }
+
+    // --- Items requirement check ---
+    const originSt = originResolved.state ?? (args.origin_state as string | undefined) ?? '';
+    const destSt = destResolved.state ?? (args.destination_state as string | undefined) ?? '';
+    const taxesApply = shouldApplyTaxes(originCC, originSt, destCC, destSt);
+    const domesticButIntl = originCC === destCC && DOMESTIC_AS_INTERNATIONAL.has(originCC);
+    const needsItems = !taxesApply || domesticButIntl;
+
+    if (needsItems) {
+        const hasItems = args.items && Array.isArray(args.items) && (args.items as unknown[]).length > 0;
+        if (!hasItems) {
+            return textResponse(
+                `This route (${originCC}\u2192${destCC}) requires items in each package for customs/fiscal declarations.\n\n` +
+                'Each item needs: description, quantity, price, and productCode (HS/NCM code).\n' +
+                'Use classify_hscode to look up the correct code for each product.\n\n' +
+                'Example: items: [{ "description": "Cotton T-shirt", "quantity": 2, "price": 25.00, "productCode": "6109.10.00" }]',
+            );
+        }
+    }
 
     const trimmedCarrier = carrier.trim().toLowerCase();
     const trimmedService = service.trim();
@@ -912,9 +1009,9 @@ async function postGenerateAndFormat(
     const res = await client.post<{ data: LabelData[] }>(url, body);
 
     if (!res.ok) {
+        const mapped = mapCarrierError(res.status, res.error ?? '');
         return textResponse(
-            `Label creation failed: ${res.error}\n\n` +
-            'Tip: Verify addresses with envia_validate_address, or check your Envia account balance.',
+            `Label creation failed: ${mapped.userMessage}\n\nSuggestion: ${mapped.suggestion}`,
         );
     }
 

@@ -12,6 +12,7 @@ import { resolveClient } from '../utils/api-client.js';
 import type { EnviaConfig } from '../config.js';
 import { countrySchema, carrierSchema, dateSchema, requiredApiKeySchema } from '../utils/schemas.js';
 import { buildGenerateAddress } from '../builders/address.js';
+import { mapCarrierError } from '../utils/error-mapper.js';
 
 interface PickupData {
     carrier?: string;
@@ -119,11 +120,12 @@ export function registerSchedulePickup(
             const res = await activeClient.post<{ data: PickupData }>(url, body);
 
             if (!res.ok) {
+                const mapped = mapCarrierError(res.status, res.error ?? '');
                 return {
                     content: [
                         {
                             type: "text",
-                            text: `Pickup scheduling failed: ${res.error}\n\nTip: Verify the date is a future business day and that the carrier supports pickup in this area.`,
+                            text: `Pickup scheduling failed: ${mapped.userMessage}\n\nSuggestion: ${mapped.suggestion}`,
                         },
                     ],
                 };

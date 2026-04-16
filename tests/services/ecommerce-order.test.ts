@@ -504,6 +504,73 @@ describe('EcommerceOrderService', () => {
 
             expect(summary.fulfillmentWarnings).toHaveLength(0);
         });
+
+        // -------------------------------------------------------------------
+        // Plan V2 §5 — compact flags surfaced at list level
+        // -------------------------------------------------------------------
+
+        it('should expose the human-readable fulfillment status when present', () => {
+            const order = makeOrder({ fulfillment_status_name: 'Shipped' });
+
+            const summary = service.buildSummary(order);
+
+            expect(summary.fulfillmentStatus).toBe('Shipped');
+        });
+
+        it('should derive hasCod from order-level cod amount', () => {
+            const order = makeOrder({ order: { ...makeOrder().order, cod: 250 } });
+
+            const summary = service.buildSummary(order);
+
+            expect(summary.hasCod).toBe(true);
+        });
+
+        it('should derive hasCod from any package-level cod_active flag', () => {
+            const order = makeOrder({
+                shipment_data: {
+                    shipping_address: makeShippingAddress(),
+                    locations: [makeLocation({
+                        packages: [makePackage({ cod_active: 1 })],
+                    })],
+                },
+            });
+
+            const summary = service.buildSummary(order);
+
+            expect(summary.hasCod).toBe(true);
+        });
+
+        it('should report hasCod=false when neither order nor packages flag COD', () => {
+            const order = makeOrder();
+
+            const summary = service.buildSummary(order);
+
+            expect(summary.hasCod).toBe(false);
+        });
+
+        it('should expose isFraudRisk when fraud_risk is true', () => {
+            const order = makeOrder({ fraud_risk: true });
+
+            const summary = service.buildSummary(order);
+
+            expect(summary.isFraudRisk).toBe(true);
+        });
+
+        it('should expose isPartiallyAvailable when partial_available is 1', () => {
+            const order = makeOrder({ partial_available: 1 });
+
+            const summary = service.buildSummary(order);
+
+            expect(summary.isPartiallyAvailable).toBe(true);
+        });
+
+        it('should pass through order_comment verbatim', () => {
+            const order = makeOrder({ order_comment: 'Leave at front desk' });
+
+            const summary = service.buildSummary(order);
+
+            expect(summary.orderComment).toBe('Leave at front desk');
+        });
     });
 
     // -----------------------------------------------------------------------

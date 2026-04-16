@@ -254,6 +254,12 @@ export class EcommerceOrderService {
             );
         }
 
+        // Plan V2 §5 — compact flags surfaced to the LLM so it can answer
+        // questions like "which orders are still pending?" without fetching
+        // extra detail. Derived deterministically from V4 fields.
+        const hasCod = allPackages.some((pkg) => pkg.cod_active === 1 || (pkg.cod_value ?? 0) > 0)
+            || order.order.cod > 0;
+
         return {
             orderId: order.id,
             orderIdentifier: order.order.identifier,
@@ -264,6 +270,11 @@ export class EcommerceOrderService {
             currency: order.order.currency || 'MXN',
             statusPayment: order.order.status_payment,
             fulfillmentWarnings: warnings,
+            fulfillmentStatus: order.fulfillment_status_name,
+            hasCod,
+            isFraudRisk: order.fraud_risk === true,
+            isPartiallyAvailable: order.partial_available === 1,
+            orderComment: order.order_comment ?? null,
         };
     }
 

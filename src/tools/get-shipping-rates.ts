@@ -22,6 +22,9 @@ import { buildRateAddress } from '../builders/address.js';
 import { buildManualPackage, validateInsuranceExclusivity } from '../builders/package.js';
 import { buildAdditionalServices } from '../builders/additional-service.js';
 import { fetchAvailableCarriers, type CarrierInfo } from '../services/carrier.js';
+import { shouldApplyTaxes } from '../services/tax-rules.js';
+import { DOMESTIC_AS_INTERNATIONAL } from '../services/country-rules.js';
+import { mapCarrierError } from '../utils/error-mapper.js';
 
 /** A single rate option returned by the carriers API. */
 interface RateEntry {
@@ -298,19 +301,24 @@ export function registerGetShippingRates(
                 }
                 const { carrier, res } = result.value;
                 if (!res.ok) {
-                    errors.push(`${carrier}: ${res.error}`);
+                    const body = res.data as Record<string, unknown> | undefined;
+                    const code = typeof body?.code === 'number' ? body.code : 0;
+                    const mapped = mapCarrierError(code, res.error ?? 'Unknown error');
+                    errors.push(`${carrier}: ${mapped.userMessage}${mapped.suggestion ? ` — ${mapped.suggestion}` : ''}`);
                     continue;
                 }
                 if (Array.isArray(res.data?.data)) {
                     allRates.push(...res.data.data);
                 } else {
                     const body = res.data as Record<string, unknown> | undefined;
-                    const detail = typeof body?.message === 'string'
+                    const code = typeof body?.code === 'number' ? body.code : 0;
+                    const rawMsg = typeof body?.message === 'string'
                         ? body.message
                         : typeof body?.error === 'string'
                             ? body.error
                             : `unexpected response shape: ${JSON.stringify(body).slice(0, 300)}`;
-                    errors.push(`${carrier}: ${detail}`);
+                    const mapped = mapCarrierError(code, rawMsg);
+                    errors.push(`${carrier}: ${mapped.userMessage}${mapped.suggestion ? ` — ${mapped.suggestion}` : ''}`);
                 }
             }
 
@@ -371,6 +379,25 @@ export function registerGetShippingRates(
 
             if (errors.length) {
                 lines.push('', 'Carrier errors:', ...errors.map((e) => `  ⚠ ${e}`));
+            }
+
+            // Warn about international requirements for label creation
+            const originCC = (args.origin_country ?? 'MX').toUpperCase();
+            const destCC = (args.destination_country ?? 'MX').toUpperCase();
+            const originSt = origin.state ?? '';
+            const destSt = destination.state ?? '';
+            const taxesApply = shouldApplyTaxes(originCC, originSt, destCC, destSt);
+            const domesticButIntl = originCC === destCC && DOMESTIC_AS_INTERNATIONAL.has(originCC);
+
+            if (!taxesApply || domesticButIntl) {
+                lines.push('');
+                lines.push('Important: This route requires items[] in each package when creating a label.');
+                lines.push('Each item needs: description, quantity, price, and productCode (HS/NCM code).');
+                if (domesticButIntl) {
+                    lines.push(
+                        `(${originCC} domestic shipments have fiscal/customs requirements even within the same country.)`,
+                    );
+                }
             }
 
             lines.push(

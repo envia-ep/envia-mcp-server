@@ -163,6 +163,39 @@ describe("envia_validate_address", () => {
   });
 
   // -------------------------------------------------------------------------
+  // 8b. shows normalization info when postal code is transformed (e.g. BR)
+  // -------------------------------------------------------------------------
+  it("should show normalization info when postal code is transformed", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve(MOCK_ZIPCODE_RESPONSE),
+    });
+
+    const result = await handler({ country: "BR", postal_code: "01001000" });
+    const text = result.content[0].text;
+
+    // transformPostalCode('BR', '01001000') => '01001-000'
+    expect(text).toContain("(normalized to 01001-000)");
+    expect(text).toContain("is valid.");
+
+    // Verify the API was called with the normalized postal code
+    const [url] = mockFetch.mock.calls[0];
+    expect(url).toContain("/zipcode/BR/01001-000");
+  });
+
+  // -------------------------------------------------------------------------
+  // 8c. does not show normalization info when postal code is unchanged
+  // -------------------------------------------------------------------------
+  it("should not show normalization info when postal code is unchanged", async () => {
+    const result = await handler({ country: "MX", postal_code: "03100" });
+    const text = result.content[0].text;
+
+    expect(text).toContain("Postal code 03100 is valid.");
+    expect(text).not.toContain("normalized to");
+  });
+
+  // -------------------------------------------------------------------------
   // 9. returns "not found" when postal code data is null
   // -------------------------------------------------------------------------
   it('returns "not found" when postal code data is empty array', async () => {

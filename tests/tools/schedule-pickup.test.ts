@@ -214,7 +214,7 @@ describe("envia_schedule_pickup", () => {
   // -------------------------------------------------------------------------
   // 12. mentions future business day in error tip
   // -------------------------------------------------------------------------
-  it("mentions future business day in error tip", async () => {
+  it("should include mapped suggestion in error response", async () => {
     mockFetch.mockResolvedValueOnce({
       ok: false,
       status: 422,
@@ -225,6 +225,7 @@ describe("envia_schedule_pickup", () => {
     const result = await handler(BASE_ARGS);
     const text = result.content[0].text;
 
-    expect(text).toContain("future business day");
+    expect(text).toContain("Pickup scheduling failed:");
+    expect(text).toContain("Suggestion:");
   });
 });

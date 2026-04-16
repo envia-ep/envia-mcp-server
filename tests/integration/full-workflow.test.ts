@@ -37,6 +37,7 @@ import { clearFormCache } from "../../src/services/generic-form.js";
 
 vi.mock("../../src/utils/address-resolver.js", () => ({
     resolveAddress: vi.fn(),
+    transformPostalCode: vi.fn((_, pc: string) => pc),
 }));
 
 const resolveAddressMock = vi.mocked(resolveAddress);
@@ -310,7 +311,9 @@ describe("Full workflow integration", () => {
                 tracking_number: "7520610403",
             });
             expect(cancelResult.content[0].text).toContain("cancelled successfully");
-            expect(cancelResult.content[0].text).toContain("Balance returned");
+            // Post sprint-0 cancel enrichment: refund section replaces
+            // the old "Balance returned" label.
+            expect(cancelResult.content[0].text).toContain("Refund:");
         });
     });
 

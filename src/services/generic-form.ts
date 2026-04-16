@@ -224,3 +224,102 @@ export function validateAddressCompleteness(
         return value == null || (typeof value === 'string' && value.trim() === '');
     });
 }
+
+// ---------------------------------------------------------------------------
+// High-level helper for address-management tools
+// ---------------------------------------------------------------------------
+
+/** Result of a country-aware address validation. */
+export interface AddressValidationResult {
+    /** True when the address satisfies all required fields for the country. */
+    ok: boolean;
+    /** Descriptors for fields that are required but missing. */
+    missing: RequiredFieldDescriptor[];
+    /** Human-readable error message (populated when `ok` is false). */
+    errorMessage?: string;
+}
+
+/**
+ * Map address-tool parameter names (snake_case) to the GenerateAddress keys
+ * expected by `validateAddressCompleteness`. Address-management tools use the
+ * same snake_case vocabulary as the MCP schemas, so we translate on the way
+ * in instead of forcing each tool to build an intermediate object.
+ */
+const TOOL_PARAM_TO_ADDRESS_KEY: Record<string, string> = {
+    postal_code: 'postalCode',
+    street: 'street',
+    number: 'number',
+    interior_number: 'interior_number',
+    city: 'city',
+    state: 'state',
+    district: 'district',
+    identification_number: 'identificationNumber',
+    reference: 'reference',
+};
+
+/**
+ * Validate an address against the country-specific generic-form rules.
+ *
+ * This is the high-level entry point used by CRUD tools on addresses and
+ * clients. It hides the three-step dance (fetch form → extract required →
+ * check completeness) behind a single call and returns a structured result
+ * the caller can surface directly to the agent.
+ *
+ * Graceful degradation: when the form fetch fails (empty array), the helper
+ * returns `ok: true` with no missing fields — we prefer to let the backend
+ * reject than to block a mutation client-side on transient infra issues.
+ *
+ * @param country - ISO 3166-1 alpha-2 country code
+ * @param input   - Address fields keyed by their snake_case tool parameter name
+ * @param client  - Authenticated Envia API client
+ * @param config  - Server configuration
+ */
+export async function validateAddressForCountry(
+    country: string,
+    input: Record<string, unknown>,
+    client: EnviaApiClient,
+    config: EnviaConfig,
+): Promise<AddressValidationResult> {
+    const normalisedCountry = country.trim().toUpperCase();
+    if (normalisedCountry.length !== 2) {
+        return { ok: true, missing: [] };
+    }
+
+    const form = await fetchGenericForm(normalisedCountry, client, config);
+    if (form.length === 0) {
+        return { ok: true, missing: [] };
+    }
+
+    const required = getRequiredFields(form);
+    const addressObject = buildAddressObjectFromToolInput(input);
+    const missing = validateAddressCompleteness(addressObject, required);
+
+    if (missing.length === 0) {
+        return { ok: true, missing: [] };
+    }
+
+    const details = missing
+        .map((f) => `${f.fieldLabel} (param \`${f.toolParam}\`)`)
+        .join(', ');
+
+    return {
+        ok: false,
+        missing,
+        errorMessage: `The address is missing required fields for ${normalisedCountry}: ${details}.`,
+    };
+}
+
+/**
+ * Translate a snake_case tool input object into the camelCase GenerateAddress
+ * keys expected by `validateAddressCompleteness`. Fields without a known
+ * mapping are passed through unchanged so unknown keys are simply ignored
+ * during validation.
+ */
+function buildAddressObjectFromToolInput(input: Record<string, unknown>): Record<string, unknown> {
+    const out: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(input)) {
+        const mapped = TOOL_PARAM_TO_ADDRESS_KEY[key] ?? key;
+        out[mapped] = value;
+    }
+    return out;
+}
