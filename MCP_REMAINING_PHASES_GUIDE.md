@@ -8,9 +8,10 @@
 
 ## Current state
 
-- **72 user-facing tools + 4 internal helpers**
+- **72 user-facing tools + 5 internal helpers**
 - **1369 tests passing**, 103 test files, build clean
-- **Local commit:** `ae7407b` on `main` (not pushed) — Sprint 2 changes staged, awaiting Jose's approval
+- **Local commit:** `0b7da49` on `main` (not pushed) — Sprint 2 + planning handoff committed
+- **Planning session closed 2026-04-17** — decisions A-E captured, Sprint 3 prompt ready
 
 ## Completed phases
 
@@ -91,34 +92,23 @@ Created test files (5–7 tests each, AAA pattern, all passing):
 - 17 new tests in `tests/tools/queue/check-balance.test.ts`.
 - Total: 72 tools, 1369 tests, 103 test files, build clean.
 
-## Remaining work — Sprint 3 "ecart-payment auth fix + internal quality"
+## Sprint 3 — Defined by planning session 2026-04-17
 
-### 1. ecart-payment tools (5 tools, blocked on auth — highest priority)
+Scope: 3 items, **zero new user-facing tools** (scope fence per Decision E).
+Prompt: `.claude/prompts/SPRINT_3_PROMPT.md`.
 
-Blocked by JWT mismatch. See `_docs/SPRINT_2_BLOCKERS.md` for 3 resolution options.
-Recommended: proxy through queries service (already has ecartpay auth keys).
+1. **Secondary-carrier error-map enrichment** — AmPm / Entrega / JTExpress / TresGuerras / Afimex patterns in `src/utils/error-mapper.ts`. Small, user-visible.
+2. **Smoke-test playbook + first staging deploy** — `_docs/SMOKE_TEST_PLAYBOOK.md` + deploy to Heroku staging + `_docs/DEPLOY_LOG_2026_04_17.md` with outcome.
+3. **textResponse() migration + ESLint guard** — migrate the ~6 remaining tools and add a `no-restricted-syntax` rule to block raw `{ content: [...] }` returns.
 
-Tools to implement once auth is resolved:
-- `envia_get_refund_status` — `GET /api/refunds?transaction_id=...`
-- `envia_get_withdrawal_status` — `GET /api/withdrawals/:id`
-- `envia_get_transaction_history` — `GET /api/transactions`
-- `envia_get_ecartpay_balance` — `GET /api/transactions/summary`
-- `envia_list_invoices` — `GET /api/invoices`
+### Deferred from Sprint 3 (see `_docs/DECISIONS_2026_04_17.md`)
 
-## Remaining work — Sprint 3 "Internal quality" (optional)
-
-These came from the structural audit (`_docs/AUDIT_2026_04_16.md`) and are
-not user-visible but improve maintainability:
-
-1. Typed payloads — eliminate 111 `Record<string, unknown>` usages in
-   mutation bodies. Define per-tool payload interfaces.
-2. Tool registry pattern — auto-register tools from each barrel's `index.ts`
-   to replace the monolithic `createEnviaServer` body in `src/index.ts`.
-3. Address builder refactor — 3 near-identical builders in
-   `src/builders/address.ts` can share a single polymorphic function.
-4. Migrate ~6 remaining tools that still use raw `{ content: [{ type: 'text', ... }] }`
-   response pattern to `textResponse()` helper. Add ESLint rule to prevent
-   regression.
+- ecart-payment 5 tools (Decision A = defer to v2 of the agent).
+- Typed payloads refactor (no evidence of bug; deferred).
+- Tool-registry pattern (does not block deploy; deferred).
+- Observability layer (Decision D = Sprint 4).
+- LTL tools + validateAddress carrier-constraints extension (V5 = defer; not chat-friendly).
+- Production deploy (Decision C = ≥ 1 week after staging stability).
 
 ## Explicitly deferred / NOT in scope for v1
 
