@@ -19,6 +19,13 @@
  *
  * When `ENVIA_ECART_HOSTNAME` is not configured, the sync is skipped and
  * `ok: false` is returned — `create_label` will append a warning.
+ *
+ * Verified response shapes (smoke-tested 2026-04-16, sandbox, shop 33488):
+ *   Success (2xx): `{ success: true }` or `{ message: "..." }`
+ *   Relay error (422): `{ statusCode: 422, error: "Unprocessable Entity", message: "<detail>" }`
+ *     — occurs when ecartAPI URL is unreachable (expected in sandbox; DNS resolves in prod).
+ *   Auth failure (401): endpoint returns 401 when bearer token is invalid.
+ * The `res.ok` check in this service correctly handles all non-2xx cases.
  */
 
 import type { EnviaApiClient } from '../utils/api-client.js';

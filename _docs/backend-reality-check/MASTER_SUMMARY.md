@@ -1,6 +1,6 @@
 # Backend Reality Check — Master Summary
 
-Last updated: 2026-04-16
+Last updated: 2026-04-17
 
 ## Session A Findings (completed, Sprint 0)
 
@@ -28,14 +28,19 @@ Last updated: 2026-04-16
 
 ### Immediate (READ_SAFE — implement in Sprint 2)
 
-| Tool | Source | Endpoint | User question |
-|------|--------|----------|---------------|
-| `envia_check_balance` | queue service | `POST /check` | "¿Tengo saldo para enviar?" |
-| `envia_get_refund_status` | ecart-payment | `GET /api/refunds` | "¿cuándo me llega el reembolso?" |
-| `envia_get_withdrawal_status` | ecart-payment | `GET /api/withdrawals/:id` | "¿cuándo llega mi remesa COD?" |
-| `envia_get_transaction_history` | ecart-payment | `GET /api/transactions` | "¿qué pasó con ese cobro?" |
-| `envia_get_ecartpay_balance` | ecart-payment | `GET /api/transactions/summary` | "¿cuál es mi saldo EcartPay?" |
-| `envia_list_ecartpay_invoices` | ecart-payment | `GET /api/invoices` | "¿tengo facturas pendientes?" |
+| Tool | Source | Endpoint | User question | Sprint 2 Status |
+|------|--------|----------|---------------|-----------------|
+| `envia_check_balance` | user-info (not TMS — see blockers) | `GET /user-information` | "¿Tengo saldo para enviar?" | **IMPLEMENTED** (72nd tool) |
+| `envia_get_refund_status` | ecart-payment | `GET /api/refunds` | "¿cuándo me llega el reembolso?" | **DEFERRED** — ecartpay JWT mismatch (see blockers) |
+| `envia_get_withdrawal_status` | ecart-payment | `GET /api/withdrawals/:id` | "¿cuándo llega mi remesa COD?" | **DEFERRED** — ecartpay JWT mismatch |
+| `envia_get_transaction_history` | ecart-payment | `GET /api/transactions` | "¿qué pasó con ese cobro?" | **DEFERRED** — ecartpay JWT mismatch |
+| `envia_get_ecartpay_balance` | ecart-payment | `GET /api/transactions/summary` | "¿cuál es mi saldo EcartPay?" | **DEFERRED** — ecartpay JWT mismatch |
+| `envia_list_ecartpay_invoices` | ecart-payment | `GET /api/invoices` | "¿tengo facturas pendientes?" | **DEFERRED** — ecartpay JWT mismatch |
+
+**Sprint 2 auth-verification findings:**
+- ecart-payment: HTTP 401 `"El token no es válido."` — has its own JWT system. Queries service uses Basic auth with private/public keys to get a session token. Real hostname: `ecart-payment-dev.herokuapp.com`. See `SPRINT_2_BLOCKERS.md`.
+- TMS queue: HTTP 401 `"Missing authentication"` with portal JWT. Uses company-scoped JWT from `POST /token` (no auth). Additionally `POST /check` creates pending charges (balance holds), NOT read-only. Real hostname: `queue-private.envia.com`. See `SPRINT_2_BLOCKERS.md`.
+- `envia_check_balance` implemented using `fetchUserInfo` (user-information JWT has `company_balance`) — truly READ_SAFE.
 
 ### Phase 2 (MUTATION — requires confirmation prompts + auth verification)
 
@@ -63,4 +68,5 @@ Using the framework from `V1_SAFE_TOOL_INVENTORY.md`:
 - **MUTATION additions** (4 tools): envia_create_payment_link, envia_request_refund, envia_request_withdrawal, envia_request_refund_queue
 
 **Current tool count (post Sprint 1):** 71 user-facing tools + 4 internal helpers
-**Proposed Sprint 2 additions:** +6 READ_SAFE tools = 77 user-facing tools
+**Sprint 2 deliveries:** +1 tool (`envia_check_balance`) = **72 user-facing tools**
+**Sprint 2 deferred:** 5 ecart-payment tools (auth blocker — see `SPRINT_2_BLOCKERS.md`)

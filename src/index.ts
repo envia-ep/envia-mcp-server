@@ -197,6 +197,9 @@ import {
     registerGenerateComplement,
 } from './tools/carriers-advanced/index.js';
 
+// Queue tools
+import { registerCheckBalance } from './tools/queue/index.js';
+
 // Resources
 import { registerResources } from './resources/api-docs.js';
 
@@ -349,6 +352,9 @@ function createEnviaServer(): McpServer {
     registerGetCompanyInfo(server, client, config);
     registerGetMySalesman(server, client, config);
     registerGetBalanceInfo(server, client, config);
+
+    // Queue / balance tools
+    registerCheckBalance(server, client, config);
 
     // AI Shipping tools
     registerAiParseAddress(server, client, config);

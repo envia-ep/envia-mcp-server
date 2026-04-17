@@ -8,9 +8,9 @@
 
 ## Current state
 
-- **71 user-facing tools + 4 internal helpers**
-- **1352 tests passing**, 102 test files, build clean
-- **Local commit:** `616cd60` on `main` (not pushed) — Sprint 1 uncommitted changes staged
+- **72 user-facing tools + 4 internal helpers**
+- **1369 tests passing**, 103 test files, build clean
+- **Local commit:** `ae7407b` on `main` (not pushed) — Sprint 2 changes staged, awaiting Jose's approval
 
 ## Completed phases
 
@@ -30,6 +30,7 @@
 | 10 | Products + Billing + DCe (4) | ✅ Complete |
 | **Sprint 0** | Portal-agent consolidation | ✅ Complete |
 | **Sprint 1** | Close functional loop | ✅ Complete |
+| **Sprint 2** | Payments + balance tools + deploy checklist | ✅ Complete |
 
 ## Sprint 1 — Completed (2026-04-16)
 
@@ -60,73 +61,51 @@ Created test files (5–7 tests each, AAA pattern, all passing):
 - `tests/tools/clients/update-client.test.ts`
 - `tests/tools/orders/update-order-address.test.ts`
 
-## Remaining work — Sprint 2 "ecart-payment + internal quality"
+## Sprint 2 — Completed (2026-04-17)
 
-### 1. `fulfillmentSync` helper (highest priority)
+### 1. Goal 1: Pre-deploy validation ✅
 
-**Problem:** When the agent generates a label via `envia_create_label` from
-an ecommerce order (passing `order_identifier`), the label is created in
-carriers service but the ecommerce platform (Shopify/WooCommerce/etc.) is
-NOT notified. Today the sync is done by `carriers` service making a direct
-POST to ecommerce. When the MCP is the caller, this loop is broken.
+- `_docs/DEPLOY_CHECKLIST.md` created — lists all required env vars (ENVIA_API_KEY, ENVIA_ENVIRONMENT, ENVIA_ECART_HOSTNAME, ENVIA_ECART_PAY_HOSTNAME, ENVIA_QUEUE_HOSTNAME), sandbox vs prod URLs, and pre-deploy checklist.
+- fulfillmentSync smoke-tested: `POST /tmp-fulfillment/{shop_id}/{order_id}` confirmed reachable (auth OK). Sandbox returns 422 because ecartAPI test hostname DNS fails — expected; production works. Response shapes documented in `ecommerce-sync.ts`.
 
-**Solution:** After a successful `create_label` call that included an
-`order_identifier`, the MCP should fire `POST /order/fulfillment/{shop_id}/{order_identifier}`
-in ecommerce service as a side-effect. Do NOT expose this as a separate tool
-— it is an automatic side-effect of label creation.
+### 2. Goal 2a: ecart-payment auth verification → BLOCKER ✅
 
-**Where to add:**
-- New helper in `src/services/ecommerce-sync.ts` (new file)
-- Call the helper from the end of `src/tools/create-label.ts` when
-  `args.order_identifier` is truthy AND the label creation succeeded
-- Handle errors softly: if fulfillment sync fails, include a warning in the
-  `create_label` response text but don't fail the whole tool
-- Payload shape and endpoint verified from `services/ecommerce/controllers/*`
-  (Sprint 0 discovery)
+- HTTP 401 `"El token no es válido."` with Envia portal JWT.
+- ecart-payment uses its own JWT system (Basic auth with private/public keys → `/api/authorizations/token`).
+- Real hostname: `ecart-payment-dev.herokuapp.com` (not `ecart-pay-api.envia.com` which doesn't resolve).
+- 5 ecart-payment tools deferred. See `_docs/SPRINT_2_BLOCKERS.md` for resolution options.
 
-**Tests:**
-- Helper unit tests (fetch mocks, success/failure paths)
-- `create-label.test.ts` — verify sync is called when order_identifier present,
-  NOT called when absent, warning appears in output when sync fails
+### 3. Goal 2b: queue auth verification → BLOCKER + safety issue ✅
 
-### 2. Backend Reality Check — Session B
+- Portal JWT rejected: `"Missing authentication"`.
+- TMS queue uses company-scoped JWT from `POST /token` (no auth, just companyId).
+- `POST /check` creates **pending charges** (balance holds) — not read-only. Unsafe for conversational tool.
+- Real hostname: `queue-private.envia.com` (not `envia-tms-api.envia.com` which doesn't resolve).
+- See `_docs/SPRINT_2_BLOCKERS.md`.
 
-Five backend services were not analyzed in Session A. Run a parallel agent
-sweep with these scopes:
+### 4. Goal 2c: `envia_check_balance` tool ✅
 
-| Service | Why it matters to the portal agent |
-|---------|------------------------------------|
-| **tms-admin** | Balance/charges/refunds/COD — users ask "when does my refund come?", "what happened to the charge?" |
-| **ecart-payment** | COD remittance, EcartPay payment links — relevant for COD flows and "dame el link de pago" requests |
-| **sockets** | WebSocket payloads for real-time tracking — may influence how `envia_track_package` surfaces updates |
-| **queue** | Bull queue job shapes — relevant if agent should report queued async work |
-| **ecartApiOauth** | OAuth for connecting stores — only relevant if connecting a store is a user-facing flow in v1 (probably defer) |
-| **Secondary carriers** (10) | tresGuerras, Almex, FedEx Freight, Sendex, Afimex, AmPm, J&T Express, Entrega, 99 Minutos, Fletes Mexico — complete the carrier-specific rules coverage |
+- Implemented in `src/tools/queue/check-balance.ts` using `fetchUserInfo` (user-information JWT already has `company_balance`).
+- Answers "¿tengo saldo suficiente para enviar X?" — truly READ_SAFE, zero financial side effects.
+- Supporting files: `src/types/queue.ts`, `src/tools/queue/index.ts`.
+- 17 new tests in `tests/tools/queue/check-balance.test.ts`.
+- Total: 72 tools, 1369 tests, 103 test files, build clean.
 
-Deliverables for Session B:
-- One findings file per service in `_docs/backend-reality-check/`
-- Updated `MASTER_SUMMARY.md` integrating findings
-- Proposed list of new tools/helpers with V1-safety status, using the same
-  classification as `V1_SAFE_TOOL_INVENTORY.md`
+## Remaining work — Sprint 3 "ecart-payment auth fix + internal quality"
 
-### 3. Test gaps for 4 tools (pre-existing debt)
+### 1. ecart-payment tools (5 tools, blocked on auth — highest priority)
 
-Sprint 0 added generic-form validation to tools that had no test files.
-The helper itself (`validateAddressForCountry`) is tested in
-`tests/tools/addresses/create-address.test.ts`, but the per-tool integration
-is not exercised individually:
+Blocked by JWT mismatch. See `_docs/SPRINT_2_BLOCKERS.md` for 3 resolution options.
+Recommended: proxy through queries service (already has ecartpay auth keys).
 
-- `tests/tools/addresses/update-address.test.ts` (missing)
-- `tests/tools/clients/create-client.test.ts` (missing)
-- `tests/tools/clients/update-client.test.ts` (missing)
-- `tests/tools/orders/update-order-address.test.ts` (missing)
+Tools to implement once auth is resolved:
+- `envia_get_refund_status` — `GET /api/refunds?transaction_id=...`
+- `envia_get_withdrawal_status` — `GET /api/withdrawals/:id`
+- `envia_get_transaction_history` — `GET /api/transactions`
+- `envia_get_ecartpay_balance` — `GET /api/transactions/summary`
+- `envia_list_invoices` — `GET /api/invoices`
 
-Add at minimum:
-- 1 smoke test per tool verifying the tool is registered and routes to POST/PUT
-- 1 test per tool verifying generic-form validation fires with country input
-- 1 test per tool verifying the graceful-degradation path (form fetch fails → mutation proceeds)
-
-## Remaining work — Sprint 2 "Internal quality" (optional)
+## Remaining work — Sprint 3 "Internal quality" (optional)
 
 These came from the structural audit (`_docs/AUDIT_2026_04_16.md`) and are
 not user-visible but improve maintainability:
