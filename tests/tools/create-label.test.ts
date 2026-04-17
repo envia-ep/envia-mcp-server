@@ -940,6 +940,128 @@ describe('create_shipment', () => {
     });
 
     // -----------------------------------------------------------------------
+    // Ecommerce mode — fulfillment sync (with ecartApiBase configured)
+    // -----------------------------------------------------------------------
+
+    describe('ecommerce mode — fulfillment sync', () => {
+        const CONFIG_WITH_ECART = { ...MOCK_CONFIG, ecartApiBase: 'https://api.ecart.io' };
+
+        it('should call tmp-fulfillment when order_identifier is present and label succeeds', async () => {
+            // Arrange
+            const order = makeV4Order();
+            const { server: ecartServer, handlers: ecartHandlers } = createMockServer();
+            const ecartClient = new EnviaApiClient(CONFIG_WITH_ECART);
+            registerCreateLabel(ecartServer, ecartClient, CONFIG_WITH_ECART);
+            const ecartHandler = ecartHandlers.get('create_shipment')!;
+
+            mockFetch.mockReset();
+            mockFetch
+                .mockResolvedValueOnce({
+                    ok: true, status: 200,
+                    json: () => Promise.resolve(makeOrderApiResponse(order)),
+                })
+                .mockResolvedValueOnce({
+                    ok: true, status: 200,
+                    json: () => Promise.resolve(makePrintLimitsResponse()),
+                })
+                .mockResolvedValueOnce({
+                    ok: true, status: 200,
+                    json: () => Promise.resolve(MOCK_LABEL_RESPONSE),
+                })
+                .mockResolvedValueOnce({
+                    ok: true, status: 200,
+                    json: () => Promise.resolve({ success: true }),
+                });
+
+            // Act
+            await ecartHandler({ order_identifier: 'SHOP-1234' });
+
+            // Assert
+            const tmpFulfillmentCall = mockFetch.mock.calls.find(([url]: [string]) => url.includes('/tmp-fulfillment/'));
+            expect(tmpFulfillmentCall).toBeDefined();
+        });
+
+        it('should NOT call tmp-fulfillment when label creation fails', async () => {
+            // Arrange
+            const order = makeV4Order();
+            const { server: ecartServer, handlers: ecartHandlers } = createMockServer();
+            const ecartClient = new EnviaApiClient(CONFIG_WITH_ECART);
+            registerCreateLabel(ecartServer, ecartClient, CONFIG_WITH_ECART);
+            const ecartHandler = ecartHandlers.get('create_shipment')!;
+
+            mockFetch.mockReset();
+            mockFetch
+                .mockResolvedValueOnce({
+                    ok: true, status: 200,
+                    json: () => Promise.resolve(makeOrderApiResponse(order)),
+                })
+                .mockResolvedValueOnce({
+                    ok: false, status: 422,
+                    json: () => Promise.resolve({ message: 'Carrier error' }),
+                });
+
+            // Act
+            await ecartHandler({ order_identifier: 'SHOP-1234' });
+
+            // Assert
+            const tmpFulfillmentCall = mockFetch.mock.calls.find(([url]: [string]) => url.includes('/tmp-fulfillment/'));
+            expect(tmpFulfillmentCall).toBeUndefined();
+        });
+
+        it('should append warning when sync fails but label was created', async () => {
+            // Arrange
+            const order = makeV4Order();
+            const { server: ecartServer, handlers: ecartHandlers } = createMockServer();
+            const ecartClient = new EnviaApiClient(CONFIG_WITH_ECART);
+            registerCreateLabel(ecartServer, ecartClient, CONFIG_WITH_ECART);
+            const ecartHandler = ecartHandlers.get('create_shipment')!;
+
+            mockFetch.mockReset();
+            mockFetch
+                .mockResolvedValueOnce({
+                    ok: true, status: 200,
+                    json: () => Promise.resolve(makeOrderApiResponse(order)),
+                })
+                .mockResolvedValueOnce({
+                    ok: true, status: 200,
+                    json: () => Promise.resolve(makePrintLimitsResponse()),
+                })
+                .mockResolvedValueOnce({
+                    ok: true, status: 200,
+                    json: () => Promise.resolve(MOCK_LABEL_RESPONSE),
+                })
+                .mockResolvedValueOnce({
+                    ok: false, status: 500,
+                    json: () => Promise.resolve({ message: 'Sync failed' }),
+                });
+
+            // Act
+            const result = await ecartHandler({ order_identifier: 'SHOP-1234' });
+            const text = result.content[0].text;
+
+            // Assert
+            expect(text).toContain('Label created successfully');
+            expect(text).toContain('fulfillment sync');
+        });
+
+        it('should NOT call tmp-fulfillment in manual mode', async () => {
+            // Arrange — manual mode uses the default handler (no ecartApiBase needed)
+            mockFetch.mockReset();
+            mockFetch.mockResolvedValue({
+                ok: true, status: 200,
+                json: () => Promise.resolve(MOCK_LABEL_RESPONSE),
+            });
+
+            // Act
+            await handler({ ...VALID_MANUAL_ARGS });
+
+            // Assert
+            const tmpFulfillmentCall = mockFetch.mock.calls.find(([url]: [string]) => url.includes('/tmp-fulfillment/'));
+            expect(tmpFulfillmentCall).toBeUndefined();
+        });
+    });
+
+    // -----------------------------------------------------------------------
     // Ecommerce mode — does NOT call resolveAddress
     // -----------------------------------------------------------------------
 

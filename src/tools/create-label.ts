@@ -42,6 +42,7 @@ import { DOMESTIC_AS_INTERNATIONAL } from '../services/country-rules.js';
 import { validateCPF, validateCNPJ, validateNIT, isIdentificationRequired } from '../services/identification-validator.js';
 import { detectBrazilianDocumentType } from '../services/country-rules.js';
 import { mapCarrierError } from '../utils/error-mapper.js';
+import { syncFulfillment } from '../services/ecommerce-sync.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -499,7 +500,62 @@ async function handleEcommerceMode(
         ecommerce: buildEcommerceSection(order),
     };
 
-    return postGenerateAndFormat(body, client, config);
+    // --- Generate label ---
+    const generateUrl = `${config.shippingBase}/ship/generate/`;
+    const generateRes = await client.post<{ data: LabelData[] }>(generateUrl, body);
+
+    if (!generateRes.ok) {
+        const mapped = mapCarrierError(generateRes.status, generateRes.error ?? '');
+        return textResponse(
+            `Label creation failed: ${mapped.userMessage}\n\nSuggestion: ${mapped.suggestion}`,
+        );
+    }
+
+    const shipment = generateRes.data?.data?.[0];
+    if (!shipment?.trackingNumber) {
+        const raw = generateRes.data as Record<string, unknown> | undefined;
+        const detail = typeof raw?.message === 'string'
+            ? raw.message
+            : typeof raw?.error === 'string'
+                ? raw.error
+                : JSON.stringify(raw ?? {}).slice(0, 500);
+        return textResponse(
+            `Label creation returned an unexpected response. No tracking number found.\n\n` +
+            `API response: ${detail}\n\n` +
+            'This usually means the carrier rejected the request. Check that all required address fields ' +
+            'are present (name, street, number, district/colonia for MX, city, state, country, postalCode).',
+        );
+    }
+
+    // --- Fulfillment sync (silent side-effect) ---
+    const fulfillmentItems = activePackages
+        .flatMap((pkg) => (pkg.products ?? []))
+        .filter((p) => p.quantity > 0)
+        .map((p) => ({ id: p.identifier ?? null, quantity: `${p.quantity}` }));
+
+    const syncResult = await syncFulfillment(
+        {
+            shopId: order.shop.id,
+            orderIdentifier: identifier,
+            trackingNumber: shipment.trackingNumber,
+            carrier: shipment.carrier,
+            service: shipment.service,
+            trackUrl: shipment.trackUrl,
+            items: fulfillmentItems,
+        },
+        client,
+        config,
+    );
+
+    const labelText = formatLabelOutput(shipment);
+    if (!syncResult.ok) {
+        const platformName = order.ecommerce.name || 'ecommerce platform';
+        return textResponse(
+            `${labelText}\n\n[warning] Label created but fulfillment sync to ${platformName} failed: ${syncResult.error}`,
+        );
+    }
+
+    return textResponse(labelText);
 }
 
 // ---------------------------------------------------------------------------

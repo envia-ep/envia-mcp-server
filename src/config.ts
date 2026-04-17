@@ -18,6 +18,8 @@ export interface EnviaConfig {
     queriesBase: string;
     /** Base URL for the Geocodes API (e.g. zipcode validation). */
     geocodesBase: string;
+    /** Base URL for the EcartAPI (used to construct fulfillment URLs). Optional — sync is skipped when absent. */
+    ecartApiBase?: string;
 }
 
 const BASES: Record<EnviaEnvironment, { shipping: string; queries: string }> = {
@@ -62,6 +64,7 @@ export function loadConfig(): EnviaConfig {
     const environment: EnviaEnvironment = raw === "production" ? "production" : "sandbox";
 
     const urls = BASES[environment];
+    const ecartApiBase = process.env.ENVIA_ECART_HOSTNAME?.trim() || undefined;
 
     return {
         apiKey,
@@ -69,5 +72,6 @@ export function loadConfig(): EnviaConfig {
         shippingBase: urls.shipping,
         queriesBase: urls.queries,
         geocodesBase: GEOCODES_BASE,
+        ecartApiBase,
     };
 }
