@@ -5,7 +5,9 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Node.js](https://img.shields.io/node/v/@envia/envia-mcp.svg)](https://nodejs.org)
 
-MCP server for [Envia](https://envia.com) shipping APIs. Quote rates, create labels, track packages, schedule pickups, manage ecommerce orders, and more — directly from your AI assistant. Supports per-request API key overrides for multi-tenant setups.
+MCP server for [Envia](https://envia.com) shipping APIs. Quote rates, create labels, track packages, schedule pickups, manage ecommerce orders, and more — directly from your AI assistant.
+
+> **Deployment model (v1):** This MCP is designed to run **embedded inside the Envia portal's authenticated session**. The HTTP transport is intended for server-to-server calls from the portal backend, not for public multi-tenant access. The stdio transport is the standard path for IDE integrations (Claude Desktop, Cursor, VS Code) and supports per-request `api_key` overrides for local developer workflows. See [Transport modes](#transport-modes) and [Authentication](#authentication) below.
 
 ## Quick start
 
@@ -88,10 +90,15 @@ Add to `.vscode/mcp.json` in your project root:
 
 The server supports two transport modes, controlled by the `MCP_TRANSPORT` environment variable:
 
-| Mode | Description | Use case |
-|------|-------------|----------|
-| `http` (default) | Streamable HTTP on Express with a browser chat UI at `/` | Web clients, testing via browser |
-| `stdio` | JSON-RPC over stdin/stdout | CLI-based hosts (Claude Desktop, Cursor, VS Code) |
+| Mode | Description | Intended use case |
+|------|-------------|-------------------|
+| `http` (default) | Streamable HTTP on Express with a demo browser chat UI at `/` | **Portal-embedded** deployment (v1): the Envia portal backend calls the MCP over HTTP inside a controlled network. The chat UI at `/` is a **development-only demo** (see [Chat demo](#chat-demo-development-only)). |
+| `stdio` | JSON-RPC over stdin/stdout | **IDE integrations** (Claude Desktop, Cursor, VS Code). The per-request `api_key` parameter is meant for this path, where each developer uses their own credential. |
+
+### Authentication
+
+- **HTTP / portal-embedded (v1):** the MCP uses the server-level `ENVIA_API_KEY` for every request. Per-request `api_key` overrides are accepted by the schema for compatibility with stdio hosts, but the portal-embedded deployment is expected to rely on the server key plus network-level isolation. Hardening of the HTTP surface (origin allow-list, shared-secret header) is tracked as a Sprint 4 item.
+- **stdio / IDE:** set `ENVIA_API_KEY` in the MCP host config. Passing `api_key` inline per tool call is supported for multi-account local workflows.
 
 ```bash
 # HTTP mode (default)
@@ -103,6 +110,26 @@ MCP_TRANSPORT=stdio npx @envia/envia-mcp
 # Or use the convenience script
 npm run start:stdio
 ```
+
+## Chat demo (development only)
+
+HTTP mode serves a browser chat UI at `/` (`src/chat/index.html`). This UI
+is a **development and local-testing tool**, not a production flow:
+
+- The user pastes their Anthropic or OpenAI API key and their Envia token
+  directly into browser inputs.
+- Messages are sent from the browser **directly** to the LLM provider
+  (Anthropic uses the `anthropic-dangerous-direct-browser-access: true`
+  header that the official SDK marks as unsafe for production).
+- Keys and tokens entered into the UI are visible to browser DevTools,
+  extensions, and anyone with access to the host.
+
+**Do not paste production credentials into the chat UI.** The production
+pattern is the portal-embedded agent, where the Envia portal backend
+calls the MCP over HTTP and invokes Anthropic with a server-side key.
+
+If you deploy the MCP and do not need the demo UI, disabling the static
+route that serves `src/chat/` is tracked as a Sprint 4 item.
 
 ## Available tools
 

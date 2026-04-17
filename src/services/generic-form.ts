@@ -9,6 +9,32 @@
  *
  * Results are cached per country code for the process lifetime to avoid
  * redundant API calls when multiple shipments target the same countries.
+ *
+ * ---------------------------------------------------------------------------
+ * Scope of validation (intentional — see LESSONS L-C2)
+ * ---------------------------------------------------------------------------
+ *
+ * This service validates ONLY field presence (`rules.required === true`).
+ * It INTENTIONALLY does not replicate the following backend constraints
+ * client-side:
+ *
+ *   - `rules.min` / `rules.max` length bounds.
+ *   - `rules.validationType` format rules (e.g. CPF/CNPJ checksum, phone
+ *     patterns, email format).
+ *   - `rules.validationCnpj` / other ad-hoc flags.
+ *
+ * The backend is the canonical authority on those rules (they change per
+ * country, per carrier, and occasionally per promotion). Duplicating them
+ * here has historically produced silently-outdated client-side validation.
+ * Instead, when the backend rejects a bad value the tool surfaces the
+ * mapped error through `mapCarrierError(...)`.
+ *
+ * Fields listed in {@link UNSUPPORTED_FIELD_IDS} (e.g. `state_registration`,
+ * `alias`) are *silently skipped* during required-field extraction even if
+ * the form marks them as required — the MCP tool has no parameter to
+ * populate them. In those cases the carrier may reject the request at
+ * generate-time with a field-missing error; the mapped error will identify
+ * the field. See issue P2.1 in `_docs/DECISIONS_2026_04_17.md` for context.
  */
 
 import type { EnviaApiClient } from '../utils/api-client.js';
@@ -264,6 +290,10 @@ const TOOL_PARAM_TO_ADDRESS_KEY: Record<string, string> = {
  * clients. It hides the three-step dance (fetch form → extract required →
  * check completeness) behind a single call and returns a structured result
  * the caller can surface directly to the agent.
+ *
+ * Scope: this validates ONLY field presence. See the module-level JSDoc for
+ * why `rules.min`, `rules.max`, and `rules.validationType` are intentionally
+ * delegated to the backend rather than duplicated here.
  *
  * Graceful degradation: when the form fetch fails (empty array), the helper
  * returns `ok: true` with no missing fields — we prefer to let the backend

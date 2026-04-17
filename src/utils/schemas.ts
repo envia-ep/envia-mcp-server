@@ -31,9 +31,15 @@ export const postalCodeSchema = z
  * Account-sensitive API key parameter — used by tools that perform
  * account-level operations (rates, labels, pickups, cancellations, etc.).
  *
- * Optional: when omitted the server-level ENVIA_API_KEY is used. Provide a
- * user-specific key to scope the request to a different account (multi-tenant
- * usage). If provided the value must be non-empty after trimming.
+ * Deployment model notes (v1):
+ *   - HTTP / portal-embedded: the MCP uses the server-level ENVIA_API_KEY.
+ *     Per-request overrides are accepted by the schema but are not the
+ *     primary auth mechanism — the portal backend supplies the credential.
+ *   - stdio / IDE: the per-request override is the main path for developers
+ *     that need to switch between accounts without restarting the MCP.
+ *
+ * Optional: when omitted the server-level ENVIA_API_KEY is used.
+ * If provided, the value must be non-empty after trimming.
  */
 export const requiredApiKeySchema = z
     .string()
@@ -42,9 +48,9 @@ export const requiredApiKeySchema = z
     .optional()
     .describe(
         'Optional Envia API key. When provided, overrides the server-level ENVIA_API_KEY ' +
-        'for this request (multi-tenant / per-user usage). ' +
-        'When omitted, the server default key is used. ' +
-        'Works with session token or API key. ' +
+        'for this request. Primary use case: stdio / IDE integrations where each developer ' +
+        'uses a personal credential. In HTTP portal-embedded deployments (v1) the server-level ' +
+        'key is used by default. Works with session token or API key. ' +
         'Get yours at https://shipping.envia.com/settings/developers',
     );
 

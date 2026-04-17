@@ -488,6 +488,15 @@
     </style>
 </head>
 <body>
+    <!-- Demo warning banner -->
+    <div role="alert" style="background:#fef3c7;border-bottom:2px solid #f59e0b;color:#78350f;padding:10px 16px;font-family:system-ui,-apple-system,sans-serif;font-size:13px;line-height:1.45;z-index:1000;position:sticky;top:0;">
+        <strong>⚠ Development / demo UI.</strong>
+        This page sends your Anthropic (or OpenAI) API key and your Envia token directly from your browser to the LLM provider
+        (via <code>anthropic-dangerous-direct-browser-access</code>). Keys and tokens entered here are visible to browser DevTools,
+        extensions, and anyone with access to this machine. <strong>Do not paste production credentials.</strong>
+        Use it for local testing of the MCP only. The production flow is the portal-embedded agent (see README → Deployment model).
+    </div>
+
     <!-- Sidebar -->
     <aside class="sidebar">
         <h2>Configuration</h2>
