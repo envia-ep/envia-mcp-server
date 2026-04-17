@@ -8,7 +8,7 @@ Pre-deployment verification for every environment (staging + production).
 |----------|----------|---------|---------|
 | `ENVIA_API_KEY` | **YES** | — | JWT bearer token for all Envia API calls. Missing → server fails to start. |
 | `ENVIA_ENVIRONMENT` | No | `sandbox` | `"sandbox"` or `"production"`. Controls which base URLs are used. |
-| `ENVIA_ECART_HOSTNAME` | No | — | Base URL for ecartAPI (e.g. `https://ecart-api.ecartapi.com`). Required for ecommerce fulfillment sync after label creation (`envia_create_label` with `order_identifier`). If absent, sync is silently skipped and a `[warning]` is appended to the tool response. |
+| `ENVIA_ECART_HOSTNAME` | No | `https://eshop-deve.herokuapp.com` (sandbox) | Base URL for the `eshops` / ecartAPI Heroku service. Constructs `{host}/api/v2/orders/{id}/fulfillments`. Required for ecommerce fulfillment sync after label creation (`envia_create_label` with `order_identifier`). If absent, sync is silently skipped and a `[warning]` is appended to the tool response. Same value used by the `queries` service (`ECART_API_HOSTNAME`) and the portal frontend (`NEXT_PUBLIC_ECART_HOSTNAME`). |
 | `ENVIA_ECART_PAY_HOSTNAME` | No | `https://ecart-pay-api.envia.com` | *(Sprint 3 — not yet used)* Base URL for ecart-payment service. Will be required when payment tools (`envia_get_refund_status`, `envia_get_withdrawal_status`, etc.) are implemented. Deferred due to JWT auth incompatibility — see `SPRINT_2_BLOCKERS.md`. |
 | `ENVIA_QUEUE_HOSTNAME` | No | `https://envia-tms-api.envia.com` | *(Sprint 3 — not yet used)* Base URL for TMS queue direct integration. Current `envia_check_balance` uses the Queries API (user-information balance) — no TMS call is made. This var is reserved for future TMS direct integration. |
 

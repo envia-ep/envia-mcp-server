@@ -48,7 +48,7 @@ heroku config -a <APP>
 
 # Set any missing var:
 heroku config:set ENVIA_ENVIRONMENT=sandbox -a <APP>
-heroku config:set ENVIA_ECART_HOSTNAME=http://ecart-api-test.envia.com -a <APP>
+heroku config:set ENVIA_ECART_HOSTNAME=https://eshop-deve.herokuapp.com -a <APP>
 heroku config:set HOST=0.0.0.0 -a <APP>
 ```
 

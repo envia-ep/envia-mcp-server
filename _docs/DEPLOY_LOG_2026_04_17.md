@@ -19,7 +19,7 @@
 |-----------------------|--------------------------|-----------------------------------------|
 | `ENVIA_API_KEY`       | `ea7aa2285...` (sandbox) | Sandbox token                           |
 | `ENVIA_ENVIRONMENT`   | `sandbox`                | Points to `api-test.envia.com`          |
-| `ENVIA_ECART_HOSTNAME`| `http://ecart-api-test.envia.com` | ecommerce sync hostname         |
+| `ENVIA_ECART_HOSTNAME`| `https://eshop-deve.herokuapp.com` | ecartAPI / eshops service (sandbox). Corrected in Heroku v7. |
 | `HOST`                | `0.0.0.0`                | Required for Heroku HTTP routing        |
 
 ## Issues Encountered During Deploy
