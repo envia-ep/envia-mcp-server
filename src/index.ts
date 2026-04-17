@@ -419,7 +419,11 @@ async function startStdioMode(): Promise<void> {
  * Also serves a browser chat UI at the root path.
  */
 function startHttpMode(): void {
-    const app = createMcpExpressApp();
+    // Pass HOST to createMcpExpressApp so its host-header validation matches our bind address.
+    // When HOST=127.0.0.1 (local dev), DNS-rebinding protection is enabled automatically.
+    // When HOST=0.0.0.0 (Heroku / deployed), the SDK disables localhost-only validation,
+    // allowing the Heroku router to forward requests with external Host headers.
+    const app = createMcpExpressApp({ host: HOST });
 
     app.use((_req: Request, res: Response, next: NextFunction) => {
         res.setHeader('Access-Control-Allow-Origin', '*');
