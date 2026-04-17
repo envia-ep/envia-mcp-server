@@ -31,6 +31,15 @@
             color: var(--text);
             height: 100vh;
             display: flex;
+            flex-direction: column;
+        }
+
+        /* App shell — holds sidebar + main + debug. Sits below the demo banner. */
+        .app-shell {
+            display: flex;
+            flex: 1;
+            min-height: 0;
+            overflow: hidden;
         }
 
         /* ── Sidebar ── */
@@ -474,7 +483,7 @@
 
         /* ── Responsive ── */
         @media (max-width: 768px) {
-            body { flex-direction: column; }
+            .app-shell { flex-direction: column; }
             .sidebar {
                 width: 100%;
                 max-height: 200px;
@@ -489,13 +498,16 @@
 </head>
 <body>
     <!-- Demo warning banner -->
-    <div role="alert" style="background:#fef3c7;border-bottom:2px solid #f59e0b;color:#78350f;padding:10px 16px;font-family:system-ui,-apple-system,sans-serif;font-size:13px;line-height:1.45;z-index:1000;position:sticky;top:0;">
+    <div role="alert" style="background:#fef3c7;border-bottom:2px solid #f59e0b;color:#78350f;padding:8px 16px;font-family:system-ui,-apple-system,sans-serif;font-size:12px;line-height:1.4;flex-shrink:0;">
         <strong>⚠ Development / demo UI.</strong>
-        This page sends your Anthropic (or OpenAI) API key and your Envia token directly from your browser to the LLM provider
-        (via <code>anthropic-dangerous-direct-browser-access</code>). Keys and tokens entered here are visible to browser DevTools,
-        extensions, and anyone with access to this machine. <strong>Do not paste production credentials.</strong>
-        Use it for local testing of the MCP only. The production flow is the portal-embedded agent (see README → Deployment model).
+        Keys and tokens entered here travel through the browser
+        (via <code>anthropic-dangerous-direct-browser-access</code>) and are visible to DevTools and extensions.
+        <strong>Do not paste production credentials</strong> — this is for local MCP testing only.
+        Production flow is the portal-embedded agent (see README → Deployment model).
     </div>
+
+    <!-- App shell wraps sidebar + main + debug so the demo banner above doesn't break flex layout. -->
+    <div class="app-shell">
 
     <!-- Sidebar -->
     <aside class="sidebar">
@@ -557,6 +569,9 @@
         </div>
         <div class="debug-log" id="debug-log"></div>
     </aside>
+
+    </div><!-- /.app-shell -->
+
     <button class="debug-toggle-btn" id="btn-toggle-debug">Debug</button>
 
     <script type="module">
