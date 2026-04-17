@@ -6,7 +6,29 @@ Run top-to-bottom. Each step must PASS before proceeding to the next.
 > **Audience:** Engineer or AI agent executing the deploy.
 >
 > **Environment:** All commands target the staging/sandbox environment by default.
-> Replace `<APP>` with the actual Heroku app name (e.g. `envia-mcp-staging`).
+> Replace `<APP>` with the actual Heroku app name (e.g. `envia-mcp-server`).
+>
+> **Verified 2026-04-17** against `https://envia-mcp-server-c0fa1b3dab48.herokuapp.com` (commit `2eb87a4`).
+
+---
+
+## Transport Notes
+
+The MCP server uses **Streamable HTTP transport**. Two requirements:
+
+1. **Accept header is mandatory:**  
+   ```
+   -H "Accept: application/json, text/event-stream"
+   ```
+2. **Responses are SSE-formatted:**  
+   ```
+   event: message
+   data: {"result":{"content":[{"type":"text","text":"..."}]},"jsonrpc":"2.0","id":1}
+   ```
+   Strip `data: ` prefix before parsing JSON, or pipe through:
+   ```bash
+   grep '^data:' | sed 's/^data: //' | jq '.result.content[0].text'
+   ```
 
 ---
 
@@ -19,16 +41,18 @@ Verify all required env vars are provisioned before deploying.
 heroku config -a <APP>
 
 # Confirm these are present:
-#   ENVIA_API_KEY        — sandbox JWT token (ea7aa2285b00f166846a0924260ccf2395cf68f2582183b8e204d71e75a665f3)
+#   ENVIA_API_KEY        — sandbox JWT token
 #   ENVIA_ENVIRONMENT    — must be "sandbox" for staging
-#   ENVIA_ECART_HOSTNAME — https://ecart-api-test.ecartapi.com
+#   ENVIA_ECART_HOSTNAME — ecommerce sync hostname
+#   HOST                 — must be "0.0.0.0" (Heroku HTTP routing requirement)
 
 # Set any missing var:
 heroku config:set ENVIA_ENVIRONMENT=sandbox -a <APP>
-heroku config:set ENVIA_ECART_HOSTNAME=https://ecart-api-test.ecartapi.com -a <APP>
+heroku config:set ENVIA_ECART_HOSTNAME=http://ecart-api-test.envia.com -a <APP>
+heroku config:set HOST=0.0.0.0 -a <APP>
 ```
 
-**Expected:** All three vars present. ENVIA_API_KEY matches the sandbox token.
+**Expected:** All four vars present. ENVIA_API_KEY matches the sandbox token.  
 **Blocker if absent:** Set before proceeding.
 
 ---
@@ -42,8 +66,8 @@ After `git push heroku main` (or equivalent), confirm the dyno boots.
 heroku logs --tail -a <APP>
 ```
 
-**Expected:** Log line `State changed from starting to up` within 60 seconds.
-**Response fingerprint:** No `Error R10 (Boot timeout)` or `SIGKILL` in logs.
+**Expected:** Log line `State changed from starting to up` within 60 seconds.  
+**FAIL if:** `Error R10 (Boot timeout)` or `SIGKILL` in logs.
 
 ---
 
@@ -56,83 +80,108 @@ export MCP_URL="https://<APP>.herokuapp.com"
 export TOKEN="ea7aa2285b00f166846a0924260ccf2395cf68f2582183b8e204d71e75a665f3"
 ```
 
-> Each curl call sends a JSON-RPC `tools/call` request to the MCP HTTP endpoint.
+> **Note on state codes (MX):** Carriers expect short codes.
+> Use `DF` for Ciudad de Mexico, `JAL` for Jalisco, `NL` for Nuevo Leon, etc.
+> Long names like "Ciudad de Mexico" will fail with error 1129 (State code not found).
 
 ---
 
-### Step 2.1 — envia_get_shipping_rates (Quote)
+### Step 2.1 — quote_shipment (Quote)
 
 ```bash
 curl -s -X POST "$MCP_URL/mcp" \
   -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
   -d '{
     "jsonrpc": "2.0",
     "id": 1,
     "method": "tools/call",
     "params": {
-      "name": "envia_get_shipping_rates",
+      "name": "quote_shipment",
       "arguments": {
         "api_key": "'"$TOKEN"'",
-        "origin": { "postal_code": "64000", "country": "MX" },
-        "destination": { "postal_code": "06600", "country": "MX" },
-        "parcel": { "weight": 1.5, "height": 10, "width": 15, "length": 20 }
+        "origin_postal_code": "03940",
+        "destination_postal_code": "44100",
+        "origin_country": "MX",
+        "destination_country": "MX",
+        "weight": 2,
+        "length": 20,
+        "width": 15,
+        "height": 10,
+        "content": "ropa"
       }
     }
-  }' | jq '.result.content[0].text' | head -30
+  }' | grep '^data:' | sed 's/^data: //' | jq -r '.result.content[0].text' | head -20
 ```
 
-**Expected fingerprint:** Response text contains `"carrier"`, `"total_price"`, and at least one rate object.
-**FAIL if:** Empty array, HTTP 4xx/5xx, or raw carrier error string (not mapped message).
+**Expected fingerprint:** Response contains `Found N rate(s)` with at least one carrier line (e.g. `dhl / express`).  
+**Save output:** Note a carrier + service for use in Step 2.2.  
+**FAIL if:** Empty, HTTP error, or `No carriers available`.
 
 ---
 
-### Step 2.2 — envia_create_label (Create Label)
+### Step 2.2 — create_shipment (Create Label)
 
-Replace `<CARRIER_ID>` and `<SERVICE_ID>` with values from Step 2.1.
+> **Sandbox carrier note:** DHL Express works reliably. UPS fails with error 1300 (sandbox shipper number constraint). Use `dhl` / `express`.
 
 ```bash
 curl -s -X POST "$MCP_URL/mcp" \
   -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
   -d '{
     "jsonrpc": "2.0",
     "id": 2,
     "method": "tools/call",
     "params": {
-      "name": "envia_create_label",
+      "name": "create_shipment",
       "arguments": {
         "api_key": "'"$TOKEN"'",
-        "carrier_id": <CARRIER_ID>,
-        "service_id": <SERVICE_ID>,
-        "origin": {
-          "name": "Test Sender", "email": "test@envia.com", "phone": "8180001234",
-          "street": "Av Eugenio Garza Sada", "number": "2501",
-          "district": "Tecnológico", "city": "Monterrey",
-          "state": "NL", "postal_code": "64849", "country": "MX"
-        },
-        "destination": {
-          "name": "Test Receiver", "email": "receiver@envia.com", "phone": "5551234567",
-          "street": "Av Insurgentes Sur", "number": "1602",
-          "district": "Crédito Constructor", "city": "Ciudad de Mexico",
-          "state": "CDMX", "postal_code": "03940", "country": "MX"
-        },
-        "parcel": { "weight": 1.5, "height": 10, "width": 15, "length": 20 }
+        "carrier": "dhl",
+        "service": "express",
+        "origin_name": "Almacen Test",
+        "origin_phone": "5512345678",
+        "origin_street": "Insurgentes Sur",
+        "origin_number": "1602",
+        "origin_district": "Credito Constructor",
+        "origin_city": "Benito Juarez",
+        "origin_state": "DF",
+        "origin_country": "MX",
+        "origin_postal_code": "03940",
+        "origin_email": "test@envia.com",
+        "destination_name": "Cliente Test",
+        "destination_phone": "3312345678",
+        "destination_street": "Vallarta",
+        "destination_number": "100",
+        "destination_district": "Americana",
+        "destination_city": "Guadalajara",
+        "destination_state": "JAL",
+        "destination_country": "MX",
+        "destination_postal_code": "44100",
+        "destination_email": "cliente@test.com",
+        "package_weight": 2,
+        "package_length": 20,
+        "package_width": 15,
+        "package_height": 10,
+        "content": "ropa de prueba"
       }
     }
-  }' | jq '.result.content[0].text'
+  }' | grep '^data:' | sed 's/^data: //' | jq -r '.result.content[0].text'
 ```
 
-**Expected fingerprint:** Response text contains `"tracking_number"` and `"label_url"` (or similar label link).
-**Save output:** Note the `tracking_number` — needed for Step 2.3 and 2.4.
+**Expected fingerprint:** Response contains `Label created successfully!`, a tracking number, and a label PDF URL.  
+**Save output:** Note the `Tracking number` — needed for Steps 2.3 and 2.4.  
+**FAIL if:** `Label creation failed` with non-carrier-specific error.
 
 ---
 
 ### Step 2.3 — envia_track_package (Track)
 
-Replace `<TRACKING_NUMBER>` and `<CARRIER_ID>` with values from Step 2.2.
+Replace `<TRACKING_NUMBER>` with the value from Step 2.2.
 
 ```bash
 curl -s -X POST "$MCP_URL/mcp" \
   -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
   -d '{
     "jsonrpc": "2.0",
     "id": 3,
@@ -141,25 +190,27 @@ curl -s -X POST "$MCP_URL/mcp" \
       "name": "envia_track_package",
       "arguments": {
         "api_key": "'"$TOKEN"'",
-        "tracking_number": "<TRACKING_NUMBER>",
-        "carrier": "<CARRIER_ID>"
+        "tracking_numbers": "<TRACKING_NUMBER>"
       }
     }
-  }' | jq '.result.content[0].text'
+  }' | grep '^data:' | sed 's/^data: //' | jq -r '.result.content[0].text'
 ```
 
-**Expected fingerprint:** Response contains `"status"` field with a string value (e.g. `"pending"`, `"in_transit"`).
-**FAIL if:** Error message about tracking number not found (shipment just created — may take 1-2 min to appear).
+> **Note:** Parameter is `tracking_numbers` (plural), accepts single string or comma-separated list.
+
+**Expected fingerprint:** Response contains `Status:` with a value (e.g. `Created`, `In Transit`).  
+**FAIL if:** Error about tracking not found (shipment just created — may take 1-2 min to register).
 
 ---
 
 ### Step 2.4 — envia_cancel_shipment (Cancel)
 
-Replace `<SHIPMENT_ID>` with the internal shipment ID returned in Step 2.2.
+Replace `<TRACKING_NUMBER>` with the value from Step 2.2.
 
 ```bash
 curl -s -X POST "$MCP_URL/mcp" \
   -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
   -d '{
     "jsonrpc": "2.0",
     "id": 4,
@@ -168,14 +219,15 @@ curl -s -X POST "$MCP_URL/mcp" \
       "name": "envia_cancel_shipment",
       "arguments": {
         "api_key": "'"$TOKEN"'",
-        "shipment_id": "<SHIPMENT_ID>"
+        "carrier": "dhl",
+        "tracking_number": "<TRACKING_NUMBER>"
       }
     }
-  }' | jq '.result.content[0].text'
+  }' | grep '^data:' | sed 's/^data: //' | jq -r '.result.content[0].text'
 ```
 
-**Expected fingerprint:** Response contains `"canceled"` or `"success"` indicator.
-**FAIL if:** Error about shipment already picked up (sandbox — expected if carrier processed it; acceptable).
+**Expected fingerprint:** Response contains `cancelled successfully`.  
+**Acceptable alternate:** `already cancelled` or carrier-specific message — shows the tool processed the request.
 
 ---
 
@@ -184,6 +236,7 @@ curl -s -X POST "$MCP_URL/mcp" \
 ```bash
 curl -s -X POST "$MCP_URL/mcp" \
   -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
   -d '{
     "jsonrpc": "2.0",
     "id": 5,
@@ -191,14 +244,17 @@ curl -s -X POST "$MCP_URL/mcp" \
     "params": {
       "name": "envia_check_balance",
       "arguments": {
-        "api_key": "'"$TOKEN"'"
+        "api_key": "'"$TOKEN"'",
+        "amount": 500
       }
     }
-  }' | jq '.result.content[0].text'
+  }' | grep '^data:' | sed 's/^data: //' | jq -r '.result.content[0].text'
 ```
 
-**Expected fingerprint:** Response contains a balance amount (number or currency string).
-**FAIL if:** `401 Unauthorized` or empty response.
+> **Note:** Parameter is `amount` (the shipment cost to check against balance).
+
+**Expected fingerprint:** Response contains `Current balance:` and `Result: ✓ Sufficient` or `Result: ✗ Insufficient`.  
+**FAIL if:** Auth error or empty response.
 
 ---
 
@@ -206,29 +262,49 @@ curl -s -X POST "$MCP_URL/mcp" \
 
 Verify that backend errors surface as mapped messages, not raw strings.
 
-### Step 3.1 — Invalid postal code → mapped error
+### Step 3.1 — Invalid API key → mapped auth error
 
 ```bash
 curl -s -X POST "$MCP_URL/mcp" \
   -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
   -d '{
     "jsonrpc": "2.0",
     "id": 6,
     "method": "tools/call",
     "params": {
-      "name": "envia_get_shipping_rates",
+      "name": "create_shipment",
       "arguments": {
-        "api_key": "'"$TOKEN"'",
-        "origin": { "postal_code": "00000", "country": "MX" },
-        "destination": { "postal_code": "00000", "country": "MX" },
-        "parcel": { "weight": 1, "height": 10, "width": 10, "length": 10 }
+        "api_key": "INVALID_KEY_TEST",
+        "carrier": "dhl",
+        "service": "express",
+        "origin_name": "Test",
+        "origin_phone": "5512345678",
+        "origin_street": "Insurgentes",
+        "origin_number": "1",
+        "origin_city": "Benito Juarez",
+        "origin_state": "DF",
+        "origin_country": "MX",
+        "origin_postal_code": "03940",
+        "destination_name": "Test",
+        "destination_phone": "3312345678",
+        "destination_street": "Vallarta",
+        "destination_number": "1",
+        "destination_city": "Guadalajara",
+        "destination_state": "JAL",
+        "destination_country": "MX",
+        "destination_postal_code": "44100",
+        "package_weight": 1,
+        "package_length": 10,
+        "package_width": 10,
+        "package_height": 10
       }
     }
-  }' | jq '.result.content[0].text'
+  }' | grep '^data:' | sed 's/^data: //' | jq -r '.result.content[0].text'
 ```
 
-**Expected:** Response contains a human-readable error message (from `mapCarrierError`), NOT a raw JSON dump or an unformatted carrier string.
-**FAIL if:** Raw carrier error string appears verbatim with no user guidance.
+**Expected:** `Authentication failed — verify your ENVIA_API_KEY is valid and not expired.`  
+**FAIL if:** Raw JSON error dump or unformatted carrier string appears without user guidance.
 
 ---
 
@@ -261,14 +337,14 @@ heroku logs --tail -a <APP> --num 200
 After running, record results in `_docs/DEPLOY_LOG_<DATE>.md`:
 
 ```
-| Step | Tool | Result | Notes |
-|------|------|--------|-------|
-| 2.1  | envia_get_shipping_rates | PASS | X carriers returned |
-| 2.2  | envia_create_label       | PASS | tracking_number=XXXX |
-| 2.3  | envia_track_package      | PASS | status=pending |
-| 2.4  | envia_cancel_shipment    | PASS | shipment canceled |
-| 2.5  | envia_check_balance      | PASS | balance=X MXN |
-| 3.1  | error path (invalid zip) | PASS | mapped message returned |
+| Step | Tool                    | Result | Notes                          |
+|------|-------------------------|--------|--------------------------------|
+| 2.1  | quote_shipment          | PASS   | 13 carriers returned           |
+| 2.2  | create_shipment         | PASS   | tracking_number=2178339811     |
+| 2.3  | envia_track_package     | PASS   | status=Created                 |
+| 2.4  | envia_cancel_shipment   | PASS   | shipment cancelled             |
+| 2.5  | envia_check_balance     | PASS   | balance=$9,920,987 MXN         |
+| 3.1  | error path (bad api key)| PASS   | mapped auth message returned   |
 ```
 
 All steps PASS = go criteria satisfied (Decision C). Any FAIL = document root cause and rollback.
