@@ -92,14 +92,38 @@ Created test files (5–7 tests each, AAA pattern, all passing):
 - 17 new tests in `tests/tools/queue/check-balance.test.ts`.
 - Total: 72 tools, 1369 tests, 103 test files, build clean.
 
-## Sprint 3 — Defined by planning session 2026-04-17
+## Sprint 3 — Completed 2026-04-17 (partial — deploy pending Jose's Heroku app name)
 
 Scope: 3 items, **zero new user-facing tools** (scope fence per Decision E).
-Prompt: `.claude/prompts/SPRINT_3_PROMPT.md`.
 
-1. **Secondary-carrier error-map enrichment** — AmPm / Entrega / JTExpress / TresGuerras / Afimex patterns in `src/utils/error-mapper.ts`. Small, user-visible.
-2. **Smoke-test playbook + first staging deploy** — `_docs/SMOKE_TEST_PLAYBOOK.md` + deploy to Heroku staging + `_docs/DEPLOY_LOG_2026_04_17.md` with outcome.
-3. **textResponse() migration + ESLint guard** — migrate the ~6 remaining tools and add a `no-restricted-syntax` rule to block raw `{ content: [...] }` returns.
+### 1. Secondary-carrier error-map enrichment ✅
+
+5 new `CARRIER_PATTERNS` entries in `src/utils/error-mapper.ts`:
+- **AmPm** — coverage codes 260 / 102154 → user-facing coverage message
+- **Entrega** — track-limit exceeded → contact support message
+- **JTExpress** — Brazil ICMS state-pair missing → ICMS guidance
+- **TresGuerras** — `ESTADO_TALON=CANCELADO` literal → already-canceled message
+- **Afimex** — insurance > $10,000 cap → reduce value message
+
+10 new tests (5 happy + 5 negative guards): `tests/utils/error-mapper.test.ts` → 38 total.
+Suite: **1379 tests passing** (1369 + 10), build clean.
+
+### 2. Smoke-test playbook + first staging deploy ✅ / ⏸
+
+- `_docs/SMOKE_TEST_PLAYBOOK.md` created — pre-flight, happy-path (quote → create → track → cancel → balance), error path (mapped error), rollback steps, outcome recording template.
+- `Procfile` corrected: `mcp-carriers: node dist/index.js` → `web: node dist/index.js` (Heroku requires `web` process type for HTTP routing).
+- Deploy-checklist cross-checked: build ✅, tests ✅, Procfile ✅, env vars documented.
+- **⏸ Deploy execution pending:** Jose must confirm the target Heroku app name. Once confirmed: `git push`, tail logs, run smoke playbook, write `_docs/DEPLOY_LOG_2026_04_17.md`.
+
+### 3. textResponse() migration + ESLint guard ✅
+
+- Migrated **7 tools** (more than the ~6 estimated — full audit found additional instances):
+  `get-shipment-history`, `classify-hscode`, `schedule-pickup`, `create-commercial-invoice`, `track-package`, `validate-address`, `list-carriers`.
+- `textResponse` import added to each; ALL raw `{ content: [{ type: "text", ... }] }` returns replaced.
+- `eslint.config.js` created (ESLint 9 flat config, `typescript-eslint` parser).
+- `no-restricted-syntax` rule active — blocks raw pattern, confirmed with temp file test (exit 1).
+- `npx eslint src/` exits 0 on full codebase.
+- `typescript-eslint` added to `devDependencies` (required for TS parsing).
 
 ### Deferred from Sprint 3 (see `_docs/DECISIONS_2026_04_17.md`)
 

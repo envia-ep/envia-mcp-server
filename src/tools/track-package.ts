@@ -12,6 +12,7 @@ import { resolveClient } from "../utils/api-client.js";
 import type { EnviaConfig } from "../config.js";
 import { optionalApiKeySchema } from "../utils/schemas.js";
 import { mapCarrierError } from '../utils/error-mapper.js';
+import { textResponse } from '../utils/mcp-response.js';
 
 interface TrackEvent {
     timestamp?: string;
@@ -61,9 +62,7 @@ export function registerTrackPackage(
                 .filter(Boolean);
 
             if (numbers.length === 0) {
-                return {
-                    content: [{ type: "text", text: "Error: Provide at least one tracking number." }],
-                };
+                return textResponse('Error: Provide at least one tracking number.');
             }
 
             const url = `${config.shippingBase}/ship/generaltrack/`;
@@ -73,22 +72,13 @@ export function registerTrackPackage(
 
             if (!res.ok) {
                 const mapped = mapCarrierError(res.status, res.error ?? '');
-                return {
-                    content: [{ type: "text", text: `Tracking failed: ${mapped.userMessage}\n\nSuggestion: ${mapped.suggestion}` }],
-                };
+                return textResponse(`Tracking failed: ${mapped.userMessage}\n\nSuggestion: ${mapped.suggestion}`);
             }
 
             const trackings = Array.isArray(res.data?.data) ? res.data.data : [];
 
             if (trackings.length === 0) {
-                return {
-                    content: [
-                        {
-                            type: "text",
-                            text: "No tracking information found. The tracking number may be invalid or not yet registered with the carrier.",
-                        },
-                    ],
-                };
+                return textResponse('No tracking information found. The tracking number may be invalid or not yet registered with the carrier.');
             }
 
             const lines: string[] = [];
@@ -124,7 +114,7 @@ export function registerTrackPackage(
                 lines.push("");
             }
 
-            return { content: [{ type: "text", text: lines.join("\n") }] };
+            return textResponse(lines.join("\n"));
         },
     );
 }

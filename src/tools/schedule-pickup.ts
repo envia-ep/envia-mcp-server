@@ -13,6 +13,7 @@ import type { EnviaConfig } from '../config.js';
 import { countrySchema, carrierSchema, dateSchema, requiredApiKeySchema } from '../utils/schemas.js';
 import { buildGenerateAddress } from '../builders/address.js';
 import { mapCarrierError } from '../utils/error-mapper.js';
+import { textResponse } from '../utils/mcp-response.js';
 
 interface PickupData {
     carrier?: string;
@@ -80,14 +81,7 @@ export function registerSchedulePickup(
                 .filter(Boolean);
 
             if (trackingNumbers.length === 0) {
-                return {
-                    content: [
-                        {
-                            type: "text",
-                            text: "Error: Provide at least one tracking number. Create labels first with create_shipment.",
-                        },
-                    ],
-                };
+                return textResponse('Error: Provide at least one tracking number. Create labels first with create_shipment.');
             }
 
             const body = {
@@ -121,14 +115,7 @@ export function registerSchedulePickup(
 
             if (!res.ok) {
                 const mapped = mapCarrierError(res.status, res.error ?? '');
-                return {
-                    content: [
-                        {
-                            type: "text",
-                            text: `Pickup scheduling failed: ${mapped.userMessage}\n\nSuggestion: ${mapped.suggestion}`,
-                        },
-                    ],
-                };
+                return textResponse(`Pickup scheduling failed: ${mapped.userMessage}\n\nSuggestion: ${mapped.suggestion}`);
             }
 
             const data = res.data?.data;
@@ -145,7 +132,7 @@ export function registerSchedulePickup(
             lines.push(`  Packages:     ${args.total_packages}`);
             lines.push(`  Weight:       ${args.total_weight} KG`);
 
-            return { content: [{ type: "text", text: lines.join("\n") }] };
+            return textResponse(lines.join("\n"));
         },
     );
 }

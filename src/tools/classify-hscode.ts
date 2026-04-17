@@ -13,6 +13,7 @@ import { resolveClient } from "../utils/api-client.js";
 import type { EnviaConfig } from "../config.js";
 import { optionalApiKeySchema } from "../utils/schemas.js";
 import { mapCarrierError } from '../utils/error-mapper.js';
+import { textResponse } from '../utils/mcp-response.js';
 
 interface HsCodeAlternative {
     hsCode?: string;
@@ -87,21 +88,12 @@ export function registerClassifyHscode(
 
             if (!res.ok) {
                 const mapped = mapCarrierError(res.status, res.error ?? '');
-                return {
-                    content: [{ type: "text", text: `HS code classification failed: ${mapped.userMessage}\n\nSuggestion: ${mapped.suggestion}` }],
-                };
+                return textResponse(`HS code classification failed: ${mapped.userMessage}\n\nSuggestion: ${mapped.suggestion}`);
             }
 
             const data = res.data?.data;
             if (!data?.hsCode) {
-                return {
-                    content: [
-                        {
-                            type: "text",
-                            text: "Could not classify the product. Try a more specific description (include material, use case, and category).",
-                        },
-                    ],
-                };
+                return textResponse('Could not classify the product. Try a more specific description (include material, use case, and category).');
             }
 
             const lines: string[] = [
@@ -135,7 +127,7 @@ export function registerClassifyHscode(
                 "Use this HS/NCM code as productCode in items when creating international or BR domestic labels.",
             );
 
-            return { content: [{ type: "text", text: lines.join("\n") }] };
+            return textResponse(lines.join("\n"));
         },
     );
 }

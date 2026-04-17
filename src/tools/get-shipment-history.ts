@@ -12,6 +12,7 @@ import { resolveClient } from '../utils/api-client.js';
 import type { EnviaConfig } from '../config.js';
 import { requiredApiKeySchema } from '../utils/schemas.js';
 import { mapCarrierError } from '../utils/error-mapper.js';
+import { textResponse } from '../utils/mcp-response.js';
 
 interface ShipmentEntry {
     tracking_number?: string;
@@ -63,22 +64,13 @@ export function registerGetShipmentHistory(
 
             if (!res.ok) {
                 const mapped = mapCarrierError(res.status, res.error ?? '');
-                return {
-                    content: [{ type: "text", text: `Failed to retrieve shipment history: ${mapped.userMessage}\n\nSuggestion: ${mapped.suggestion}` }],
-                };
+                return textResponse(`Failed to retrieve shipment history: ${mapped.userMessage}\n\nSuggestion: ${mapped.suggestion}`);
             }
 
             const shipments = Array.isArray(res.data?.data) ? res.data.data : [];
 
             if (shipments.length === 0) {
-                return {
-                    content: [
-                        {
-                            type: "text",
-                            text: `No shipments found for ${mm}/${year}. Verify the month/year or check your Envia account.`,
-                        },
-                    ],
-                };
+                return textResponse(`No shipments found for ${mm}/${year}. Verify the month/year or check your Envia account.`);
             }
 
             const lines: string[] = [
@@ -102,7 +94,7 @@ export function registerGetShipmentHistory(
                 lines.push(`\n... and ${shipments.length - 50} more shipments.`);
             }
 
-            return { content: [{ type: "text", text: lines.join("\n") }] };
+            return textResponse(lines.join("\n"));
         },
     );
 }

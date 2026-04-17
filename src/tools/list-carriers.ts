@@ -12,6 +12,7 @@ import { resolveClient } from '../utils/api-client.js';
 import type { EnviaConfig } from '../config.js';
 import { countrySchema, requiredApiKeySchema } from '../utils/schemas.js';
 import { mapCarrierError } from '../utils/error-mapper.js';
+import { textResponse } from '../utils/mcp-response.js';
 
 interface CarrierEntry {
     /** Carrier code used in API calls (e.g. "dhl", "fedex"). */
@@ -66,9 +67,7 @@ export function registerListCarriers(
 
             if (!carriersRes.ok) {
                 const mapped = mapCarrierError(carriersRes.status, carriersRes.error ?? '');
-                return {
-                    content: [{ type: "text", text: `Failed to list carriers: ${mapped.userMessage}\n\nSuggestion: ${mapped.suggestion}` }],
-                };
+                return textResponse(`Failed to list carriers: ${mapped.userMessage}\n\nSuggestion: ${mapped.suggestion}`);
             }
 
             const carriers: CarrierEntry[] = Array.isArray(carriersRes.data?.data)
@@ -76,14 +75,7 @@ export function registerListCarriers(
                 : [];
 
             if (carriers.length === 0) {
-                return {
-                    content: [
-                        {
-                            type: "text",
-                            text: `No carriers found for ${countryCode} (${international ? "international" : "domestic"}). Verify the country code is correct.`,
-                        },
-                    ],
-                };
+                return textResponse(`No carriers found for ${countryCode} (${international ? "international" : "domestic"}). Verify the country code is correct.`);
             }
 
             // Build output
@@ -109,9 +101,7 @@ export function registerListCarriers(
                 }
             }
 
-            return {
-                content: [{ type: "text", text: lines.join("\n") }],
-            };
+            return textResponse(lines.join("\n"));
         },
     );
 }

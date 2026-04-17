@@ -192,6 +192,51 @@ const CARRIER_PATTERNS: ReadonlyArray<CarrierPattern> = [
             retryable: false,
         },
     },
+    // AmPm: no-coverage error codes 260 / 102154
+    {
+        pattern: /ampm.{0,100}(260|102154)|(260|102154).{0,60}ampm/i,
+        error: {
+            userMessage: 'AmPm no tiene cobertura para esta ruta. Prueba otra paquetería o valida origen/destino.',
+            suggestion: 'Use envia_list_carriers to find carriers that cover this origin/destination combination, or verify the postal codes.',
+            retryable: false,
+        },
+    },
+    // Entrega: per-company tracking limit exceeded
+    {
+        pattern: /entrega.{0,80}(track|rastreo).{0,60}(l[ií]mit|l[ií]mite|exceeded|superado)/i,
+        error: {
+            userMessage: 'Entrega alcanzó el límite de rastreos contratados para tu cuenta. Contacta soporte para ampliarlo.',
+            suggestion: 'Contact Envia support to increase the tracking query limit for your Entrega account.',
+            retryable: false,
+        },
+    },
+    // JTExpress: Brazil shipment missing ICMS calculation for state pair
+    {
+        pattern: /jtexpress.{0,100}(icms|estado|state.{0,10}pair)|(icms|estado.{0,10}par).{0,60}jtexpress/i,
+        error: {
+            userMessage: 'JTExpress Brasil requiere cálculo de ICMS para este par de estados. Verifica origen, destino y valor declarado.',
+            suggestion: 'For JTExpress Brazil shipments, ensure origin/destination state pair is valid and declared_value is set correctly for ICMS calculation.',
+            retryable: false,
+        },
+    },
+    // TresGuerras: shipment already canceled (auto-detected via ESTADO_TALON flag)
+    {
+        pattern: /ESTADO_TALON=CANCELADO/,
+        error: {
+            userMessage: 'El envío ya fue cancelado en TresGuerras. No es necesario cancelarlo de nuevo.',
+            suggestion: 'The shipment is already canceled in TresGuerras. No further action is required.',
+            retryable: false,
+        },
+    },
+    // Afimex: declared insurance value exceeds the 10,000 cap
+    {
+        pattern: /afimex.{0,100}(seguro|insurance).{0,60}(10[,.]?000|l[ií]mit|l[ií]mite|exceed|superado)|(10[,.]?000).{0,60}(seguro|insurance).{0,60}afimex/i,
+        error: {
+            userMessage: 'Afimex tiene un tope de seguro de $10,000. Reduce el valor asegurado o elige otra paquetería.',
+            suggestion: 'Reduce the insurance/declared value to $10,000 or below, or choose a different carrier for higher-value shipments.',
+            retryable: false,
+        },
+    },
 ];
 
 // ---------------------------------------------------------------------------

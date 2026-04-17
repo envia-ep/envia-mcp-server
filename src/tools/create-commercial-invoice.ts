@@ -13,6 +13,7 @@ import type { EnviaConfig } from '../config.js';
 import { countrySchema, carrierSchema, requiredApiKeySchema } from '../utils/schemas.js';
 import { buildGenerateAddress } from '../builders/address.js';
 import { mapCarrierError } from '../utils/error-mapper.js';
+import { textResponse } from '../utils/mcp-response.js';
 
 interface InvoiceData {
     invoiceId?: string;
@@ -145,14 +146,7 @@ export function registerCreateCommercialInvoice(
 
             if (!res.ok) {
                 const mapped = mapCarrierError(res.status, res.error ?? '');
-                return {
-                    content: [
-                        {
-                            type: "text",
-                            text: `Commercial invoice creation failed: ${mapped.userMessage}\n\nSuggestion: ${mapped.suggestion}`,
-                        },
-                    ],
-                };
+                return textResponse(`Commercial invoice creation failed: ${mapped.userMessage}\n\nSuggestion: ${mapped.suggestion}`);
             }
 
             const data = res.data?.data;
@@ -172,7 +166,7 @@ export function registerCreateCommercialInvoice(
                 "  • Use create_shipment to generate the shipping label",
             );
 
-            return { content: [{ type: "text", text: lines.join("\n") }] };
+            return textResponse(lines.join("\n"));
         },
     );
 }

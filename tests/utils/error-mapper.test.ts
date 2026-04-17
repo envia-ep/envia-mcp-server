@@ -217,4 +217,73 @@ describe('mapCarrierError', () => {
 
         expect(result.userMessage).toBe('Shipment not found or cannot be canceled in current status');
     });
+
+    // -----------------------------------------------------------------
+    // Sprint 3: secondary-carrier error-map entries (Goal 1)
+    // -----------------------------------------------------------------
+
+    it('should detect AmPm no-coverage code 260 by pattern', () => {
+        const result = mapCarrierError(9999, 'AmPm error 260 no cobertura disponible');
+
+        expect(result.userMessage).toBe('AmPm no tiene cobertura para esta ruta. Prueba otra paquetería o valida origen/destino.');
+        expect(result.retryable).toBe(false);
+    });
+
+    it('should NOT match AmPm pattern when carrier name is absent', () => {
+        const result = mapCarrierError(9999, 'error code 260 without carrier context');
+
+        expect(result.userMessage).not.toBe('AmPm no tiene cobertura para esta ruta. Prueba otra paquetería o valida origen/destino.');
+    });
+
+    it('should detect Entrega track-limit exceeded by pattern', () => {
+        const result = mapCarrierError(9999, 'Entrega: track limit exceeded for your account');
+
+        expect(result.userMessage).toBe('Entrega alcanzó el límite de rastreos contratados para tu cuenta. Contacta soporte para ampliarlo.');
+        expect(result.retryable).toBe(false);
+    });
+
+    it('should NOT match Entrega track-limit pattern when carrier name is absent', () => {
+        const result = mapCarrierError(9999, 'DHL track limit exceeded');
+
+        expect(result.userMessage).not.toBe('Entrega alcanzó el límite de rastreos contratados para tu cuenta. Contacta soporte para ampliarlo.');
+    });
+
+    it('should detect JTExpress ICMS missing for Brazil by pattern', () => {
+        const result = mapCarrierError(9999, 'JTExpress ICMS required for this state pair');
+
+        expect(result.userMessage).toBe('JTExpress Brasil requiere cálculo de ICMS para este par de estados. Verifica origen, destino y valor declarado.');
+        expect(result.retryable).toBe(false);
+    });
+
+    it('should NOT match JTExpress ICMS pattern when carrier name is absent', () => {
+        const result = mapCarrierError(9999, 'ICMS required for state pair');
+
+        expect(result.userMessage).not.toBe('JTExpress Brasil requiere cálculo de ICMS para este par de estados. Verifica origen, destino y valor declarado.');
+    });
+
+    it('should detect TresGuerras already-canceled via ESTADO_TALON=CANCELADO literal', () => {
+        const result = mapCarrierError(9999, 'TresGuerras response: ESTADO_TALON=CANCELADO');
+
+        expect(result.userMessage).toBe('El envío ya fue cancelado en TresGuerras. No es necesario cancelarlo de nuevo.');
+        expect(result.retryable).toBe(false);
+    });
+
+    it('should NOT match TresGuerras pattern when ESTADO_TALON has a different value', () => {
+        const result = mapCarrierError(9999, 'ESTADO_TALON=ACTIVO');
+
+        expect(result.userMessage).not.toBe('El envío ya fue cancelado en TresGuerras. No es necesario cancelarlo de nuevo.');
+    });
+
+    it('should detect Afimex insurance cap exceeded by pattern', () => {
+        const result = mapCarrierError(9999, 'Afimex insurance exceeds limit of 10000');
+
+        expect(result.userMessage).toBe('Afimex tiene un tope de seguro de $10,000. Reduce el valor asegurado o elige otra paquetería.');
+        expect(result.retryable).toBe(false);
+    });
+
+    it('should NOT match Afimex insurance pattern when carrier name is absent', () => {
+        const result = mapCarrierError(9999, 'insurance exceeds 10000 limit');
+
+        expect(result.userMessage).not.toBe('Afimex tiene un tope de seguro de $10,000. Reduce el valor asegurado o elige otra paquetería.');
+    });
 });

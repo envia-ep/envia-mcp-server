@@ -16,6 +16,7 @@ import { resolveClient } from "../utils/api-client.js";
 import type { EnviaConfig } from "../config.js";
 import { countrySchema, optionalApiKeySchema } from "../utils/schemas.js";
 import { fetchGenericForm, getRequiredFields } from "../services/generic-form.js";
+import { textResponse } from '../utils/mcp-response.js';
 import { transformPostalCode } from "../utils/address-resolver.js";
 
 /** Shape of a single zipcode result from GET /zipcode/{country}/{code}. */
@@ -68,14 +69,7 @@ export function registerValidateAddress(
 
             // At least one of postal_code or city is required
             if (!postal_code && !city) {
-                return {
-                    content: [
-                        {
-                            type: "text",
-                            text: "Error: Provide at least one of postal_code or city to validate.",
-                        },
-                    ],
-                };
+                return textResponse('Error: Provide at least one of postal_code or city to validate.');
             }
 
             const results: string[] = [];
@@ -171,9 +165,7 @@ export function registerValidateAddress(
                 }
             }
 
-            return {
-                content: [{ type: "text", text: results.join("\n\n") }],
-            };
+            return textResponse(results.join("\n\n"));
         },
     );
 }
