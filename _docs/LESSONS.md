@@ -166,6 +166,48 @@ API token creation, and similar admin ops as LLM-visible tools.
 
 ---
 
+### L-S7. Organizational ownership boundaries limit what the MCP exposes
+
+**Pattern.** Sprint 2 proposed 5 tools wrapping ecart-payment endpoints
+(refunds, withdrawals, transactions, ecartpay balance, invoices).
+Decision A deferred them for a technical reason (JWT auth blocker).
+During audit scoping (2026-04-XX) Jose added a stronger organizational
+reason: ecart-payment is owned by a separate vertical at Envia, not
+by the team that owns this MCP.
+
+**User correction (2026-04-XX, during audit scoping):**
+> "el proyecto ecart-payment no está bajo mi gestión es otra vertical
+> de la empresa, considero que nuestro MCP no debería exponer tools de
+> forma directa, si nuestros endpoints utilizan los servicios de
+> ecartpay, entonces sigamos por ese camino, pero no considero buena
+> idea nosotros exponerlos directamente"
+
+**Rule.**
+- Before proposing a tool that wraps a backend endpoint, confirm the
+  backend is owned by the same organization/vertical as the MCP.
+- If a backend is owned by another vertical, the MCP may still reach
+  it **transitively** via an endpoint owned by this org (e.g. carriers
+  calls ecart-payment internally). That is acceptable.
+- Direct wrapping of another vertical's endpoints is NOT acceptable:
+  different release cadence, different SLA, different incident
+  response path, different compliance obligations, different data
+  ownership.
+- When listing backends in scope, explicitly label each with its
+  owning team/vertical. If ambiguous, ask before audit/expose.
+- This rule sits alongside L-S2 (portal-user test) and L-S6 (no admin
+  tools) as a third filter for tool inclusion.
+
+**How to apply:**
+- Audit scoping sessions: exclude other-vertical backends from the
+  project list up front.
+- Tool proposal sessions: if a backend's ownership is unclear, the
+  default is EXCLUDE until confirmed.
+- Decision sessions: if a backend later becomes "co-owned" or gets
+  transferred, reopen the decision explicitly rather than silently
+  including it.
+
+---
+
 ## 🔍 Backend verification
 
 ### L-B1. Test real API responses before implementing — never trust backend code alone

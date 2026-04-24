@@ -17,6 +17,8 @@ Verifications: `_docs/VERIFICATIONS_2026_04_17.md`.
 
 **Reasoning (Jose):** Not worth pulling cross-team work or widening blast radius right now. Users can still check payment state in the portal UI; the conversational gap is tolerable in v1.
 
+**Reinforced (2026-04-XX, audit scoping session):** Beyond the technical blocker, ecart-payment is owned by a different organizational vertical at Envia. The MCP must not wrap other-vertical endpoints directly; transitive reach via Envia-owned endpoints (carriers/queries) is the allowed path. This upgrades the defer from "nice-to-have-eventually" to a stronger boundary. Captured as LESSON L-S7. Revisiting requires either (a) ecart-payment transfers ownership or (b) an explicit cross-org agreement — not a solo technical decision.
+
 **Follow-up actions**
 - `SPRINT_2_BLOCKERS.md` already documents the blocker and the 3 resolution paths; keep as-is (no edits needed).
 - 5 ecart-payment tools stay out of the registered-tool list.

@@ -6,7 +6,7 @@
 >
 > **Model:** Opus 4.7 (1M context). Not Sonnet.
 > **Expected duration:** 2-3 hours.
-> **Output:** 8 markdown files in `_docs/ENDPOINT_AUDIT_2026_04_XX/`.
+> **Output:** 7 markdown files in `_docs/ENDPOINT_AUDIT_2026_04_XX/`.
 
 ## Step 0 — Read LESSONS.md before anything else (MANDATORY)
 
@@ -63,19 +63,19 @@ authenticated session only. Expanding scope INSIDE that model.
 - Last commit: `6af3156` (check with `git log -1 --oneline`).
 - Staging deployed (release v9, `https://envia-mcp-server-c0fa1b3dab48.herokuapp.com`).
 
-## Scope — 7 projects to audit
+## Scope — 6 projects to audit
 
 1. **carriers** (`services/carriers/`, PHP/Lumen)
 2. **queries** (`services/queries/`, Node/Hapi)
 3. **geocodes** (`services/geocodes/`, Node)
 4. **ecommerce + eshops + ecartApiOauth** (3 services, group as one audit)
 5. **admin-monorepo** (`admon-monorepo/`, no prior analysis)
-6. **ecart-payment** (`repos_extra/ecart-payment/`)
-7. **accounts** (`repos_extra/accounts/`, requires extra sensitivity analysis)
+6. **accounts** (`repos_extra/accounts/`, requires extra sensitivity analysis)
 
-Explicitly OUT: envia legacy, envia-php8, fulfillment-api,
-fulfillment-warehouse-api, sockets, frontends, AI/MCP repos
-themselves. See BRIEF section 2.1 for reasoning.
+Explicitly OUT: **ecart-payment** (different organizational vertical —
+LESSON L-S7, see BRIEF §2.1), envia legacy, envia-php8, fulfillment-api,
+fulfillment-warehouse-api, sockets, frontends, AI/MCP repos themselves.
+See BRIEF section 2.1 for full reasoning.
 
 ## Required reading before dispatching agents (in order)
 
@@ -119,9 +119,9 @@ mkdir -p _docs/ENDPOINT_AUDIT_2026_04_XX
 
 Replace `XX` with the actual day of execution.
 
-### Step 3 — Dispatch 7 Explore subagents in parallel
+### Step 3 — Dispatch 6 Explore subagents in parallel
 
-Send a SINGLE message with 7 `Agent` tool calls (subagent_type:
+Send a SINGLE message with 6 `Agent` tool calls (subagent_type:
 `Explore`, thoroughness: `very thorough`) — one per project. Each
 subagent's prompt must be self-contained and include:
 
@@ -141,7 +141,7 @@ Running in parallel is important: each agent is isolated and they
 don't share context with each other. The brief is the single source
 of truth they must all read.
 
-### Step 4 — Wait for all 7 subagents to complete
+### Step 4 — Wait for all 6 subagents to complete
 
 Each returns a summary pointing at the file written. Spot-check at
 least ONE numeric claim per file before synthesis (LESSON L-T4 —
@@ -152,7 +152,7 @@ admin-monorepo routes"), pause and surface to Jose. Do not guess.
 
 ### Step 5 — Synthesize MASTER_SUMMARY.md
 
-Read all 7 audit docs. Produce `MASTER_SUMMARY.md` with the 7 required
+Read all 6 audit docs. Produce `MASTER_SUMMARY.md` with the 7 required
 sections (BRIEF §10, in order):
 
 1. Executive headline (totals).
@@ -164,11 +164,11 @@ sections (BRIEF §10, in order):
 7. Proposed execution priority (3-5 waves).
 
 The synthesis must be done BY YOU (Opus), not by another subagent —
-synthesis requires reading all 7 simultaneously.
+synthesis requires reading all 6 simultaneously.
 
 ### Step 6 — Quality gates before committing
 
-- [ ] 8 files exist in `_docs/ENDPOINT_AUDIT_2026_04_XX/`.
+- [ ] 7 files exist in `_docs/ENDPOINT_AUDIT_2026_04_XX/`.
 - [ ] Every endpoint row has all 13 columns populated (empty values
       allowed but cell present).
 - [ ] Every quantitative claim cites a source file (`ruta/archivo:line`).
@@ -257,6 +257,12 @@ prompt must include `Step 0 — Read LESSONS.md`.
 - **Do NOT infer numeric claims.** Every volumetric factor, cap,
   timeout, or limit must come from a cited source or be flagged as
   "needs clarification from backend team" (LESSON L-S4).
+- **Do NOT include ecart-payment.** Organizationally owned by another
+  vertical; the MCP does not expose it directly (LESSON L-S7,
+  BRIEF §2.1). If any endpoint in the 6 in-scope projects transitively
+  calls ecart-payment internally, that's fine and should be captured
+  in the "Implementation notes" column — but no ecart-payment audit
+  doc and no ecart-payment tool proposals.
 - **Do NOT include envia / envia-php8 / fulfillment-api / fulfillment-warehouse-api / sockets / frontends.** Out of scope per BRIEF §2.1.
 - **Do NOT push commits to remote.** Local only (LESSON L-G3).
 - **Do NOT run `git add -A`.** Stage the audit directory explicitly
@@ -280,7 +286,7 @@ QUERIES="https://queries-test.envia.com"
 CARRIERS="https://api-test.envia.com"
 GEOCODES="https://geocodes.envia.com"  # production only — no sandbox
 ECART_API_SANDBOX="https://ecart-api-test.ecartapi.com"
-ECART_PAY_SANDBOX="http://ecart-payment-dev.herokuapp.com"  # HTTP not HTTPS; uses separate keys (see SPRINT_2_BLOCKERS.md)
+# ECART_PAY is OUT of scope — do not verify ecart-payment endpoints.
 ```
 
 Only do curl verification for high-value candidates (🟢 V1-SAFE +
@@ -288,7 +294,7 @@ Alto). Skip admin-only and V2-only.
 
 ## Exit criteria
 
-- `_docs/ENDPOINT_AUDIT_2026_04_XX/` exists with 8 files.
+- `_docs/ENDPOINT_AUDIT_2026_04_XX/` exists with 7 files.
 - All quality gates in Step 6 satisfied.
 - Commit message proposed, awaiting Jose's approval.
 - Handoff summary delivered.

@@ -53,7 +53,7 @@ responses. Adding tools blind would:
 The audit is the mechanism to answer "what should we include" with
 evidence instead of intuition.
 
-## 2. Scope — 7 projects
+## 2. Scope — 6 projects
 
 Audit covers endpoints exposed by these backends. For each, produce
 one audit document.
@@ -65,13 +65,20 @@ one audit document.
 | 3 | **geocodes** | `services/geocodes/` (Node) | Helpers only (`getAddressRequirements`, `resolveDaneCode`, `getBrazilIcms`) + partial `envia_validate_address`. `_docs/BACKEND_ROUTING_REFERENCE.md` section 2.3. |
 | 4 | **ecommerce** + **eshops** + **ecartApiOauth** | `services/ecommerce/`, `services/eshops/`, `services/ecartApiOauth/` | Reference: `memory/discovery_ecommerce_backend.md`. MCP consumes one route only (`POST /tmp-fulfillment/...`) as internal side-effect. |
 | 5 | **admin-monorepo** | `admon-monorepo/` | No prior analysis in MCP repo. **Primary discovery needed.** Scope: ops/admin backend that operations team uses. |
-| 6 | **ecart-payment** | `repos_extra/ecart-payment/` | Partial analysis: `_docs/backend-reality-check/ecart-payment-findings.md`. 5 tools deferred due to JWT blocker (Decision A). |
-| 7 | **accounts** | `repos_extra/accounts/` | **Sensitivity case.** This project handles credentials, sessions, KYC, user management. Jose is undecided about inclusion — the audit must produce enough evidence to decide. Treat with higher scrutiny. |
+| 6 | **accounts** | `repos_extra/accounts/` | **Sensitivity case.** This project handles credentials, sessions, KYC, user management. Jose is undecided about inclusion — the audit must produce enough evidence to decide. Treat with higher scrutiny. |
 
 ### 2.1 Explicitly OUT of scope
 
+- **ecart-payment**: organizationally owned by a separate vertical at
+  Envia (not Jose's org). The MCP must NOT expose ecart-payment
+  endpoints as direct tools. If an Envia-owned endpoint (in carriers,
+  queries, etc.) internally calls ecart-payment, that is fine — the
+  MCP reaches ecart-payment transitively via an Envia endpoint, never
+  directly. This reinforces Decision A (defer) with a stronger
+  organizational reason on top of the JWT technical blocker. See
+  LESSON L-S7 on organizational ownership boundaries.
 - **envia (legacy PHP 7)** + **envia-php8**: being deprecated, flows
-  migrating to the 7 projects above.
+  migrating to the 6 projects above.
 - **fulfillment-api** and **fulfillment-warehouse-api**: independent
   portals, no integration planned short-term.
 - **sockets**: WebSocket broadcaster, not HTTP endpoints.
@@ -110,7 +117,6 @@ _docs/ENDPOINT_AUDIT_2026_04_XX/
   geocodes-audit.md
   ecommerce-audit.md       ← covers ecommerce + eshops + ecartApiOauth
   admin-audit.md
-  ecart-payment-audit.md
   accounts-audit.md        ← includes sensitivity analysis section
 ```
 
@@ -371,7 +377,6 @@ For projects that already have documentation, read it FIRST:
 | geocodes | `_meta/analysis-geocodes.md` (if exists); `memory/reference_country_address_rules.md`; `_docs/backend-reality-check/geocodes-findings.md`; `src/services/geocodes-helpers.ts` (internal consumer). |
 | ecommerce (+eshops+ecartApiOauth) | `memory/discovery_ecommerce_backend.md`; `_meta/analysis-ecommerce*.md`; `_docs/backend-reality-check/ecommerce-eshops-findings.md`. |
 | admin-monorepo | No prior analysis. **Primary discovery** via `admon-monorepo/` routes. |
-| ecart-payment | `_docs/backend-reality-check/ecart-payment-findings.md`; `_docs/SPRINT_2_BLOCKERS.md`. |
 | accounts | `_docs/backend-reality-check/accounts-findings.md` (if exists in monorepo root); `repos_extra/accounts/` source. |
 
 ### 9.2 Gap-fill with primary discovery
@@ -488,7 +493,7 @@ decision is a separate session.
 
 When the session closes:
 
-- `_docs/ENDPOINT_AUDIT_2026_04_XX/` exists with 8 files
+- `_docs/ENDPOINT_AUDIT_2026_04_XX/` exists with 7 files
   (MASTER_SUMMARY + 7 audits).
 - MASTER_SUMMARY contains all 7 sections with at least one entry in
   each where applicable.
