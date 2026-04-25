@@ -1639,3 +1639,504 @@ Still pending for iter 3 ⚪:
 10. CSVs detailed analysis (we know structure but not full content).
 
 The doc is now a **reasonable transferable starting point** for any future session working on carriers + MCP integration. Iter 3 should bring it to ~95%, after which it stops yielding marginal value and becomes a maintained reference rather than a drafting target.
+
+---
+
+# Iteration 3 — Final coverage (2026-04-25)
+
+> Read in iter 3: track side-effect docs (chargebacks-cod, return-to-origin, cancel-but-used), auxiliary action docs (general-track, manifest, bill-of-lading, ndr-report), carrier-rating-api-modes, mercancia-prohibida, prior-notice-fda, FedEx + UPS + DHL deep-dives.
+>
+> Sections §31-39 close gaps from iter 1+2. §40 is the final self-assessment.
+
+## 31. Track side-effects — fully closed
+
+The 5 side effects of internal `/ship/track` (extending §8):
+
+### 31.1 Status code reference (definitive)
+
+From all 5 side-effect docs combined:
+
+| Code | Status | Used by |
+|------|--------|---------|
+| **3** | Delivered | COD payment trigger, overweight charge trigger |
+| **4** | Canceled | Cancel-but-used trigger when status leaves this |
+| **11** | Returned | RTO charge trigger |
+| **13** | Delivered at Origin | RTO charge trigger |
+
+### 31.2 COD chargeback — 4-hour delay verified
+
+Per `actions/track/chargebacks-cod.md`:
+- **Trigger:** current status is Delivered (3), new status is NOT 3.
+- **Delay mechanism:** chargeback sent to TMS **when shipment no longer returns new movements** (effectively a 4-hour debouncing window).
+- **Endpoint:** `POST /chargeback-cod` on TMS via `TmsUtil::processCashOnDelivery($data, $chargeback=true)`.
+
+### 31.3 Return to Origin (RTO) — TMS-config-gated
+
+Per `actions/track/return-to-origin.md`:
+- **Trigger:** new status = 11 (Returned) OR 13 (Delivered at Origin).
+- **Gating:** TMS verifies the carrier service has RTO charge configured. **If not configured, NO charge.** Some services bake RTO cost into the base fee already.
+
+### 31.4 Cancel-but-used
+
+Per `actions/track/cancel-but-used.md`:
+- **Trigger:** current status is Canceled (4), new status is NOT 4.
+- **Meaning:** shipment cancelled in platform but actually used by carrier. Charge sent to TMS.
+- Edge case to monitor — represents broken cancel flow.
+
+## 32. Auxiliary actions — fully closed
+
+Closing §14:
+
+### 32.1 General Track (`/ship/generaltrack`) — public, read-only
+
+Source: `actions/general-track/general-track.md`.
+
+- **Auth:** **NO `auth` middleware** in route group. Group is `json-valid, action, translate` only.
+- **Action class:** `GeneralTrack`. Inherited `$user` is numeric only (no User model).
+- **Path:** `Ship::handleAction` detects no carrier set → `Util::actionsWithoutGuard('generaltrack')` is true → `handleActionWithoutGuard` returns `Response('generaltrack', $data->data)` directly. **No carrier method invoked.**
+- **Resolution:** `CarrierUtil::simpleTrack` per guide, group by carrier, then `AdvancedTrack` per carrier when available.
+- **`Ship.php:138-141`** strips `customKey` from each guide before responding (security — public endpoint can't expose internal custom keys).
+- **No DB updates, no side effects.**
+
+### 32.2 Manifest (`/ship/manifest`) — multi-carrier
+
+Source: `actions/manifest/manifest.md`.
+
+- **Action class:** `Manifest`. NO top-level `$carrier` property — multi-carrier processing.
+- **Path:** Multi-carrier flow:
+  - Action constructor enriches guides via `CarrierUtil::shipmentInfoManifest`, groups by carrier, calls each carrier's static `Manifest` method where implemented, stores in `$data->data`.
+  - `Util::actionsWithoutGuard('manifest')` is true: if `$data->carrier` not set, `handleActionWithoutGuard` returns the prepared `$data->data` directly.
+  - Otherwise carrier-specific dispatch via `Carrier::manifest($data)`.
+- **`CarrierUtil::fixManifestArray`** post-processes the response.
+
+### 32.3 Bill of Lading / Commercial Invoice
+
+Source: `actions/bill-of-lading/bill-of-lading.md`.
+
+- **Routes:** `POST /ship/billoflading` AND `POST /ship/commercial-invoice` (alias). Aliasing happens in `Ship::getAction()` line 61.
+- **Action class:** `BillOfLading`. Loads `User` (admin replaces with shipment creator), addresses, `Shipment` model (with `shipmentModel` = active non-cancelled DB row joined to carrier service), array of `BOLPackage`, `CustomsSettings`, `$international` flag, `$taxesApply`.
+- **Carrier method:** `Carrier::billOfLading($data)`. **Not all carriers implement it** — many throw `InvalidValueException("does not support bill of lading")`.
+- **Used for:** customs commercial invoice generation for international shipments.
+
+### 32.4 NDR Report
+
+Source: `actions/ndr-report/ndr-report.md`.
+
+- **Path:** `POST /ship/ndreport` → `NDReport` action.
+- **Curiosity:** validated against `cancel.v1.schema` (NOT a separate ndr schema — they share).
+- **Action context:**
+  - `$shipment` from `CarrierUtil::getShipmentToNDR($this)`.
+  - `$actionCode` — client-selected NDR action (retry, change address, return, etc.).
+  - `$actionData` — row from `carrier_ndr_actions` JOIN `catalog_ndr_actions` for this carrier + actionCode (includes `action_name`).
+  - `$locale` — locale model for the shipment's service country code.
+- **Carrier method:** `Carrier::ndreport($data)` (method name may vary per carrier).
+
+## 33. Carrier rating API modes — 4 patterns
+
+Source: `actions/rate/carrier-rating-api-modes.md`.
+
+The **public `POST /ship/rate` contract** sends a full shipment (origin, destination, multiple packages, optional service). Each carrier controller maps that to the carrier's rate endpoint(s) according to one of FOUR patterns.
+
+**Vocabulary: MPS (Multi-Package Service)** = carrier rate API that accepts >1 package per request. `carriers.allows_mps` flag in DB reflects platform support for MPS rate handling.
+
+### 33.1 Mode 1 — One package per request, all services in one response
+
+Each carrier API call sends 1 package, gets back rates for all applicable services. Integration **iterates packages only**.
+
+### 33.2 Mode 2 — One package + one service per request
+
+Each call needs both a specific package AND a specific service. Integration **iterates packages × services** (nested).
+
+### 33.3 Mode 3 — All packages per request, one service per request (MPS + service iteration)
+
+Single call has all packages (MPS) but caller specifies which service. Integration **iterates services only**.
+
+### 33.4 Mode 4 — All packages and all services in one request (full MPS)
+
+Single call returns everything. **No package or service loop** in the integration (besides pagination/retries).
+
+| Mode | Pkgs/call | Services/call | Loops in integration |
+|------|-----------|---------------|----------------------|
+| 1 | 1 | All in response | Packages |
+| 2 | 1 | 1 | Packages × services |
+| 3 | All (MPS) | 1 | Services |
+| 4 | All (MPS) | All in response | None |
+
+**Why this matters:** when adding a new carrier, you must determine which mode the carrier API uses. Wrong assumption = N+1 calls, missing services, or doubled carrier costs. `RateTrait::rateDbV2` and `AdditionalServiceUtilV2` have MPS-vs-per-package logic to handle these differences.
+
+## 34. Mercancía prohibida — complete list
+
+Source: `carriers-v2/mercancia-prohibida.md`. Based on T&C §3.6.
+
+**Critical:** the list is **enunciativa, not limitativa** — there are other prohibited items not explicitly listed. Each carrier may have its own additional restrictions.
+
+### 34.1 Prohibited categories (10 groups)
+
+1. **Financial instruments and securities:** cash, gift cards, vouchers, redeemable coupons, electronic money instruments, negotiable instruments, securities and derivatives.
+2. **Specific high-value items:** jewelry, antiques, art pieces, precious metals (gold, silver, platinum bars, coins), industrial coal/diamonds.
+3. **Weapons, explosives, pyrotechnics:** weapons of any kind, explosives, fireworks/firecrackers/sparklers.
+4. **Biological / animal-vegetable products:** plants and animals (alive or dead), animal hides/leather, ivory (CITES treaty internationally prohibited).
+5. **Offensive / counterfeit / illegal materials:** obscene, offensive, counterfeit, pornography.
+6. **Regulated substances:** controlled and uncontrolled medications (includes prescription, supplements, OTCs), tobacco / loose leaves / cigars / cigarettes, e-cigarettes (vapes).
+7. **Chemicals and pressurized:** compressed gases / pressure containers (industrial aerosols, oxygen tanks, fire extinguishers), liquids in general (some specific exceptions with authorization), containers with dangerous materials/waste symbols.
+8. **Perishables without special conditions:** perishable food requiring temperature control (refrigerated, frozen, fresh dairy), goods needing special preservation conditions.
+9. **Foreign goods of irregular origin:** foreign goods without legal documentation. **Exception:** can be sent if accompanied by **original or notarized certified copy** of legal documentation, properly packaged.
+10. **Anything prohibited by legislation or competent authority:** local/international laws, authority dispositions.
+
+### 34.2 Specific category nuances
+
+- **Electronics:** NOT in the prohibited list (CAN be transported), but **Envia Seguro does NOT cover them**. For protection use UPS + Alto Valor.
+- **Food to US:** most food categories (fruits, vegetables, fish, dairy, eggs, raw materials, pet food, supplements, infant formula, beverages, baked goods, candy, canned food) require **Prior Notice FDA** (see §35). Homemade gifts and meat/poultry/egg products are exempt.
+- **Foreign-origin merchandise:** can be sent WITH legal documentation.
+- **Jewelry exception:** UPS + Alto Valor accepts jewelry with 48h claim window for jewelry/watches.
+- **Medications:** generally prohibited; some specific exceptions with full legal documentation (apply handoff).
+
+### 34.3 Consequences of sending prohibited merchandise
+
+- **Sanctions, fines, penalties** per local (MX domestic) or destination country (international) law.
+- Package may be **withheld, rejected, or seized** by carrier or authorities.
+- **NO refund, indemnity, or compensation.**
+- Envia Seguro **does NOT cover** prohibited items.
+
+### 34.4 Customs / authority retention
+
+T&C §3.5.1: Envia is NOT responsible for retention by authorities (customs, police, inspections). The user manages directly with the authority. Envia does not intervene in external legal processes.
+
+### 34.5 Envia's right to refuse
+
+Envia reserves the right to **reject, suspend, or cancel** any shipment WITHOUT prior notice when:
+- Customs regulation changes.
+- Government restrictions.
+- Tariff law modifications.
+- Reforms in national/local legislation.
+- Any authority disposition limiting commerce, distribution, or transit.
+
+No refund, indemnity, or compensation in those cases. **Regulatory risk lies with the sender.**
+
+## 35. Prior Notice FDA
+
+Source: `carriers-v2/prior-notice-fda-deep-dive.md`. Based on T&C §3.14.
+
+### 35.1 What it is
+
+Prior Notice = mandatory pre-alert to the **US Food and Drug Administration (FDA)** for shipments containing food for human or animal consumption destined to:
+- US use, distribution, or storage.
+- Transit through US (transshipment).
+- Free zones within US.
+
+**Includes:** food sent as gift or sample (not just commercial). **Sender's responsibility.** Envia does NOT process; informs the requirement and charges sanctions if missing.
+
+### 35.2 When required
+
+1. **Final destination is US AND package arrives by air.** FDA must have pre-alert:
+   - **No more than 5 days** advance vs arrival.
+   - **At least 4 hours** before arrival at port.
+2. **Final destination is NOT US, but shipment transships through US.** Even if destination is Canada, MX, Central America, etc., if route touches a US air or sea port, Prior Notice applies.
+
+### 35.3 When NOT required (exemptions)
+
+1. **Homemade food** (bread, cookies, etc.) sent as **personal gift** (clearly non-commercial).
+2. **Meat, poultry, and egg-based products** — regulated EXCLUSIVELY by USDA, NOT FDA. USDA has its own requirements.
+3. **Food in diplomatic pouch** under Vienna Convention on Diplomatic Relations.
+
+### 35.4 Foods that DO require Prior Notice
+
+Official list:
+- Fruits, vegetables, fish, dairy products, eggs (also USDA-regulated in parallel), agricultural raw materials, pet food, dietary supplements, infant formula (formula milk, etc.), beverages (including alcoholic and bottled water), baked goods, candy, canned foods.
+
+### 35.5 How to obtain
+
+Process by sender or transporter (NOT Envia):
+1. Go to http://www.fda.gov/.
+2. Create account (user + password).
+3. Go to **Prior Notice** → **Web Entry (create)**.
+4. Capture: shipper data, carrier data, arrival port, shipment details.
+5. Get Prior Notice registration number.
+6. **Number must appear on air waybill.**
+7. Attach copy of Prior Notice confirmation for collection at destination.
+
+### 35.6 Consequences of missing Prior Notice (T&C §3.14.4 caps emphasis)
+
+> "PACKAGES WITHOUT ADEQUATE PRIOR NOTICE COULD BE SUBJECT TO FINES AND ENTRY TO US COULD BE REJECTED. ENVIA.COM RESERVES THE RIGHT TO **AUTOMATICALLY CHARGE** ANY AMOUNT DERIVED FROM THESE SANCTIONS TO THE USER'S ACCOUNT."
+
+Possible:
+- Federal FDA fines.
+- US entry rejection.
+- Return to origin with charges.
+- **Automatic charge to Envia account** for any sanction-derived amount.
+
+## 36. FedEx — primary carrier deep dive
+
+Source: `carriers-v2/fedex.md` (680 lines).
+
+### 36.1 Countries (7) and total services (43)
+
+Per `INDEX.md`: 10 countries listed but `fedex.md` confirms 7 active in catalog — MX (7), US (18), ES (5), BR (5), CL (3), CO (5), AR (configured but inactive).
+
+### 36.2 Services per country
+
+- **MX (7):** Nacional Económico, Nacional Día Siguiente, Nacional Económico COD (`ground_cod` — the ONLY MX service with COD), International Priority, International Economy, International Priority Third Party, International Economy Third Party.
+- **US (18):** Ground, Home Delivery, Ground Economy (cap 31.75 lb / ~14.4 kg), Express Saver, 2Day, 2Day A.M., Standard Overnight, Priority Overnight, First Overnight + One Rate variants of the air services, plus 4 international (International Priority, International Priority Express, International Economy, International Connect Plus).
+- **ES (5):** Internacional Express, Internacional Ground, Regional Economy, **Internacional Priority Freight (LTL)**, **Internacional Economy Freight (LTL)** — only country where FedEx offers LTL on the platform.
+- **BR (5):** International Express, Priority Express, Economy, First, Connect Plus. **No domestic** (only international export). Max 25 kg/package.
+- **CL (3):** International Priority, International Economy, International Connect Plus.
+- **CO (5):** Express + Ground (national), International Priority, Economy, Connect Plus.
+
+### 36.3 19 additional charges, 5 functional families
+
+1. **Shipment protection:** Envia Seguro / FedEx insurance.
+2. **COD:** only MX with `ground_cod` service.
+3. **Geographic charges:** extended_zone, remote area, ferry_fee.
+4. **Operational charges:** additional_handling, irregular_bulk, big_format, saturday_service, peak_season, fuel.
+5. **Signature and special delivery:** adult signature, direct signature, indirect signature, electronic signature, residential delivery, non-machinable.
+
+Plus **3 cross-border specific:** cross_border (MX), usa_import_processing (MX→US), return_to_sender.
+
+### 36.4 Key FedEx-specific rules
+
+- **Volumetric factor:** 5,000 cm³/kg (139 in³/lb domestic US, 166 in³/lb international).
+- **One Rate services don't apply volumetric weight** within service weight cap (~22.5 kg / 50 lb). For voluminous-but-light packages, One Rate is often cheaper.
+- **Ground Economy US:** cap 31.75 lb (14.4 kg). If exceeded → service unavailable, NOT overweight charge.
+- **Saturday Service** US: only for fast air services (2Day, 2Day A.M., Express Saver, First Overnight). FedEx defines cost; platform passes without markup.
+- **Non-Machinable** US (Ground Economy only): auto-applied when (a) weight > 16 lb, (b) two+ dimensions exceed threshold, OR (c) longest dimension exceeds limit.
+- **Additional Handling MX:** weight ≥26 kg OR any dimension ≥122 cm. Express 352 MXN, Ground 260 MXN.
+- **Additional Handling ES:** any dimension ≥121 cm → 45 EUR.
+- **Additional Handling BR:** any dimension ≥121 cm → 360 BRL.
+- **Irregular Bulk ES/BR international:** flat 20 EUR (ES) / 70 BRL (BR) when raw weight >30 kg.
+- **Peak Season MX:** configured but currently 0 in catalog. 18 companies have explicit override at 0 (effectively disabled). In practice not charged in MX.
+
+### 36.5 Cross-border MX (cross_border)
+
+- Auto-applied when origin OR destination is MX AND company is enrolled in cross-border program.
+- **$7.50 USD per package** (NOT per shipment), converted to MXN at quote-time FX.
+- Status (enrolled/not) requires runtime check.
+
+### 36.6 USA Import Processing
+
+- For MX → US international services and Third Party variants.
+- **30.70 MXN per shipment.** Optional but FedEx normally applies it.
+
+### 36.7 FedEx Third Party — multi-country international
+
+**Critical capability** for MX-anchored companies: **send international shipments between two FOREIGN countries** (origin and destination both outside MX), billed to the MX FedEx account. The package never touches MX.
+
+- Services configured as `thirdparty` scope:
+  - International Priority — Third Party (`int_express_third_party`)
+  - International Economy — Third Party (`int_ground_third_party`)
+- Enabled by `services.international = 3` (the fourth value of that field).
+- Requires cuenta FedEx MX configured. Customs documentation applies to origin AND destination (not MX).
+- Ideal for distributed logistics: factory in Asia → distributor in Europe, billed to MX HQ.
+
+### 36.8 Hard limits
+
+- MX domestic: 70 kg/package.
+- MX/CL/ES/US/CO international: 70 kg/package.
+- BR international: 25 kg/package (lower).
+- US Ground Economy: 31.75 lb / 14.4 kg.
+- US residential: ~150 lb.
+- Envia Seguro: 5,000 USD/package.
+- COD: 10,000 MXN per shipment (MX Nacional Económico COD only).
+
+### 36.9 Return to Sender pricing
+
+- MX Express, MX Ground: 100% of original shipment cost.
+- MX Ground COD: 60% of original shipment cost.
+- ES (all services): 100%.
+
+NOT visible as portal option; activated by internal flows or direct API.
+
+## 37. UPS — primary carrier deep dive
+
+Source: `carriers-v2/ups.md` (416 lines).
+
+### 37.1 Countries (8) and services per country
+
+- **MX (9):** Saver, Standard Int, Worldwide Express + Plus + Saver, Expedited Int + Import variants. **The only carrier with Alto Valor**.
+- **US (3):** Ground, Next Day Air Saver, 2nd Day Air.
+- **ES (7):** Saver, Worldwide Express, Standard, **Standard Access Point** (locker/pickup), + Import variants.
+- **FR (11):** Express, Standard, Saver, **Standard Access Point** + International + Import variants. The **largest UPS catalog** + most COD coverage.
+- **IT (10):** similar to FR, smaller catalog.
+- **BR (2):** UPS Saver (domestic), Worldwide Saver (international).
+- **CA (2):** Ground (up to 100 kg), Standard Int.
+- **CO:** verify in runtime.
+
+### 37.2 UPS Alto Valor — definitive (the only carrier with this product)
+
+Already covered in §10/§28. Key UPS-specific reinforcements:
+- **9 specific UPS MX services** support Alto Valor: Saver, Standard, Standard Import, Worldwide Express, Worldwide Express Import, Worldwide Express Plus, Worldwide Express Plus Import, Worldwide Saver, Worldwide Saver Import.
+- Different from §10: **MX origin OR destination**.
+- Caps: **125,000 MXN/package, 500,000 MXN/transport** national; **10,000 USD/package, 50,000 USD/transport** international.
+- Min declared: **>1,000 MXN** national, **>100 USD** international.
+- Mandatory **neutral packaging** (no marks/logos).
+- Jewelry/watches: 48h claim window.
+
+### 37.3 COD by country (UPS-specific)
+
+- **FR:** all 11 services (largest COD catalog UPS-wide).
+- **IT:** 6 services.
+- **ES:** 6 services.
+- **US, MX, BR, CA:** **NO COD** in platform.
+
+### 37.4 Other operational
+
+- **Adult Signature Required:** all 11 FR services + others. Optional, editable.
+- **Electronic Signature:** 11 rules in FR. Optional.
+- **Direct Delivery Only:** ensures only the named recipient.
+- **Higher Dimensions:** US (9 rules) — threshold-based.
+- **Large Package:** 11 services FR — auto-applied.
+- **Sender Pay Tax Out EU:** ES + FR (7 rules each) — when sender pays out-of-EU duties.
+- **Cross border MX:** 7.50 USD/package, 9 rules configured.
+
+### 37.5 Hard limits
+
+- Most countries: 70 kg/package guide.
+- CA Ground: 100 kg.
+- US residential delivery: 150 lb.
+
+## 38. DHL — primary carrier deep dive
+
+Source: `carriers-v2/dhl.md` (365 lines).
+
+### 38.1 Countries (9) — international-dominant
+
+Service distribution:
+| Country | National | Intl | Import | Total |
+|---------|---------:|-----:|-------:|------:|
+| **MX** | 4 | 2 | 2 | **8** (largest) |
+| US | 0 | 2 | 2 | 4 (no domestic) |
+| ES | 1 | 1 | 0 | 2 |
+| AR | 0 | 1 | 2 | 3 |
+| BR | 1 | 2 | 0 | 3 |
+| CA | 0 | 2 | 0 | 2 |
+| CL | 0 | 1 | 2 | 3 |
+| **CO** | 1 | 2 | 2 | 5 |
+| GT | 0 | 1 | 2 | 3 |
+
+### 38.2 Services per country (MX detail)
+
+- **MX (8):** Express Domestic, Economy Select Domestic (ground), Economy Domicilio-Ocurre (ground_do), Economy Ocurre-Domicilio (ground_od), Express Worldwide (int_express), Express Worldwide Doc (express_doc), + 2 import variants.
+
+### 38.3 COD — only ES
+
+DHL has COD configured in **only Spain** (Parcel B2C). Not in any other country. If client needs DHL COD elsewhere, use alternative carriers.
+
+### 38.4 Operational charges
+
+- **Multi-package shipment fee:** MX (8 rules), US (4), CL/CO/GT (3 each).
+- **Peak season:** MX (4 rules).
+- **Additional handling:** MX (4) + international.
+- **Ferry fee:** MX (4) — Mexican coastal/island routes.
+- **Non-conveyable piece:** MX (4) — paquetes que no pasan por banda.
+- **Cross-border:** MX (8), 7.50 USD/package.
+- **Export declaration fee:** BR + GT — for high-declared-value international.
+- **High-risk country:** 4 rules — DHL international to risky destinations.
+
+### 38.5 Volumetric
+
+5,000 cm³/kg standard. DHL Express international is **especially sensitive to volumetric weight** because aircraft consolidation makes volume cost as much as weight.
+
+### 38.6 Express Worldwide vs Express Worldwide Doc
+
+- **Worldwide:** packages (any non-document content).
+- **Worldwide Doc:** documents only — optimized rate, smaller dim/weight limits.
+
+Use Doc only for paper documents. Otherwise Worldwide regular.
+
+### 38.7 Critical for FDA
+
+DHL Express international is a **common route for shipments to US**. Food shipments require **Prior Notice FDA** — sender's responsibility (see §35).
+
+## 39. Third Party billing model (services.international = 3)
+
+The fourth value of `services.international` finally explained explicitly via FedEx documentation.
+
+### 39.1 What it means
+
+`services.international = 3` represents **third-party billing scope**: shipment originates in one foreign country, delivers in another foreign country, and is billed to a third country's carrier account.
+
+### 39.2 Concrete example (FedEx MX)
+
+A Mexican client with FedEx MX account configured in Envia generates an air shipment **Germany → China**:
+- Origin: Germany.
+- Destination: China.
+- Billing: MX FedEx account (centralizing logistics under a single account).
+- Customs documentation: applies to GE and CN (not MX).
+
+### 39.3 Mechanism
+
+`Pickup` action documents:
+> `$thirdParty = true` when tracked shipments use international third-party service (`services.international = 3`).
+
+When the Action context loads, it detects this flag and may switch country handling, address resolution, or pickup origin accordingly.
+
+### 39.4 Available services (FedEx MX example)
+
+- `int_express_third_party` (International Priority — Third Party)
+- `int_ground_third_party` (International Economy — Third Party)
+
+Both use the same FedEx service codes as their direct international equivalents but with `scope=thirdparty`.
+
+### 39.5 Third Party vs Custom Keys
+
+Both are mechanisms but different:
+
+| | Third Party | Custom Keys |
+|--|-------------|-------------|
+| Goal | Enable shipments **between two foreign countries** with a single Envia-registered FedEx account | Use **client's own** carrier account with their pre-negotiated rates |
+| Requires client's own account? | No (uses Envia's MX FedEx account) | Yes (client's contracted account with FedEx/UPS/DHL) |
+| Configuration | Auto with FedEx MX configured | One-time onboarding via handoff |
+| Use case | Distributed international logistics ops | High-volume customers with their own contract rates |
+
+Both can coexist: a custom-keys customer can still use Third Party for routes between two foreign countries.
+
+### 39.6 Coverage and restrictions
+
+- Subject to FedEx coverage for the requested origin-destination pair.
+- Subject to regulatory/customs restrictions of involved countries.
+- Subject to FedEx account configuration supporting Third Party billing.
+
+If the requested route fails, the cotization will indicate so. Apply handoff if customer needs verification.
+
+## 40. Final self-assessment — iteration 3 closes coverage
+
+Doc now covers approximately **92-95%** of the carriers service surface.
+
+### What's been added across all 3 iterations
+
+**Iter 1 (~60%):**
+- §1-19 architecture, routes, auth, dispatcher, action classes, 3-tier carrier pattern, 5 core actions, 3 of 5 track side-effects, cancel+refunds, insurance core, COD, custom keys, extended zones, MCP gap base.
+
+**Iter 2 (+15-20%):**
+- §20-30 pricing operations catalog (closes Gap 19), 47 add-on inventory, code-injected services pattern, sobrepesos full picture, pickup full picture, 4 refund processes, handoff pattern, distinctive carriers, insurance comparison, updated MCP gaps.
+
+**Iter 3 (+10-15%):**
+- §31-39 track side-effects fully closed, auxiliary actions fully closed (BOL/manifest/NDR/general-track), carrier rating API modes (4 patterns), mercancía prohibida complete (10 categories), Prior Notice FDA (full process), FedEx primary carrier (43 services + 19 charges), UPS primary carrier (Alto Valor specifics), DHL primary carrier (9-country variation), Third Party billing model explained.
+
+### What's still pending — the last ~5-8% of marginal value
+
+⚪ The remaining items would deliver diminishing returns. They're listed for completeness:
+
+1. **Per-carrier deep-dives for the next 6 carriers** (Estafeta, Coordinadora, Paquetexpress, Correos ES, Delhivery, BlueDart). Each is ~300 lines and follows the same template — value is incremental, not structural.
+2. **CarrierUtil.php (7,734 lines)** — major sections via grep + class method inventory. Useful for engineering deep-dive but not for the agent or MCP integration.
+3. **AbstractCarrier parent class** — default method implementations.
+4. **128+ Eloquent Models** — names + roles, no full schema.
+5. **JSON schemas** (`app/ep/schemas/*.v1.schema`) — request validation contracts. Useful when adding new MCP tools that mirror these.
+6. **CSV detailed analysis** — beyond structural inventory in §15.4. Specific row analysis for top tables (`additional_service_prices`, `services` international=2/3 rows, `catalog_volumetrict_factor` per carrier).
+
+### How to use this doc going forward
+
+1. **For MCP development:** start at §17 (MCP coverage gap), then §10 (insurance), §11 (COD), §28 (insurance comparison), §29 (updated gaps). When designing a new tool that wraps a carriers endpoint, navigate from §2 (route + middleware) → §5 (action class) → §6 (carrier 3-tier) → §7 or §14 (action detail).
+2. **For agent prompt design:** §10 + §11 + §13 + §28 + §34 + §35 + §27. The handoff pattern (§26) is non-negotiable per LESSON L-S2.
+3. **For incident debugging:** §8 + §31 (track side-effects), §9 (refund chain), §16 (inter-service), §15 (DB schema), §39 (third party).
+4. **For new carrier integration:** §6 + §33 (rating modes) + the existing carrier deep-dive that most resembles the new one.
+5. **For CarrierUtil refactoring:** out of scope for this doc — needs its own deep-dive.
+
+### Honesty note
+
+The remaining 5-8% won't change the architectural understanding or the MCP-relevant business rules. **It will refine specific carrier behaviors** that an agent encounters in practice but rarely affects design decisions. A future iter 4 would be most useful as a **per-carrier appendix** that lives separately and gets updated when business rules change.
+
+This doc is now suitable as **the** starting point for any future Claude or human session working on:
+- Building new MCP tools wrapping carriers endpoints.
+- Auditing carrier-domain coverage of the agent.
+- Debugging shipment lifecycle incidents.
+- Onboarding into the carriers domain.
