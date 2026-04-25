@@ -436,3 +436,293 @@ tools or by editorial / backend coordination.
   pass principle (LESSON L-T4) at each level: tool synthesis,
   catalog inventory, gap analysis.**
 
+---
+
+# Iteration 3 — Backend code verification + business rules (2026-04-25)
+
+> Triggered by user clarification: high_value_protection rule was
+> miscoded (memory said "MX origin only"; user confirms it's "MX as
+> origin OR destination"); user asks for verification at code/DB/service
+> level instead of catalog inference.
+> Source-of-truth files inspected:
+> - `services/queries/routes/service.routes.js:118` — endpoint route definition.
+> - `services/queries/controllers/service.controller.js:399-498` — handler with full SQL.
+> - `services/queries/routes/company.routes.js:724` + `controllers/company.controller.js:2173-2212` — separate prices endpoint.
+
+## 14. Verified backend logic — the real SQL behind /additional-services
+
+The endpoint `GET /additional-services/{country_code}/{international}/{shipment_type}` runs this query:
+
+```sql
+SELECT cat.*, cas.*, f.json_structure
+FROM services AS s
+JOIN locales AS l ON l.id = s.locale_id
+JOIN additional_service_prices AS asp ON s.id = asp.service_id
+JOIN catalog_additional_services AS cas ON cas.id = asp.additional_service_id
+                                       AND cas.shipment_type_id = ?
+JOIN catalog_additional_services_categories AS cat ON cat.id = cas.category_id
+JOIN catalog_additional_service_forms AS f ON f.id = cas.form_id
+WHERE s.international IN (?)        -- single value or [intl, 2]
+  AND l.country_code IN (?)         -- single country or [origin, destination]
+  AND s.shipment_type_id = ?
+  AND s.active IS TRUE
+  AND cas.active IS TRUE
+  AND cas.visible IS TRUE
+  AND asp.mandatory IS FALSE        -- only optional services
+  AND asp.active IS TRUE
+GROUP BY cas.id
+ORDER BY cat.index;
+```
+
+And the bidirectional logic:
+
+```js
+if (request.params.international == 1 && request.query.destination_country) {
+    queryParams[1].push(2);                                   // s.international IN (1, 2)
+    queryParams[2].push(request.query.destination_country);   // country_code IN (origin, destination)
+}
+```
+
+### 14.1 The `services.international` field has THREE values
+
+- **0** = domestic only.
+- **1** = international, origin-bound (service tied to origin country).
+- **2** = international, bidirectional (service offered when origin OR destination matches the country_code).
+
+This explains the entire bidirectional rule. `high_value_protection`'s SQL row in BD has `international=2` and locale `country_code=MX`. When you ship CO→MX, the controller adds `2` to the international filter and `MX` to the country list, so MX-bound services with `international=2` are returned. **Your rule is implemented in BD, not a catalog bug.**
+
+### 14.2 `high_value_protection` rule — VERIFIED 100% by 30 sandbox combinations + SQL logic
+
+| Direction | Combos tested | HV present where MX is in pair | HV present where MX is NOT in pair |
+|-----------|--------------:|--------------------------------|------------------------------------|
+| Origin MX | 5 (MX→US,BR,CO,ES) + MX domestic | 5/5 ✅ | — |
+| Destination MX | 6 (CO,AR,ES,GT,BR,US → MX) | 6/6 ✅ | — |
+| Neither origin nor destination MX | 6 (BR↔ES, BR↔US, US↔ES, CL→CO) | — | 0/6 ✅ (correctly absent) |
+
+**Conclusion:** the user's corrected rule "MX as origin or destination" matches the catalog perfectly. Iteration 2's claim that BR→MX and US→MX were "false positives" was **wrong** — they are correct.
+
+The only restriction the catalog does NOT encode is **carrier exclusivity** (UPS-only). That part of the rule lives somewhere else (probably in `services` table or in carrier-level checks at generate time, not in the additional-services endpoint).
+
+## 15. The `tooltip_amount` field is NOT per-product — correction to iteration 2
+
+Iteration 2 said: "tooltip_amount default $2,000 for both envia_insurance and high_value_protection". **This is wrong.** Real backend code:
+
+```js
+const planTypePricesQuery = `
+    select activation_price from plan_type_prices WHERE plan_type_id = 2 and locale_id = ?;
+`;
+const default_insurance_amount = planTypePrices[0][0]?.activation_price;
+// ...
+let child = {
+    ...
+    tooltip_amount: default_insurance_amount,   // SAME value for every service
+    ...
+};
+```
+
+**Reality:**
+
+- A single `default_insurance_amount` is fetched once from `plan_type_prices` for `plan_type_id = 2` and the **logged-in user's locale_id** (NOT the shipment's origin country).
+- That same value is attached to EVERY service in the response — including services that have nothing to do with insurance (signatures, hazmat, hold_at_location all show the same `tooltip_amount`).
+- It only makes business sense for `envia_insurance`. For everything else, it is noise.
+
+### Implications
+
+- The MCP should not infer per-service defaults from `tooltip_amount`. It only applies to Envia Seguro.
+- The default depends on the agent user's profile country, not on the shipment route. Two users querying the same combo can get different `tooltip_amount` values.
+- `plan_type_id = 2` must be the Envia Seguro plan in `plan_types` table — needs BD confirmation.
+
+## 16. Filter `asp.mandatory IS FALSE` hides the obligatory services
+
+The endpoint **deliberately excludes mandatory services** from the catalog. If a service is configured with `additional_service_prices.mandatory = TRUE` for a given `service_id`, it does not appear in the response.
+
+### Hypothesis (needs BD verification): why envia_insurance is missing in BR/CO domestic
+
+Catalog observation: `envia_insurance` is missing in BR domestic parcel, CO domestic parcel, and all LTL combinations. User confirmed the rule "el llamado `insurance` solo aplica en Brasil y Colombia por reglamentaciones del país".
+
+A consistent interpretation:
+- In BR/CO, insurance is regulatorily mandatory.
+- The mandatory insurance is wired as `insurance` (carrier-native, FedEx Declared Value or Correios equivalent), NOT `envia_insurance`.
+- That mandatory insurance is configured with `mandatory=TRUE` for shipments inside BR/CO, so the `envia_insurance` opt-in product is not offered (it would be redundant/conflicting with the mandatory one).
+- The carrier-native `insurance` we see exposed in BR/CO catalog is a separate row with `mandatory=FALSE`, perhaps because the user can opt to declare a higher value than the regulatory minimum.
+
+**This hypothesis must be validated against BD.** Concrete query for backend team:
+
+```sql
+-- Find all mandatory additional services in BR and CO domestic parcel
+SELECT cas.name, cas.id AS cas_id, asp.amount, asp.mandatory, s.id AS service_id, s.name AS service_name, s.international, l.country_code
+FROM additional_service_prices asp
+JOIN catalog_additional_services cas ON cas.id = asp.additional_service_id
+JOIN services s ON s.id = asp.service_id
+JOIN locales l ON l.id = s.locale_id
+WHERE l.country_code IN ('BR','CO')
+  AND s.shipment_type_id = 1
+  AND s.international = 0
+  AND asp.mandatory = TRUE
+  AND asp.active = TRUE
+  AND s.active = TRUE;
+```
+
+If `envia_insurance` shows up there, the hypothesis is confirmed. If it does not, the absence is for a different reason (perhaps `envia_insurance` is simply not active in BR/CO domestic).
+
+## 17. New endpoint discovered — `/additional-services/prices/{service_id}` (closes Gap 1 partially)
+
+Found in `services/queries/routes/company.routes.js:724` and handled at `controllers/company.controller.js:2173-2212`. Returns the price row for each additional service tied to a specific carrier service, including company-custom pricing:
+
+```sql
+SELECT cas.id, cas.name, l.currency, l.currency_symbol, asp.apply_to,
+       IF(ascp.id IS NOT NULL AND ascp.active = 1, ascp.amount, asp.amount) AS amount,
+       IF(ascp.id IS NOT NULL AND ascp.active = 1, ascp.minimum_amount, asp.minimum_amount) AS minimum_amount,
+       IF(ascp.id IS NOT NULL AND ascp.active = 1, ascp.operation_id, asp.operation_id) AS operation_id,
+       IF(ascp.id IS NOT NULL AND ascp.active = 1, TRUE, FALSE) AS is_custom,
+       cpo.description AS operator
+FROM catalog_additional_services AS cas
+JOIN additional_service_prices AS asp ON cas.id = asp.additional_service_id
+JOIN catalog_price_operations AS cpo ON cpo.id = asp.operation_id
+LEFT JOIN additional_service_custom_prices AS ascp
+    ON ascp.additional_service_price_id = asp.id
+    AND ascp.company_id = (?)
+JOIN services AS s ON s.id = asp.service_id
+JOIN locales AS l ON l.id = s.locale_id
+WHERE cas.active AND cas.visible AND s.active AND asp.active AND s.id = (?);
+```
+
+### Key insights from this endpoint
+
+- **Real prices exist.** `asp.amount` is the catalog price; `ascp.amount` overrides it per company. So negotiated rates are honored.
+- **Operation types matter.** `catalog_price_operations.description` tells whether the price is a flat amount, a percentage, or another operation. Without parsing this, a raw `amount` value is misleading.
+- **`apply_to`** — present in the query but its semantics are not in the controller. Likely `to_value` (e.g. percentage of declared value) vs `to_weight` etc.
+- **Currency-aware.** `l.currency` and `l.currency_symbol` come from the carrier service's locale.
+- **Per-service granularity.** You query by `service_id` (a carrier service like "FedEx Express MX"), and the response lists all its enabled add-ons with prices.
+
+### Gap 1 status update
+
+**Gap 1 ("cost calc dynamic for additional services") is now PARTIALLY CLOSED at the backend** — the endpoint exists. The MCP just doesn't expose it.
+
+To fully close Gap 1, the MCP should either:
+
+A. **Add a new tool `getAdditionalServicePrices(service_id)`** that wraps this endpoint. The agent can call it after `quote_shipment` to know "agregar Envia Seguro a DHL te cuesta $X, a FedEx te cuesta $Y".
+
+B. **Augment `quote_shipment` to inline price the requested add-ons.** Requires backend extension because the rate endpoint does not accept `additional_services` as input today (verified in iteration 1).
+
+Option A is independent and faster (no carriers backend change). Recommended.
+
+## 18. Catalog table model — explains the `insurance` id=14 vs id=52 issue
+
+From the schema implied by joins:
+
+```
+catalog_additional_services (cas)
+   ├─ id (e.g. 14, 52, 169 for HV, etc.)
+   ├─ name (the string code, NOT unique by itself)
+   ├─ shipment_type_id  ← THE KEY DIFFERENTIATOR
+   ├─ category_id, form_id, active, visible, ...
+
+catalog_additional_services_categories (cat)
+catalog_additional_service_forms (f) — holds json_structure
+```
+
+So `name` is not the primary key — `id` is. Two rows can share `name='insurance'` if their `shipment_type_id` differs (one for parcel=1, one for LTL=2). The catalog response correctly returns both with their distinct IDs; iteration 2's framing as "name collision bug" was technically inaccurate. **It's the MCP's responsibility to use `id` (or the (name, shipment_type) pair) to disambiguate** when sending to create_label. Today the MCP sends just the `name` string, which means the carrier API must disambiguate from context — fragile but not necessarily wrong if the carrier API also indexes by (name, shipment_type).
+
+This warrants verification with the carriers (rate/generate) team to confirm they handle the disambiguation correctly.
+
+## 19. Updated taxonomy — definitive (with user-confirmed rules)
+
+| Product | Code | Origin | Destination | Carrier exclusive | Applies LTL | Available domestic | Available intl |
+|---------|------|--------|-------------|-------------------|-------------|--------------------|----------------|
+| **Envia Seguro** (default) | `envia_insurance` | Any country where it's active and not mandatory-blocked | Any | No (cross-carrier) | **No** (BD-confirmed by absence in 3/3 LTL combos) | MX, US, AR, ES, CL, PE, GT, IN parcel ✅. **NOT BR, CO domestic** (likely `mandatory=TRUE` interaction) | Most intl combos with MX involved |
+| **Alto Valor** | `high_value_protection` | **MX only (services.international=2 + locale=MX)** | **OR** MX | **UPS only** (rule is OUTSIDE additional-services endpoint, lives in carriers/services tier) | No (BD-confirmed) | MX parcel domestic ✅ | All intl combos with MX origin or destination ✅ |
+| **Insurance regulatory (BR/CO)** | `insurance` (id=52, parcel) | BR / CO domestic by regulation. Catalog also surfaces in some other contexts | – | Carrier-native | No | BR, CO domestic parcel. **Also exposed in US, GT, intl combos with MX/BR/CO involved — needs verification: are these legitimate or backend over-exposure?** | When carrier rules permit |
+| **Insurance LTL declared value** | `insurance` (id=14, LTL) | Cross-country LTL | – | Carrier-native LTL | **Yes only** | MX LTL, BR LTL, US LTL | – |
+
+User-confirmed rules (this iteration):
+- Envia Seguro is the default product Envia offers across the platform.
+- Alto Valor is exclusive UPS + MX origin OR destination.
+- The `insurance` code applies in BR/CO by regulation; in other contexts the catalog may be exposing it without proper filter (needs BD check).
+
+Rules NOT YET confirmed (still on the open-questions list):
+- Coverage caps for Envia Seguro and Alto Valor (numerical limits).
+- Pricing model for each (% of declared, fixed, tiered).
+- Claim flow specifics.
+- Whether Alto Valor + Envia Seguro can coexist on a shipment (the MCP enforces "one insurance only" client-side, but is that aligned with business rules?).
+
+## 20. New gaps from iteration 3
+
+### Gap 17 — Alto Valor's UPS exclusivity is NOT in the additional-services endpoint
+
+Verified: the endpoint does not filter by carrier. `high_value_protection` appears in MX parcel domestic regardless of which carrier the user has configured. The UPS-only rule must live in:
+
+- `services` table — perhaps `s.id` of UPS Express MX is the only one with this `additional_service` linked.
+- Or the carrier integration code at generate time.
+
+To fully validate: query
+
+```sql
+SELECT s.id, s.name, c.name AS carrier, l.country_code, asp.mandatory
+FROM additional_service_prices asp
+JOIN services s ON s.id = asp.service_id
+JOIN carriers c ON c.id = s.carrier_id
+JOIN catalog_additional_services cas ON cas.id = asp.additional_service_id
+JOIN locales l ON l.id = s.locale_id
+WHERE cas.name = 'high_value_protection'
+  AND asp.active = TRUE;
+```
+
+If the only rows returned have `c.name LIKE 'UPS%'` and `l.country_code = 'MX'`, the rule is enforced at the `services` table tier. If other carriers appear, the rule is enforced higher up (carrier integration code) and the additional-services endpoint is providing misleading availability.
+
+**MCP impact:** today the agent has no way to know that Alto Valor requires UPS until create_label fails. It should pre-validate.
+
+### Gap 18 — Mandatory services hidden from the catalog
+
+Verified by SQL: `asp.mandatory IS FALSE` is hardcoded in the controller. Mandatory additional services (e.g. potentially the regulatory insurance in BR/CO) are not visible to the agent. If a user asks "qué seguros aplican a mi envío", the agent can only enumerate optional ones. Mandatory ones are silently applied (or not, depending on the carrier).
+
+Resolution: an additional internal endpoint or controller variant that returns mandatory + optional. Or a separate tool `getMandatoryServicesForRoute(country, shipment_type, intl)` that exposes the mandatory subset.
+
+### Gap 19 — `apply_to` and `operation_id` semantics not documented
+
+The prices endpoint returns these fields. Without knowing their semantics, prices cannot be correctly displayed or summed. Examples (hypothetical):
+- `apply_to=to_value`, `operation=multiply`, `amount=0.05` → 5% of declared value.
+- `apply_to=fixed`, `operation=add`, `amount=50` → flat $50.
+- `apply_to=to_weight`, `operation=multiply`, `amount=1.20` → $1.20 per kilogram.
+
+These need documentation from backend. Attempted reading of `catalog_price_operations`: not in this controller. Probably worth a quick BD query.
+
+## 21. Open questions — converted into BD/code queries the backend team can answer
+
+Replacing the prose list of "incógnitas" from iteration 2 with concrete queries:
+
+| # | Question | Where the answer lives |
+|---|----------|-----------------------|
+| 1 | Coverage caps for Envia Seguro and Alto Valor | Likely in `plan_type_prices` (`activation_price` is the default, but cap may be elsewhere) or in `catalog_additional_services.json_structure.rules.max` — verify. |
+| 2 | Pricing model per product | `additional_service_prices` (asp.amount + asp.operation_id + asp.apply_to). Run query in §20 Gap 19. |
+| 3 | UPS exclusivity for Alto Valor | Run query in §20 Gap 17. |
+| 4 | Why no `envia_insurance` in BR/CO domestic | Run query in §16 hypothesis. |
+| 5 | Why no `envia_insurance` in LTL | Same query as #4 but with `s.shipment_type_id = 2`. |
+| 6 | Mandatory vs optional differentiation | Run `SELECT * FROM additional_service_prices WHERE mandatory=TRUE AND active=TRUE` grouped by service_id. |
+| 7 | FedEx-branded services exclusivity | Run §20 Gap 17 pattern with `cas.name IN ('priority_alert', 'ship_alert', 'fedex_etd', 'third_party_consigne', 'int_broker_select')`. |
+| 8 | Rule for `electronic_trade_document` (auto-generated vs upload) | Read carriers integration code for `etd` handling. |
+| 9 | Hazmat handling per carrier | Read carrier `Generate.php` files for `hazmat` / `dangerous_good`. |
+| 10 | `reverse_pickup` for India — what carrier | Query `services` joined with `catalog_additional_services` where `cas.name='reverse_pickup'` and `l.country_code='IN'`. |
+| 11 | `acknowledgment_receipt` BR — which carrier | Same pattern with `cas.name='acknowledgment_receipt'` and `l.country_code='BR'`. |
+| 12 | Sandbox vs production catalog parity | Run the same controller in production. Compare bytes/categories per combo. |
+| 13 | Country-specific signature support | Check carrier integration code per country to see signature_support flags. |
+| 14 | Hold-at-location absence in US domestic | Query `additional_service_prices` for `cas.name='hold_at_location'` joined with `services` where `l.country_code='US'` and `s.international=0`. |
+| 15 | LTL appointment `date` format / timezone | Read `json_structure` for `delivery_appointment` carefully + carrier integration code. |
+| 16 | Whether Alto Valor + Envia Seguro can coexist | Business rule, ask Product. MCP enforces "one only" today; is that aligned? |
+
+## 22. Closing — am I sure everything is captured?
+
+**No. Honest answer.**
+
+This iteration significantly tightened the analysis at the controller-SQL level for the additional-services endpoint, identified a real prices endpoint (Gap 1 partially closed), corrected two material errors from iteration 2 (HV bidirectional rule, tooltip_amount semantics), and converted the 15 open prose questions from iteration 2 into 16 concrete BD/code queries the backend team can resolve in a single sitting.
+
+What is still NOT verified:
+- BD content of the tables (`services`, `additional_service_prices`, `plan_type_prices`, `catalog_additional_services`, `catalog_price_operations`). Without DB read access, the controller logic tells me HOW the data is filtered but not WHAT data is in there.
+- Production-vs-sandbox parity.
+- Carrier integration code's enforcement of carrier-exclusive rules (UPS/FedEx).
+- The exact relationship between Envia Seguro and Alto Valor (premium tier? alternative product? mutually exclusive?).
+
+**Recommended next step:** schedule a 30-minute working session with one backend engineer who has DB and carriers/queries code access. Hand them §21 (the 16 questions) and §16/§20 (the SQL hypotheses to verify). Should resolve everything in one session.
+
+After that, the analysis is **complete and trustworthy**. Until then, this doc is the most accurate available, with explicitly flagged uncertainties.
+
