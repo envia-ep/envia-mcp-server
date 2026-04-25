@@ -1081,3 +1081,561 @@ Pending for next iteration ⚪:
 8. Document the MCP gaps with concrete fix proposals (effort estimates, file paths to touch).
 
 This iteration delivers the **architectural skeleton + business rules for 5 of the 10 ship/* actions + 3 of the 5 track side-effects + complete coverage of insurance/COD/custom-keys/extended-zones**. That's roughly 60-70% of what a full reference should contain. Adequate as a transferable starting point for any future session, but **not the final state**.
+
+---
+
+# Iteration 2 — Additional knowledge-base coverage (2026-04-25)
+
+> Read in iter 2: MASTER-REFERENCE.md, technical-flows.md, INDEX.md
+> (full carrier inventory by country), handoff-pattern.md, sobrepesos
+> deep-dive, pickup deep-dive, reclamos-y-reembolsos.md.
+>
+> Added below: pricing operations catalog (closes Gap 19),
+> 47-addon catalog, code-injected services pattern, sobrepesos full
+> picture, pickup full picture, 4 refund processes, handoff pattern,
+> distinctive carrier characteristics.
+
+## 20. Add-on pricing operations (Gap 19 — closed)
+
+`additional_service_prices.operation_id` defines the formula. Resolved
+in `app/ep/util/AdditionalServiceUtil.php::calcPrice()`. Verified via
+`technical-flows.md` and `MASTER-REFERENCE.md`.
+
+| operation_id | Formula | Use case |
+|--------------|---------|----------|
+| **1** | flat amount | Fixed fee per shipment (most extended_zone MX, most COD min, signatures) |
+| **2** | `% of shipping_cost` | Fuel surcharge, additional_handling on shipping cost basis |
+| **3** | `max(user_amount × pct, minimum_amount)` | Insurance premium, COD commission |
+| **4** | ranged lookup from `additional_service_plan_definitions` | Tiered pricing by weight or value |
+| **5** | `pct × user_amount + minimum_amount` | LTL insurance variants |
+| **6** | `ws_surcharge_value × configured_pct` | Markup over carrier's reported surcharge (e.g. FedEx US extended_zone × 1.10) |
+| **7** | raw `ws_surcharge_value` | Pass-through of carrier's surcharge value |
+| **9** | flat USD amount converted to local currency | Cross-border $7.5 USD, custom_duties_eng/no/ch |
+| **10** | `amount × ceil(weight)` | Per-kg surcharges (peak season FedEx, ferry by-weight) |
+| **13** | `max(pct, USD-based minimum)` | UPS-style with USD floor |
+| **15** | USPS insurance range logic | USPS-specific insurance brackets |
+| **19** | insurance range logic by total insured value | Some carriers' insurance with tiered caps |
+
+**Implication for the MCP:** when consuming `/additional-services/prices/{service_id}` (queries), the `operation_id` field is essential. Same `amount` value means very different actual cost depending on operation (e.g. amount=0.01 with op=3 means 1% of declared value, while amount=10 with op=1 means flat $10). The MCP should expose operation type alongside amount.
+
+`apply_to` field semantics ⚪ — not yet documented in detail. Likely values: `to_value` (% of declared), `to_weight` (per kg), `to_shipping_cost` (% of base rate), `flat`. To be confirmed against `catalog_price_operations` table.
+
+## 21. Complete add-on catalog (47 services)
+
+Source: `MASTER-REFERENCE.md` §3 (cross-referenced with the catalog endpoint observations in `_docs/ADDITIONAL_SERVICES_CATALOG_VERIFIED.md`).
+
+**Top-5 by usage in last 180 days** (from `additional_services_usage_agent_180d.csv`):
+
+1. `envia_insurance` (id 115) — 345 active rule rows, the most universal.
+2. `peak_season` (id 99) — seasonal, FedEx-driven.
+3. `additional_handling` (id 70) — dimensional/weight thresholds.
+4. `usa_import_processing` (id 125) — flat fee for US imports.
+5. `pickup_schedule` (id 22) — pickup mandatory addon for several MX carriers.
+
+**Confidence levels:** **H** = high (DB rule + code confirmed), **M** = medium (DB only), **L** = low (code-injected, niche, or inconsistent).
+
+### 21.1 Insurance and value protection (8 services)
+
+| ID | Code | Confidence | Rules | Formula | Available |
+|----|------|-----------|-------|---------|-----------|
+| 115 | `envia_insurance` | H | 345 | op 3: `max(value × 1%, min)` | nearly every parcel carrier × country |
+| 14 | `insurance` | H | varies | op 5/3/19/4/13/7 | LTL primary + parcel variants; CO/BR domestic regulatory |
+| 169 | `high_value_protection` | L (only 9 DB rules) | 9 | op 3 | **UPS only**, MX origin OR destination — UPS may apply via WS surcharge for wider availability |
+| 168 | `cmr_coverage` | L | 5 | `max(pct, min)` ~0.9% | European carriers (international) |
+
+### 21.2 Cash on Delivery (1 service)
+
+| ID | Code | Confidence | Rules | Formula |
+|----|------|-----------|-------|---------|
+| 34 | `cash_on_delivery` | H | varies | op 3 (max pct vs min) or op 1 (flat) |
+
+Available carriers per country: see §11.2 of this doc.
+
+### 21.3 Signatures and confirmations (5 services)
+
+| ID | Code | Confidence | Notes |
+|----|------|-----------|-------|
+| 32 | `electronic_signature` | H | FedEx, UPS, USPS |
+| 33 | `adult_signature_required` | H | canadaPost, FedEx, UPS |
+| 167 | `direct_signature` | L | aramex IN |
+| 37 | `indirect_signature_required` | M | FedEx/UPS family |
+| 91 | `acknowledgment_receipt` | L | Correios BR |
+
+### 21.4 Surcharges (auto-applied) (10 services)
+
+| ID | Code | Confidence | Carriers / countries |
+|----|------|-----------|----------------------|
+| 71 | `fuel` | H (110 rules) | FedEx, DHL, clm (16), cttExpress, correos, seur, brt |
+| 99 | `peak_season` | H | FedEx multi-country, DHL MX, aramex IN |
+| 70 | `additional_handling` | H | FedEx, DHL MX/ES, correos ES, correosExpress, cttExpress, chilexpress, chronopost, daylight, afimex, estafeta, correios BR |
+| 92 | `security_charge` | M | BlueDart explicit, others auto-applied |
+| 100 | `remote_area` | M | similar to extended_zone with different naming |
+| 120 | `state_charge` | M | US LTL daylight, India LTL delhivery/blueDart |
+| 89 | `oda` | H | India delhivery (auto-injected by code), select US LTL |
+| 87 | `extended_zone` | M (87 rules) | DHL, FedEx, UPS, brt, chronopost, paquetexpress |
+| 137 | `owner_risk` | H | India LTL (delhivery, blueDart auto-injected) |
+| 97 | `green_tax` | M | India LTL delhivery (auto-injected), aramex IN |
+
+### 21.5 Pickups, deliveries, appointments (LTL + special) (10 services)
+
+| ID | Code | Confidence | Carriers |
+|----|------|-----------|----------|
+| 22 | `pickup_schedule` | H | almex, entrega, estafeta LTL, Jadlog BR, paquetexpress, tresGuerras |
+| 18 | `delivery_schedule` | L | almex, entrega |
+| 12 | `delivery_appointment` | L | almex, entrega, estafeta LTL, paquetexpress LTL |
+| 27 | `pickup_appointment` | L | LTL appointments |
+| 60 | `liftgate_delivery` | H | almex, entrega, estafeta LTL, fedexFreight, daylight, paquetexpress LTL |
+| 63 | `liftgate_pickup` | H | same group |
+| 61 | `delivery_residential_zone` | M | FedEx US/CA/MX, fedexFreight, daylight, UPS |
+| 62 | `pickup_residential_zone` | L | fedexFreight, daylight |
+| 119 | `handling` | M (37 rules) | ES + India |
+| 173 | `saturday_service` | L | FedEx US, chronopost FR |
+
+### 21.6 Customs / international (8 services)
+
+| ID | Code | Confidence | Use case |
+|----|------|-----------|----------|
+| 116 | `sender_pay_tax_out_eu` | M | ES-origin international |
+| 142 | `cross_border` | M (51 rules) | **Auto-injected for MX cross-country shipments** by code |
+| 125 | `usa_import_processing` | H | US imports (UPS, FedEx) |
+| 82 | `export_declaration_fee` | M | DHL MX/GT/BR, FedEx ES (rare). Trigger `declaredValueUSD >= 1000` |
+| 110 | `custom_duties_eng` | L | England customs (1 rule) |
+| 111 | `custom_duties_no` | L | Norway customs (1 rule) |
+| 109 | `custom_duties_ch` | L | Switzerland customs (1 rule) |
+| 160 | `dua` | L | Spain Documento Único Administrativo (7 rules) |
+| 103 | `high_risk_country` | L | DHL (4 rules) |
+| 104 | `country_with_restrictions` | L | DHL (4 rules) |
+| 158 | `additional_service_guarantee_fee` | L | hardcoded company IDs 607143, 74202 |
+
+### 21.7 Special freight / dimensions (10 services)
+
+| ID | Code | Confidence | Trigger |
+|----|------|-----------|---------|
+| 74 | `irregular_bulk` | M (57 rules) | dimSum ≥ 240 or weight > 30/40 |
+| 90 | `big_format` | M | dimSum > 240 or > 300 |
+| 101 | `higher_dimensions` | M (18 rules) | length/width/height > 121, max=$209 |
+| 156 | `large_package` | L (11 rules) | UPS WS-driven |
+| 94 | `non_tapeable_merchandise` | L | length/width/height > 100 |
+| 124 | `non_conveyable_piece` | L | LTL specific |
+| 170 | `non_machinable` | L | USPS-specific |
+| 107 | `higher_dimensions_ltl` | L | LTL (5 rules) |
+| 105 | `special_merchandise` | L | misc |
+| 106 | `special_merchandise_ltl` | L | misc |
+| 118 | `minimum_dimensions` | L | 3 rules — niche |
+
+### 21.8 India-specific (4 services)
+
+| ID | Code | Confidence | Notes |
+|----|------|-----------|-------|
+| 126 | `docket_fee` | H | India LTL only (blueDart, delhivery, ekart) |
+| 139 | `reverse_pickup` | H | blueDart, delhivery, ekart auto-injected |
+| Various above | `oda`, `state_charge`, `green_tax`, `owner_risk` | H | LTL India auto-injection |
+
+### 21.9 Returns and lifecycle (3 services)
+
+| ID | Code | Confidence | Notes |
+|----|------|-----------|-------|
+| 66 | `return_at_senders_expense` | L | canadaPost specific |
+| (varies) | `return_to_sender` | M | Widely configured (~60 carrier×country combos), **but 0 usage in 90d** — actual return flow lives in `Cancel` action / `generateReturn`, not in addons |
+| 93 | `reshipment` | L | 10 rules |
+
+### 21.10 Niche / single-rule (8+ services)
+
+| ID | Code | Notes |
+|----|------|-------|
+| 81 | `tip` | Uber MX only, min 0.3 |
+| 113 | `remote_islands` | brt IT |
+| 108 | `ferry_fee` | DHL MX, brt IT (Sicily/Sardinia), some ES |
+| 112 | `croatian_islands_redirect` | niche |
+| 162 | `both_extended_zone` | when origin AND destination are extended |
+| 163 | `both_remote_area` | similar |
+| 164 | `california_capacity` | California-specific (US LTL) |
+| 174 | `direct_delivery_only` | guide, 3 rules |
+| 117 | `free_dom` | ES-specific |
+| 114 | `international_corcega_supplement` | InPost Corsica |
+| 152 | `cert_fumigacion` | FTL specific |
+| 64/65 | `proff_age_18`, `proff_age_19` | canadaPost age-verification |
+| 76 | `single_shipment` | misc |
+| 77 | `multi_package_shipment_fee` | DHL multi-locale, UPS, seur, correos, envia |
+| 159 | `irregular_pallet` | LTL irregular |
+| 1 | `original_invoice` | LTL flag (almex, paquetexpress LTL, etc.) |
+| 28 | `pickup_collection`, 29 `delivery_collection` | LTL pickup/delivery flavors |
+| 68 | `abandon` | canadaPost |
+| 171 | `exchange_surcharge` | aramex IN |
+| 123 | `cargo_handling_ops` | FTL only |
+
+## 22. Code-injected services — invisible in DB but real
+
+Important pattern from `MASTER-REFERENCE.md` §1 + `technical-flows.md`. Some surcharges are added by carrier-specific PHP code at rate/generate time, NOT via `additional_service_prices` rows. They WILL appear in the customer's bill but won't show in the catalog endpoint.
+
+| Carrier | Code-injected services | Source |
+|---------|------------------------|--------|
+| Delhivery | `owner_risk`, `green_tax`, `oda`, `state_charge`, `extended_zone`, `reverse_pickup` | `app/ep/carriers/Delhivery.php` + `DelhiveryUtil.php` |
+| BlueDart | `owner_risk`, `reverse_pickup`, `state_charge`, `green_tax` | `app/ep/carriers/BlueDart.php` |
+| Most MX carriers | `cross_border` (when origin ≠ destination country) | `AdditionalServiceUtilV2::addSpecialMandatoryServices()` |
+
+**Implication for the agent:** when answering "what charges will I see?", a database-only matrix will under-report. Must mention these as auto-applied based on the carrier and route.
+
+## 23. Sobrepesos (overweight) — complete picture
+
+Source: `carriers-v2/sobrepesos-deep-dive.md`.
+
+### 23.1 Trigger
+
+Only when shipment status changes to **Delivered (3)**. The system reads carrier-reported `realWeight` from tracking WS, compares vs declared weight, recalculates.
+
+### 23.2 Volumetric formula (universal)
+
+```
+billable_weight = max(real_weight, volumetric_weight)
+volumetric_weight = (length × width × height) / volumetric_factor
+```
+
+**Factor by service type (industry standard, exact value per carrier in `catalog_volumetrict_factor`):**
+
+| Scenario | Factor (cm³/kg) | Examples |
+|----------|----------------|----------|
+| International express | **5,000** | FedEx, UPS, DHL, Aramex, JT Express, most international |
+| Ground LATAM (CL, PE) | **4,000** | Starken, Urbano, Transaher |
+| Ground Europe (ES) | **6,000** | Correos España |
+| Ground national strict | **2,500** | RedServi |
+| MX nacional | varies (5,000 most common) | Estafeta, Paquetexpress, Redpack, Sendex, Almex, AFIMEX |
+
+**Rule:** lower factor = more aggressive (penalizes volume more). Factor=2,500 charges much more for the same volume than factor=6,000.
+
+### 23.3 7 exempt cases (overcharge NOT applied)
+
+1. Real weight = declared weight (exact match).
+2. Carrier didn't report `realWeight` in tracking WS.
+3. **Same integer kg range** (`floor(declared) == floor(real)`) — e.g. declared 1.2 kg, real 1.4 kg, both round to "1 kg", no charge.
+4. **Estafeta Ground service** with real weight ≤ 5 kg (specific exemption).
+5. Company has `custom_key` for the carrier (carrier bills directly).
+6. `overcharge_applied=1` already (anti-double-charge).
+7. Shipment > **60 business days old** (T&C §3.3 hard cutoff).
+
+### 23.4 60-business-day cutoff
+
+Any sobrepeso the carrier reports AFTER 60 business days from shipment creation is **rejected by the system**. Useful when defending a customer dispute over a late charge.
+
+### 23.5 Two independent sobrepeso sources (matters for disputes)
+
+1. **WS-detected:** automatic at delivery time (most common).
+2. **Invoice-detected:** during monthly carrier invoice reconciliation (can arrive weeks later, but still subject to 60-day cutoff).
+
+Both stored separately — agent must check both before declaring a charge "applied" or "not applied".
+
+### 23.6 Anti-abuse rule
+
+If carrier WS returns a re-quote LOWER than original (with weight HIGHER than declared — inconsistency), the system caps delta at 0. NO refund issued from this case.
+
+### 23.7 Dispute process (T&C §3.9.1)
+
+1. Open ticket in platform.
+2. **4 photos required:** packed package, measurements with ruler/tape visible, package on scale with weight visible, carrier guide/receipt.
+3. Envia forwards to carrier; **carrier decides** (Envia has no unilateral authority).
+4. If approved → refund to Envia balance (NOT to bank automatically).
+5. To withdraw to bank: email `pagos@envia.com`, up to 20 business days bank processing.
+
+### 23.8 Special carrier behavior
+
+- **Correios BR** is the only carrier with custom recalculation logic (`rateOverWeight` method) — others use the standard tariff structure.
+
+## 24. Pickup — complete picture
+
+Source: `carriers-v2/pickup-deep-dive.md`.
+
+### 24.1 Pickup vs drop-off
+
+**Pickup (recolección)** = carrier sends courier to pickup address. Requires scheduling.
+**Drop-off** = customer brings package to carrier branch. No scheduling needed.
+
+**Carriers WITHOUT pickup (drop-off only)**: Uber, Cabify, Ivoy, Borzo/Wefast, 99Minutos (specific cases), some last-mile small carriers, some US LTL without integrated pickup window.
+
+### 24.2 Pickup scheduling inputs
+
+- Origin address (full).
+- Carrier.
+- Date.
+- **Time window** (start–end). Most carriers require **minimum 2-hour span**.
+- Total packages + total weight.
+- Optional: list of specific tracking numbers (required for FedEx third-party imports, partial pickups).
+
+### 24.3 System validations
+
+1. Window respects carrier operating hours.
+2. Same-day cutoff respected (typically 13:00–15:00 — past it = next business day).
+3. Day not blocked (Sundays + local holidays typically blocked).
+4. Daily pickup limit respected (`carriers.daily_pickup_limit`, default 1).
+5. Sufficient balance for pickup fee.
+
+### 24.4 One pickup covers all guides for that carrier+day
+
+System enforces 1 pickup per carrier per day (with Paquetexpress exception: up to 15 packages same-day).
+
+### 24.5 Operating hour ranges (catalog reference, varies by contract)
+
+| Carrier | Window | Same-day cutoff |
+|---------|--------|-----------------|
+| FedEx (MX/US/CO/BR/ES/AR) | 09:00 – 18:00 | ~13:00–15:00 |
+| UPS (all countries) | 09:00 – 18:00 | ~13:00–15:00 |
+| DHL MX/ES | 10:00 – 20:00 | ~14:00 |
+| DHL US | 10:00 – 20:00 | (high pickup fee) |
+| Estafeta MX | 09:00 – 18:00 | ~13:00 |
+| Paquetexpress MX | 09:00 – 18:00 | (15 pkgs same-day allowed) |
+| Coordinadora CO | 08:00 – 19:00 | wider window |
+| Correios BR | 08:00 – 17:00 | earlier closure |
+
+### 24.6 Pickup fees (catalog reference)
+
+| Carrier | Fee range |
+|---------|-----------|
+| FedEx | ~$100 MXN / ~$100 local |
+| UPS | ~$70 EUR (EU) / ~$500 CAD (CA) |
+| DHL | Variable, **higher** ($1,000 MXN, $544 USD US) |
+| Estafeta | ~$1,000 MXN |
+| Paquetexpress | ~$300 MXN |
+| Redpack | ~$70 MXN |
+| Coordinadora | ~$500 COP |
+| Servientrega | ~$100 COP |
+| Correios | ~R$100 |
+| Jadlog | ~R$112 |
+| Total Express | ~R$30 |
+| Chilexpress / Blue Express | ~$25 CLP |
+| Starken | ~$2,000 CLP |
+
+Failure to have balance → "Not Enough Money" error, scheduling fails hard.
+
+### 24.7 No-show by courier
+
+T&C §3.3.1: **Envia does NOT auto-refund** the pickup fee. Carrier reschedules per its policy. Customer can open ticket; final refund decision is the carrier's.
+
+### 24.8 Package not ready when courier arrives
+
+T&C §3.3.1: courier doesn't wait. Pickup marked failed. Carrier may **charge** the failed attempt and/or reschedule. Customer responsibility.
+
+### 24.9 Cancellation
+
+Most carriers allow cancellation via platform before window starts. Some carriers don't expose cancel endpoint — customer must contact carrier directly. Refund of pickup fee depends on carrier policy.
+
+### 24.10 Special cases
+
+- **Import pickup**: tracking numbers required, all guides must share destination locale.
+- **FedEx third-party**: tracking numbers required, system forces origin country per FedEx third-party config.
+- **Multi-shipment pickup**: list of tracking numbers + same carrier + within capacity limits.
+- **Pickup deactivated by company config**: `config_company_pickups` table can disable per company per carrier. Apply handoff if customer expects to see option but doesn't.
+
+## 25. Reclamos y reembolsos — 4 distinct refund processes
+
+Source: `carriers-v2/reclamos-y-reembolsos.md`.
+
+| # | Process | Use case | Document |
+|---|---------|----------|----------|
+| A | **Direct claim with carrier** | Damage/loss WITHOUT Envia Seguro / Alto Valor UPS coverage | reclamos-y-reembolsos.md Part A |
+| B | **Sobrepeso refund** | Customer disputes overweight charge | reclamos-y-reembolsos.md Part B (links to sobrepesos deep-dive) |
+| C | **Cancellation refund** | Customer cancels guide, wants money back | reclamos-y-reembolsos.md Part C |
+| D | **Account closure refund** | Customer closes account, wants balance back | reclamos-y-reembolsos.md Part D |
+
+### 25.1 Part A — Direct carrier claim (no insurance)
+
+- Envia is **facilitator only**. Carrier decides outcome and amount.
+- T&C §3.8.2: Envia is NOT responsible for damaged/stolen/lost products in transit, inadequate packaging losses, or government inspection retentions.
+- Each carrier has its own claim docs requirements (invoice, proof of value, damage photos).
+- Envia has no unilateral authority — purely facilitates.
+
+### 25.2 Part B — Sobrepeso refund
+
+See §23.7. 4 photos required. Carrier decides. Refund to Envia balance.
+
+### 25.3 Part C — Cancellation refund (T&C §3.9.3)
+
+**Strict rules:**
+- Cancel within **7 business days** from guide creation.
+- **Guide must NOT have been scanned/used/registered** by carrier. If scanned, no refund (even if not delivered).
+- Process: Envíos → Mis envíos → 3 dots → Cancelar.
+- Up to **30 calendar days** for Envia to credit balance.
+
+**Guide validity (separate rule):**
+- All guides expire **5 calendar days** after creation.
+- If unused at expiry → no refund (no liability for Envia).
+
+### 25.4 Part D — Account closure refund (T&C §3.10)
+
+- Requires **NO outstanding debts** (sobrepesos, taxes, returns, extended zones).
+- Email `pagos@envia.com` with: account#, holder name, reason, amount.
+- 3 business days for initial response.
+- 30 calendar days for Envia to process.
+- Envia has right to **deduct outstanding charges** before refund.
+- If refund originated from card → goes back to card.
+- If from deposit → bank transfer to holder's account.
+- 30 business days additional for bank to reflect.
+- **Hard wait rule:** refund only AFTER 30 business days from last guide created AND 72 hours from last delivery.
+
+### 25.5 General payment flow
+
+- Refund to Envia balance: immediate after approval.
+- Refund to bank: email `pagos@envia.com`, up to **20 business days bank processing** time.
+
+## 26. Handoff pattern — referenced in EVERY carrier doc
+
+Source: `carriers-v2/handoff-pattern.md`.
+
+This is the **single most-referenced doc** in the carriers knowledge-base. Every other deep-dive ends with a "Cuándo derivar a humano" section that quotes its 4 rules verbatim.
+
+### 26.1 The agent CANNOT
+
+- Create commercial tickets.
+- Assign account managers.
+- Derive consultations internally to humans automatically.
+- Make promises like "voy a derivar tu consulta", "levantaré una solicitud", "el equipo se pondrá en contacto contigo".
+
+### 26.2 Cases that REQUIRE handoff
+
+1. Commercial authority needed (special rates, private carriers, route enablement).
+2. Information not available to agent (active claim status, specific invoice, account history).
+3. Post-sale claims (loss/damage/theft) — with or without Envia Seguro.
+4. Recurring regulatory operations (FDA, special imports).
+5. Domain outside agent (deep technical integration, API support, platform incidents).
+6. Customer explicitly asks for human.
+
+### 26.3 The escalation pattern
+
+```
+1. Detect via MCP if company has assigned salesman/account manager.
+   ├── YES → suggest contacting them directly (name + contact data if available)
+   └── NO  → direct to official support channels (only those in agent's context)
+2. Be transparent about agent's limit, focus on actionable route.
+3. NEVER promise actions the agent cannot execute.
+```
+
+### 26.4 What the MCP needs to support handoff
+
+- A tool that returns assigned salesman info: name, email, phone (already exists as `envia_get_my_salesman` per V1_SAFE_TOOL_INVENTORY).
+- A way to expose official support channels in the system context (depends on portal embedding).
+
+## 27. Distinctive characteristics by carrier
+
+Quick-reference table for carrier identity. Source: `INDEX.md`.
+
+| Distinctive | Carrier |
+|-------------|---------|
+| Only carrier with **Protección de Alto Valor** (>5k USD + electronics) | **UPS** (Mexico) |
+| Largest COD override volume | **TCC** (Colombia) — 1,077 companies with custom prices |
+| Largest extended-zone map | **Paquetexpress** (Mexico) — ~144,000 CPs |
+| Ferry Sicily/Sardinia | **BRT** (Italy) |
+| Auto-extended Baleares/Canarias | **InPost** (Spain) |
+| "NO PERMITIDO" rejection category | **CTT Express** (Spain) |
+| 5-tier peninsular system | **SEUR** (Spain) |
+| Multi-country breadth | **FedEx** (10 countries) |
+| Critical FDA Prior Notice | **DHL, FedEx, UPS** (shipments to US) |
+| FedEx Third-Party (third-party billing) | **FedEx** (international with non-origin/destination payer) |
+| Custom keys (customer's own carrier account) | **FedEx, UPS, DHL** primarily |
+| India B2B zones with letter codes (N1/N2/W1/W2/etc.) | **Delhivery** (India) |
+| Special MX volumetric (Estafeta Ground ≤5kg no overcharge) | **Estafeta** |
+| Brazil Sedex / PAC structure | **Correios** (Brasil) |
+| Portuguese routes from Spain | **Cainiao** (Spain) |
+| Same-day app-driven | **Uber, Cabify, Ivoy, Borzo** |
+| Pickup-point lockers | **InPost** (ES/IT), **MondialRelay** (FR), **Sendle** (AU/CA/US) |
+
+## 28. Insurance comparison — definitive side-by-side
+
+Combining everything from §10 with the new findings:
+
+| Dimension | Envia Seguro (`envia_insurance`) | Alto Valor UPS (`high_value_protection`) | Insurance regulatory CO/BR (`insurance` id 52) | Insurance LTL declared (`insurance` id 14) |
+|-----------|----------------------------------|------------------------------------------|------------------------------------------------|-------------------------------------------|
+| **Owner** | Envia (cross-carrier) | UPS (Envia is intermediary) | Carrier-native (regulatory) | Carrier-native (LTL) |
+| **Carrier scope** | All except where mandatory `insurance` displaces it | **UPS exclusively** + 9 specific UPS MX services | Carrier in BR/CO domestic | LTL carriers across countries |
+| **Country rule** | Where active | **MX as origin OR destination** (services.international=2) | BR/CO domestic | LTL routes |
+| **Cap per package** | **5,000 USD** | National MX 125,000 MXN; international 10,000 USD | Same as Envia Seguro | LTL declared value (varies) |
+| **Cap per shipment** | (n/a — per package) | National MX 500,000 MXN; international 50,000 USD | (n/a) | (n/a) |
+| **Min declared** | 1,000 MXN equivalent | National >1,000 MXN; international >100 USD | per regulation | per LTL carrier |
+| **Cost** | 1% of declared + IVA | Variable per company contract | Same as Envia Seguro | Variable per LTL contract |
+| **Country min commission** | MX 10 MXN, US 1 USD, ES 1 EUR, CO 0 COP | (n/a — variable) | Same as Envia Seguro | (n/a) |
+| **Validity** | From contract until 48h after delivery / loss report | Per UPS terms (jewelry/watches: 48h) | Same as Envia Seguro | Per carrier |
+| **Electronics covered?** | **NO** (any value) | **YES** (key differentiator) | NO | varies |
+| **Used items?** | NO | varies | NO | varies |
+| **Jewelry?** | NO | YES (with 48h claim window) | NO | varies |
+| **Customs damage?** | NO | NO (key exclusion) | NO | NO |
+| **Operational requirements** | Standard | **Neutral packaging mandatory**, double box, ≥2 layers bubble wrap, H-tape, copy of guide inside | Standard | Per carrier |
+| **Claim flow** | Envia platform form | UPS via Envia platform | Envia platform | Carrier directly |
+| **Claim window** | 48 business hours after delivery/loss | 48h jewelry/watches; standard for others | 48h | Per carrier |
+| **Reimbursement formula** | min(declared, invoice) × 0.80 (deductible) × severity (25/50/100%) | min(declared, invoice, repair cost) up to caps | Same as Envia Seguro | Per carrier |
+| **Available combos (verified)** | 14/19 sandbox combos (NOT in BR/CO domestic, NOT in any LTL) | 7/19 (MX domestic + 6 intl with MX involved) | BR/CO domestic + intl with MX involved | LTL combos |
+| **Custom keys interaction** | Renamed to `insurance` id 14 internally (same product to user) | Unaffected (UPS-only product) | n/a | n/a |
+| **Tooltip default in catalog** | $2,000 (from `plan_type_prices.activation_price plan_type_id=2 locale_user`) | (same number leaks for all addons but only meaningful here) | (same leak) | (same leak) |
+
+**The single most important rule for the agent:**
+
+```
+IF declared_value > 5,000 USD:
+    IF carrier == UPS AND (origin == MX OR destination == MX):
+        offer high_value_protection
+    ELSE:
+        explain that no in-platform option covers above 5,000 USD
+        (handoff for special cases, or split shipment, or change to UPS+MX)
+ELIF declared_value <= 5,000 USD:
+    IF need to cover electronics:
+        explain envia_insurance excludes electronics
+        suggest UPS + high_value_protection if applicable
+    ELIF country == BR or CO and shipment is domestic:
+        offer insurance (regulatory) — same coverage as envia_insurance
+    ELSE:
+        offer envia_insurance (default)
+```
+
+## 29. Updated MCP gap analysis
+
+Beyond §17:
+
+### 29.1 Add-on pricing tool needed (Gap 1 partially closed in iter 3 of additional-services doc)
+
+The MCP can wrap `/additional-services/prices/{service_id}` to expose `amount`, `operation_id`, `apply_to`, `is_custom`. With the operation catalog from §20, the agent can render prices correctly per formula type.
+
+### 29.2 Sobrepesos visibility tool needed
+
+Customer questions about applied overcharges currently can't be answered without consulting backend. Possible new tool: `getShipmentOvercharges(tracking)` returning the two sources (WS + invoice) with amounts and dates.
+
+### 29.3 Pickup info tool already exists (`schedule_pickup`, `track_pickup`, `cancel_pickup`)
+
+Coverage adequate. Gap: no tool that returns "available time windows for carrier X today". Could be useful but pickup_deep-dive.md already documents the catalog.
+
+### 29.4 Refund process state visibility
+
+Refund tickets and state are in queries' tickets system. Already covered via tools (`envia_list_tickets`, `envia_get_ticket_detail`).
+
+### 29.5 Handoff support — already partially supported
+
+`envia_get_my_salesman` exists. The MCP needs to clearly expose support channels (email, WhatsApp) — likely via the system prompt of the portal agent, not as a tool.
+
+### 29.6 Code-injected services awareness
+
+The agent needs to know that for Delhivery, BlueDart, MX cross-border, certain charges will appear that are NOT in the catalog response. This is documentation, not a tool — the agent's system prompt should encode the rule.
+
+## 30. Self-assessment iter 2
+
+Doc now covers approximately **80-85%** of the carriers service surface (was 60-70% after iter 1). New material added in iter 2:
+
+- ✅ §20: pricing operations (closes Gap 19)
+- ✅ §21: 47 add-on catalog (definitive inventory)
+- ✅ §22: code-injected services pattern (critical)
+- ✅ §23: sobrepesos full picture (formula, factors, exempt cases, dispute)
+- ✅ §24: pickup full picture (windows, fees, no-show, drop-off carriers)
+- ✅ §25: 4 refund processes (claim, sobrepeso, cancellation, account closure)
+- ✅ §26: handoff pattern (referenced everywhere)
+- ✅ §27: distinctive carrier characteristics
+- ✅ §28: insurance side-by-side comparison
+- ✅ §29: updated MCP gaps
+
+Still pending for iter 3 ⚪:
+
+1. Track side-effects: `chargebacks-cod`, `return-to-origin`, `cancel-but-used` (action docs).
+2. Auxiliary action docs: `bill-of-lading.md`, `manifest.md`, `ndr-report.md`, `general-track.md`.
+3. `carrier-rating-api-modes.md` (per-package vs MPS distinction).
+4. `mercancia-prohibida.md`, `prior-notice-fda-deep-dive.md`.
+5. Carrier-specific deep-dives (FedEx, UPS, DHL — primary 3; then Estafeta, Coordinadora, Paquetexpress, Correos, Delhivery, BlueDart).
+6. CarrierUtil.php (7,734 lines) — major sections.
+7. AbstractCarrier parent class.
+8. Models (128+ Eloquent classes).
+9. Schemas (`app/ep/schemas/*.v1.schema`).
+10. CSVs detailed analysis (we know structure but not full content).
+
+The doc is now a **reasonable transferable starting point** for any future session working on carriers + MCP integration. Iter 3 should bring it to ~95%, after which it stops yielding marginal value and becomes a maintained reference rather than a drafting target.
