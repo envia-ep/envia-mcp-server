@@ -3889,3 +3889,533 @@ document for any future Claude or human session working on the
 carriers domain. Future iterations should be additive (per-carrier
 appendices, sandbox vs prod, TMS endpoint inventory) rather than
 re-writes.
+
+## 53. Common Scenarios Cookbook
+
+The fastest path from "I'm seeing X" to a fix. Each scenario lists
+symptom → diagnostic steps → likely root causes → resolution. Anchors
+back to the master sections where the supporting reference lives.
+
+### 53.1 Adding a new carrier integration
+
+**Goal:** add carrier `Foo` to the platform.
+
+**Steps (per `ai-specs/specs/carrier-integration.mdc`):**
+
+1. **DB rows first:**
+   - Add row to `carriers` table (locale, currency, pickup window,
+     `allows_mps`, `track_limit`, `carrier_volumetric_factor_id`).
+     See §15.1 for column reference.
+   - Add rows to `services` table for each service offered (with
+     `service_code_internal`, `service_code_carrier`, weight caps,
+     `international` value 0/1/2/3 per §15.2).
+   - Add price rows in `additional_service_prices` if the carrier
+     has add-ons (insurance, COD, surcharges).
+   - Optionally seed `catalog_volumetrict_factor` if the carrier
+     uses a non-standard factor (§51.7).
+
+2. **Three PHP files** (the 3-tier pattern §6):
+   - `app/ep/carriers/Foo.php` — controller. Implement the 7 ICarrier
+     methods (§48.2): `Rate`, `Generate`, `Track`, `Pickup`, `Cancel`,
+     `BillOfLading`, `AdvancedTrack`. Plus `RateRaw` and `TrackRaw`
+     from ICarrierRaw (§48.3). Plus optional `branch`, `manifest`,
+     `nDreport`, `complement` if the carrier supports them.
+   - `app/ep/services/FooApi.php` — API client. SOAP/REST calls only,
+     no business logic. Auth, headers, raw payloads.
+   - `app/ep/carriers/utils/FooUtil.php` — payload formatters,
+     response parsers, carrier-specific validation.
+
+3. **Determine the rate API mode** (§33): which of the 4 patterns
+   does the carrier's rate API use?
+   - Mode 1: 1 pkg per request, all services in response.
+   - Mode 2: 1 pkg + 1 service per request (nested loops).
+   - Mode 3: all packages (MPS) + 1 service per request.
+   - Mode 4: full MPS in 1 request.
+   Wrong mode = 5-10× more API calls or missing services.
+
+4. **Env var convention:** `FOO_<COUNTRY>=key|secret|token` per the
+   `services/carriers/CLAUDE.md` "Environment Variables for Carriers"
+   section. Parsed via `list($key, $secret, $token) = explode("|",
+   env(...))`.
+
+5. **JSON schemas:** if the carrier needs new request fields, extend
+   the existing schemas (rate.v1.schema, generate.v1.schema). Rare —
+   most carriers fit the existing shape (§50).
+
+6. **Tests:** create `tests/Unit/FooTest.php` and `tests/System/{Rate,
+   Generate, Track, Cancel, Pickup}/FooTest.php`. Use
+   `Tests\TestCase` base. Follow CLAUDE.md test conventions (AAA,
+   no control flow, full isolation).
+
+7. **Knowledge-base doc:** add `knowledge-base/carrier-services/carriers-v2/foo.md`
+   with the same template as the Block A docs (§41-46).
+
+**Common pitfalls:**
+
+- Forgetting `ICarrierRaw` methods → V1 endpoints fail (§2.2).
+- Not setting `allows_mps` correctly → MPS responses fail validation.
+- Using volumetric factor 5,000 by default when the carrier
+  contractually uses something else (e.g., 2,500 for some ground
+  carriers) — verify against the carrier's official rate guide.
+- Code-injecting addons (§22) without DB-side rules creates surcharges
+  the catalog endpoint won't surface. Keep code injection ONLY when
+  the carrier itself dynamically returns the surcharge in WS — not
+  for static pricing.
+
+### 53.2 Investigating an unexpected overweight charge
+
+**Symptom:** customer reports a sobrepeso (overweight) charge they
+didn't expect.
+
+**Diagnostic steps:**
+
+1. **Check the shipment's status history** — was it ever Delivered
+   (status 3)? Sobrepeso only triggers on status=3 (§8.1, §23.1).
+2. **Query `shipment_overweight` records** — there should be one or
+   two rows per shipment if charged. Two = WS-detected + invoice-detected
+   (§23.5).
+3. **Check carrier's reported `realWeight` vs declared weight** in
+   the tracking response. If `realWeight ≤ declared`, no sobrepeso.
+4. **Run through the 7 exempt cases** (§23.3): exact match, missing
+   carrier realWeight, same integer kg range, Estafeta Ground ≤5 kg,
+   custom_key, `overcharge_applied=1` already, >60 business days old.
+5. **For Correios specifically:** the charge may use the unique
+   `rateOverWeight()` recalc (§44.7). Mini→PAC auto-downgrade applies
+   at >300 g real weight. Cylinder format adds 20.92 BRL flat.
+
+**Likely root causes:**
+
+- **Real weight different from declared** — most common. Customer
+  measured at home; carrier weighed/measured differently. Process via
+  dispute (§23.7 — 4 photos required, carrier decides).
+- **Volumetric weight applied** — `(L × W × H) / factor` exceeded
+  real weight. Check the carrier's factor (§51.7); some carriers use
+  2,500 (very aggressive) or 4,000.
+- **WS-detected charge AND invoice-detected charge for same shipment**
+  — two rows in `shipment_overweight`. Should not double-charge by
+  design (§23.5) but verify.
+- **Carrier WS returned a re-quote LOWER than original** — system
+  caps delta at 0; no refund issued in that case (§23.6 anti-abuse).
+
+**Resolution:**
+
+- If exempt: dispute via internal flow; should not have charged.
+- If valid: customer owes the difference. Open ticket with
+  4 photos (§23.7) — carrier decides refund.
+- If >60 business days from creation: hard reject — system shouldn't
+  have charged (§23.4).
+
+### 53.3 Rate returning empty / no rates
+
+**Symptom:** `POST /ship/rate` returns empty array or only some
+carriers, missing the expected one.
+
+**Diagnostic steps:**
+
+1. **Confirm the carrier is `active=1` in `services` table** for the
+   given service_id. A disabled service produces zero rates.
+2. **Check coverage:** `geocodes` `/postal-code/{country}/{code}`
+   returns valid? If geocodes is unreachable or returns no row, all
+   coverage-dependent carriers will silently exclude themselves
+   (§16.2).
+3. **Check carrier-side coverage:**
+   - `services.international` value (§15.2): mismatch between request
+     and service scope (e.g., 0=domestic on an international request)
+     excludes the service.
+   - For UPS Alto Valor specifically: requires `services.international=2`
+     AND `country IN ('MX')` for origin or destination (§10.2).
+4. **Check `is_private=1` carriers** (§15.1): only available to
+   companies in `company_private_carriers`. If the requesting
+   company isn't whitelisted, the carrier is excluded.
+5. **Custom keys:** if the company has invalid custom keys
+   (`config_custom_keys` row with bad credentials), the carrier may
+   throw at rate time and be silently dropped. Check Sentry for
+   carrier-specific exceptions.
+6. **Weight/dimension violations:**
+   - `validateMaxWeight` / `validateLimitWeightByService`
+     (`CarrierUtil`) excludes services where weight exceeds caps.
+   - Per-carrier hard limits in §41-46, §36-38.
+7. **Country exclusion:** specific carriers reject specific
+   countries (e.g., Estafeta rejects international with code 1145,
+   §42.9).
+8. **CTT España:** "NO PERMITIDO" classification (§13.4) is a flat
+   rejection — the carrier returns nothing for that destination.
+
+**Tools:**
+
+- Compare a successful rate request with the failing one — diff the
+  origin/destination/packages.
+- Run the same request via `/v1/ship/rate` (raw mode, §2.2) — V1
+  returns raw carrier responses including the carrier's actual error
+  message.
+- Check `log_errors` table for carrier-specific exceptions during
+  rate flow.
+- For coverage-dependent: `tail -f` on geocodes service log.
+
+**Resolution:** identify the excluded carrier(s) and trace which
+filter excluded them. The most common is geocodes coverage failure
+or weight cap violation.
+
+### 53.4 Cancel didn't refund the customer
+
+**Symptom:** customer cancels shipment but balance not restored.
+
+**Diagnostic steps:**
+
+1. **Check `shipment.balance_returned`** — is it 1? If so, refund WAS
+   issued (TMS may have processed; check `payment_history`). The
+   customer should see the balance back; if not, escalate to TMS
+   ops.
+2. **Check `shipment.custom_key`** — if 1, no refund applies (§9.5,
+   §12.6) — the carrier billed the customer directly, Envia has
+   nothing to refund.
+3. **Check `exceedRefundLimit`** — `CarrierUtil::checkRefundLimit`
+   counts cancellations today by company × shipment_type × carrier
+   with `balance_returned=1`. Limits: parcel 5/day, pallet 2/day,
+   truck 5/day (§9.3). Whitelist companies (70279, 456605, 75110,
+   649207) bypass.
+4. **Check `validateRefund` parameter** in the carrier's
+   `fullCancel($data, $validateRefund)` call (§9.6). Some carriers
+   pass `false` → no refund-limit gate, refund always requested.
+   Others pass `true` → gated.
+5. **Was Cancel called by an admin?** Admin always overrides
+   `exceedRefundLimit=false` (§9.4) — refund attempts always.
+
+**Likely root causes:**
+
+- **Custom key shipment** — refund correctly skipped (T&C §9.5).
+- **Refund limit exceeded** — too many cancels today. Wait for next
+  day or use admin override.
+- **Carrier had already used the label** — should be detected via
+  Track (cancel-but-used flow §31.4); no refund. Customer pays.
+- **TMS unreachable during cancel** — `TmsUtil::cancelShipmentRefund`
+  catches exception, logs to Sentry, returns true to continue
+  flow. The intent is to NOT block the cancel (carrier is canceled,
+  fulfillment is canceled, notification sent). Refund is queued
+  for retry.
+
+**Resolution:**
+
+- Verify in `payment_history` whether a refund record exists. If yes,
+  TMS-side issue (escalate). If no, find which gate blocked it.
+- For genuine refund failures: re-trigger via admin override or
+  manual TMS reconciliation.
+
+### 53.5 Customer wants COD but the carrier isn't COD-enabled
+
+**Symptom:** customer asks for COD on a carrier that doesn't expose
+the COD addon in the catalog.
+
+**Diagnostic steps:**
+
+1. **Confirm COD support per country** (§11.2):
+   - **MX:** FedEx **only** via Nacional Económico COD (`ground_cod`).
+     Other FedEx MX services do NOT.
+   - **CO:** Coordinadora Ground + Ecommerce.
+   - **ES:** Correos España, Correos Express, CTT Express, BRT Italy
+     (when ES/IT route).
+   - **BR:** Jadlog (several services). NOT Correios (§44.4).
+   - **CL:** local carriers.
+   - **IN:** Delhivery, BlueDart, Ekart, Amazon India, XpressBees.
+   - **US:** UPS variable per service. FedEx US: NOT enabled in
+     platform.
+   - **GT:** Cargo Expreso.
+2. **Verify `service_cod_enabled_flag` in `services` table** for the
+   target service. If 0, the addon won't appear at rate time.
+3. **Check the `cash_on_delivery` addon row** in
+   `additional_service_prices` for that (carrier, service) pair.
+   Missing row = COD not configured at the price level.
+
+**Likely root causes:**
+
+- **Wrong carrier for the country/route** — switch to a COD-enabled
+  carrier from the table above.
+- **Wrong service within the carrier** — e.g., FedEx MX has 7
+  services, only `ground_cod` supports COD. Customer needs to use
+  that specific service.
+- **Per-company config** — some companies have COD disabled at the
+  account level. Check `config_company_*` tables.
+
+**Resolution:**
+
+- Recommend the correct carrier+service combination.
+- If the customer's preferred carrier truly doesn't support COD,
+  apply handoff (§26) — explain the carrier limitation, suggest
+  alternatives, do not promise to enable.
+
+### 53.6 Generate fails AFTER TMS charge
+
+**Symptom:** Generate threw exception, customer reports balance was
+charged but no shipment was created.
+
+**Diagnostic steps:**
+
+1. **Trace the exception** — `Ship::handleException` (§4.4) catches
+   anything thrown after the carrier's static method ran. If
+   `$e->data` was set (carrier set the chargeId in the exception
+   data), `Ship` calls `Util::rollbackTransaction($tmstkn, $chargeId)`
+   automatically.
+2. **Check `log_errors` table** — should have the exception payload
+   for analysis.
+3. **Check `pending_charges` table** — the original charge should
+   have a `is_rolled_back=1` flag if the rollback succeeded.
+4. **If rollback also failed** — `Util::rollbackTransaction` posts to
+   `/rollback` (§16.1, `Util.php:228`). On TMS error, the charge
+   stays applied. Manual reconciliation needed.
+
+**Likely root causes:**
+
+- **Carrier WS timeout after creating the shipment** — carrier did
+  create label, returned no response, exception thrown. Shipment
+  exists in carrier system but not in Envia DB. **High-severity**:
+  customer charged + carrier billed, no platform record.
+- **Validation failure post-charge** — schema/business logic threw
+  after TMS apply. Rollback usually succeeds; verify
+  `pending_charges`.
+- **Network blip during TMS rollback** — original charge applied,
+  rollback failed. Check Datadog/Sentry for the rollback call
+  status.
+
+**Resolution:**
+
+- If shipment exists in carrier system: manual reconciliation —
+  insert shipment record in Envia DB with the carrier-returned
+  tracking number, link to the existing TMS charge.
+- If rollback failed: manual TMS reversal.
+- Generally: never let Generate proceed if you suspect TMS will
+  fail. Pre-validate via `Util.php:173` (`/check`) before `/apply`
+  if the company's balance is borderline.
+
+### 53.7 Enabling/disabling a carrier for a specific company
+
+**Symptom:** company X should/shouldn't see carrier Y.
+
+**Where this lives in DB:**
+
+- **`company_private_carriers`** — whitelist for `is_private=1`
+  carriers. Add row to grant access.
+- **`config_company_pickups`** — disable pickups for a specific
+  company × carrier combination (§24.10).
+- **`config_custom_keys`** — when present, the company uses its own
+  carrier credentials (§12). Removing the row reverts to Envia's
+  negotiated rates.
+- **`company_overcharges_exceptions`** — bypass the overweight
+  charge for a specific company (§8.1).
+- **Service-level `active=0`** — disables the service for all
+  companies (don't use for company-specific changes).
+
+**Common pattern: enable a private carrier for a company:**
+
+```sql
+INSERT INTO company_private_carriers (company_id, carrier_id, ...)
+VALUES (?, ?, ...);
+```
+
+No code change needed. Effective on the next rate request — no
+caching to invalidate (token cache may need a flush if the company's
+JWT was cached).
+
+**Common pattern: disable pickup for a company × carrier:**
+
+`config_company_pickups` table — add a row with the disabled flag.
+The pickup endpoint will return an error if the company tries to
+schedule.
+
+**Common pattern: emergency disable a carrier (entire platform):**
+
+Set `active=0` on the carrier's service rows in `services`. Rates
+stop including that carrier. Reactivate by setting `active=1`. No
+code deploy needed (per `CLAUDE.md` of the monorepo).
+
+### 53.8 Customer asks why there's an extended_zone charge
+
+**Symptom:** customer received a charge labeled `extended_zone`,
+asks "why".
+
+**Quick diagnostic by carrier (§13):**
+
+| Carrier | Mechanism | What to check |
+|---------|-----------|---------------|
+| Paquetexpress MX | Master CP table (~144k CPs) | Customer's CP in `paquetexpress_extended_zone` table → confirms |
+| FedEx US, UPS | Live carrier WS | The carrier returned a surcharge in the rate response. Pass-through to customer + 10% margin (`operation_id=6`, §20). |
+| FedEx MX | Flat 220 MXN | Origin or destination CP is in MX extended zone master |
+| BRT IT | 2 zones | Extended zone (2,616 CPs) and ferry CPs (109) |
+| CTT España | 5 categories | If customer's CP is in PROVINCIAL or REGIONAL, charge applies. NO PERMITIDO = rejection (§13.4). |
+| SEUR España | 5 tiers + 12,267 ext-zone CPs | Tier-based |
+| Delhivery IN | Auto-injected (§22) | `extended_zone` for B2C, `state_charge` for B2B (B2B in extended zones doesn't get the same line item) |
+| BlueDart IN | Carrier WS | Returned in rate response |
+| InPost España | Auto Baleares/Canarias | Hardcoded — destination CP detection (§13.3) |
+
+**Why customer can't avoid:** §13.6 — extended_zone is **NOT
+optional**. Customer can:
+
+1. Switch carrier.
+2. Change destination to a non-extended nearby CP (e.g., ship to
+   carrier's branch instead of home delivery).
+3. Consolidate shipments.
+
+**Resolution:** explain mechanism + options. If customer disputes
+the classification (e.g., "my CP isn't rural"), open ticket with
+proof — the carrier classification can sometimes be corrected.
+
+### 53.9 Picking the right insurance product
+
+**Symptom:** customer asks "which insurance should I use?"
+
+**Decision tree (definitive — see §28):**
+
+```
+declared_value > 5,000 USD?
+├── YES
+│   ├── carrier=UPS AND (origin=MX OR dest=MX)?
+│   │   ├── YES → high_value_protection (UPS Alto Valor, §10.2)
+│   │   └── NO  → no in-platform option above $5k. Handoff (§26).
+│   │            Or: split shipment, or change to UPS+MX.
+│   └── shipping electronics?
+│       ├── YES (jewelry, electronics) → high_value_protection
+│       │       (only product covering electronics, §10.2)
+│       └── NO → envia_insurance (§10.1)
+│
+└── NO (declared ≤ 5,000 USD)
+    ├── Need to cover electronics?
+    │   ├── YES → envia_insurance EXCLUDES electronics. Use
+    │   │        high_value_protection if UPS+MX is an option.
+    │   └── NO → continue
+    ├── Country=BR or CO domestic?
+    │   ├── YES → insurance (regulatory id 52, §10.3 — UI shows
+    │   │        "Seguro" not "Envía Seguro"). Same coverage as
+    │   │        envia_insurance functionally.
+    │   └── NO → continue
+    └── Default → envia_insurance (cross-carrier, §10.1)
+```
+
+**Cost reference:**
+
+- **envia_insurance:** 1% of declared + IVA. Country-specific
+  minimums (MX 10 MXN, US 1 USD, ES 1 EUR, CO 0 COP).
+- **high_value_protection:** variable per company contract. Caps:
+  national MX 125,000 MXN/pkg, 500,000 MXN/shipment;
+  international 10,000 USD/pkg, 50,000 USD/shipment.
+- **insurance regulatory:** same as envia_insurance functionally
+  for the customer.
+
+**Operational requirements (only Alto Valor):** neutral packaging
+(no logos), double box, ≥2 layers bubble wrap, H-tape, copy of guide
+inside (§10.2). Failure to comply = no coverage.
+
+### 53.10 Track returns no updates / status frozen
+
+**Symptom:** tracking shows old status, no recent events.
+
+**Diagnostic steps:**
+
+1. **Check `carrier_tracking_delay`** (`1_prod_carriers.csv` column)
+   — some carriers have an intentional delay before reporting first
+   movement (§51.1). If delay > current age, no events expected yet.
+2. **Check `track_limit`** (`carriers.track_limit`, default 10) —
+   max tracking numbers per `/ship/track` request (§7.3). If the
+   batch hits the limit, only the first N are tracked.
+3. **Check `services.carrier_ws_timeout_seconds`** — if the carrier
+   WS is slow and the timeout is too low, track silently fails. Log
+   shows partial results.
+4. **Check `shipment_track_history`** — does it have any rows? If
+   the row count = 0 but `created_at` is recent, the carrier hasn't
+   returned anything yet (typical 12-48 h after creation depending
+   on carrier).
+5. **Check `general_track`** — try via `/ship/generaltrack` (public
+   endpoint, §32.1). Same data, no auth, doesn't update DB. If
+   `generaltrack` shows recent events but DB doesn't, internal Track
+   isn't running for this shipment.
+6. **Check Track exemptions:**
+   - Custom key shipments may not appear in cron tracking sweeps.
+   - >60 business days old → tracking may be archived.
+7. **Check CarrierApi response** in Sentry — the carrier WS might
+   be returning HTTP 200 with empty body, or 401, or rate-limited.
+
+**Likely root causes:**
+
+- **Carrier WS issue** — most common for ad-hoc disruptions. Check
+  carrier's status page and Datadog APM for the carrier's endpoints.
+- **Cron job not running** — Track is normally driven by a cron
+  process for batch updates. If the cron stopped, all shipments
+  freeze.
+- **Auth expired** — for token-based carriers (FedEx OAuth, UPS),
+  expired tokens silently fail. Refresh.
+- **Shipment in custom-key flow** — Envia may not be tracking it
+  internally; carrier handles directly.
+
+**Resolution:**
+
+- If carrier WS is the issue: wait for resolution; meanwhile fall
+  back to manual `/ship/generaltrack` for customer queries.
+- If cron stopped: restart cron; force a sweep.
+- If auth: refresh tokens.
+- For per-shipment debugging: call the carrier's `Track` static
+  method manually with the shipment's tracking number to see the
+  raw carrier response.
+
+### 53.11 Adding a new addon to a carrier × country route
+
+**Goal:** enable a new add-on (e.g., `pickup_appointment`) for an
+existing carrier+service combination.
+
+**Three configuration paths depending on use case:**
+
+**A) Standard catalog addon (most common):**
+
+```sql
+INSERT INTO additional_service_prices
+  (carrier_id, service_id, additional_service_id, locale_country_code,
+   apply_to, mandatory, editable, operation_id, amount,
+   minimum_amount, base_amount, base_minimum_amount,
+   tax_percentage_included, include_vat)
+VALUES
+  (..., ..., 27 /* pickup_appointment */, 'MX',
+   'flat', 0, 1, 1 /* flat value */, 350.00,
+   0, 0, 0, 16, 1);
+```
+
+The addon will appear at rate time for all shipments matching the
+carrier+service+country.
+
+**B) Mandatory regulatory addon** (e.g., BR/CO insurance):
+
+Same INSERT but with `mandatory=1`. NOTE per §10.3: real regulatory
+enforcement may also require code changes in the carrier controller
+to inject the addon at rate time even if the customer didn't request
+it.
+
+**C) Code-injected addon** (e.g., Delhivery's auto charges):
+
+If the addon must be applied dynamically based on runtime conditions
+(state, weight, route), code-inject in the carrier's
+`setAdditionalServices()` or equivalent. Pattern:
+
+```php
+if ($condition) {
+    $additionals[] = (object)["service" => "addon_name"];
+}
+$package->appendAdditionalServices($additionals);
+```
+
+See Delhivery.php:2191-2217 for the canonical example. Pair with a
+DB row (operation+amount) so the price can resolve.
+
+**Common pitfalls:**
+
+- **Forgetting `apply_to`** — column 14 of `additional_service_prices`
+  defines whether the formula applies to declared value, weight,
+  shipping cost, or flat. Wrong value = wrong price.
+- **Wrong `operation_id`** — see §20 (19 operations). E.g., op_id=1
+  (Flat) with amount=10 means 10 units; op_id=3 (max flat or
+  percentage) with amount=0.01 means 1% — very different bills.
+- **Setting `mandatory=1` for an addon that should be optional** —
+  customer cannot remove it. Only use for regulatory cases.
+- **Missing carrier WS surcharge code** — for WS-driven addons
+  (§22), update `9_prod_carrier_surcharge_codes.csv` so the carrier's
+  WS response code maps to your addon name.
+
+**Validation:**
+
+After insert, run a Rate request → confirm the addon appears in the
+response → confirm the cost matches expectation.
