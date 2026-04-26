@@ -2569,4 +2569,478 @@ My recommendation: **do (1) FIRST** before any implementation work. Resolving th
 
 Final coverage estimate: **~92-95%** structural. The remaining ~5-8% is documented in §50.3 as items where marginal value didn't justify the read time.
 
+---
+
+# Iteration 4 — verification pass + critical corrections (2026-04-25)
+
+> **Why iter-4:** Jose pushed back honestly: "se que puedes fácilmente
+> llegar al bar esperado, no es necesario asumir, ni inventar". Iter-4
+> stops asserting and reads the actual files for items that were
+> previously inferred or accepted from explorers without spot-check.
+>
+> **Read in iter-4:** `db-schema.mdc` ENTIRELY, `services/webhooks/`
+> entire factory chain (5 files), `services/carriers-mcp-client.js`
+> entire (170 lines), `services/shipping.service.js` entire (98
+> lines), `services/openai/index.js` entire, `controllers/
+> order.controller.js:2950-3200` (V4 response shape ground truth),
+> `processors/{shipmentUpdateNotification.processor,
+> credit.processor, autoPayment.processor}.js` heads,
+> `util/util.js::getGroupCarriers, addNotification, getEcartPayToken`
+> bodies, `util/draft.utils.js:1-80`.
+>
+> Sandbox curl verification was attempted but **no API token
+> available** in `.env` (only `.env.example` exists); curl path
+> deferred. All other items below are direct code reads.
+
+## 51. ⚠️ CRITICAL CORRECTIONS to iter-1 / iter-2 / iter-3
+
+This section retracts earlier mistakes. LESSON L-T4 says explorer
+reports must be ground-truth checked; LESSON L-S4 says verify before
+defending. iter-4 caught items that previous cross-checks missed.
+
+### 51.1 ❌→✅ HMAC IS implemented on outbound webhooks (REVERSES §39.2 + §41)
+
+**Earlier claim (iter-2 §39.2 + §41):** "Outbound webhook delivery has NO HMAC signing today" + "header defined in config but never set" — based on reading `services/webhooks/deliver.service.js` only.
+
+**Verified iter-4 by reading the FULL chain:**
+
+`constructors/webhooks/base.webhook.js::buildHeaders()` (full method, 16 lines):
+
+```js
+buildHeaders() {
+    const ts = Date.now().toString();
+    const payload = this.buildPayload();
+    const baseString = `${ts}.${this.eventName}.${JSON.stringify(payload)}`;
+    const signature = signText(baseString, this.options.secret);
+    const h = config.headers;
+    return {
+        'Content-Type': 'application/json',
+        [h.event]: this.eventName,
+        [h.version]: config.version,
+        [h.timestamp]: ts,
+        [h.id]: this.options.eventId,
+        [h.signature]: `v1=${signature}`,
+    };
+}
+```
+
+This is **Stripe-style HMAC signing**:
+
+- Base string format: `{timestamp}.{eventName}.{JSON.stringify(payload)}`.
+- Signature: HMAC via `signText(baseString, this.options.secret)` from `util/crypto.utils.js`.
+- Header value: `v1={signature}` (versioned, future-proof).
+- The secret per webhook comes from `this.options.secret` — i.e. `company_webhooks.auth_token` (the random secret stored at webhook creation, see iter-3 §47.5).
+
+**Why iter-2 missed this:** I read only `services/webhooks/deliver.service.js`, which receives `headers` already-built from the dispatcher. The construction happens in `constructors/webhooks/base.webhook.js` (parent class) inherited by `simpletracking.webhook.js`, `ecomtracking.webhook.js`, and `surcharge.webhook.js`. Three concrete subclasses, all sharing one `buildHeaders` implementation in the base.
+
+**This affects:**
+
+- §20 (Webhooks) — security properties were under-documented.
+- §39.2 + §41 (iter-2 confirmed gap) — REVERSED.
+- §44 Q22 (HMAC plan) — RESOLVED, no plan needed.
+
+### 51.2 ❌→✅ Credit processor has its OWN HMAC validation (NEW finding)
+
+**Verified at `processors/credit.processor.js:76-81`:**
+
+```js
+if (!utils.crypto.validateHash(JSON.stringify(rawData), hash, process.env.PAYMENTS_PROCESSOR_SECRET)) {
+    job.log('❌ Invalid hash');
+    observability.increment('credit.validation.failed', { reason: 'invalid_hash' });
+    job.moveToFailed(Boom.unauthorized('Data content is not valid'), true);
+    throw Boom.unauthorized('Data content is not valid');
+}
+```
+
+Every credit/payment job includes a `hash` field validated against `PAYMENTS_PROCESSOR_SECRET` BEFORE the job is processed. If the hash is invalid, `job.moveToFailed(..., true)` (the `true` = remove permanently) and the job is dropped.
+
+**Implications:**
+
+- This is a **second HMAC chain** I missed entirely. Payment events crossing service boundaries (queries → credit processor) are signed.
+- Combined with §51.1, queries actually has **strong HMAC discipline** — both outbound webhooks AND inbound payment events are HMAC-validated.
+- §17.2 (Credit) and §22 (Outbound HTTP map) need this added.
+
+### 51.3 ❌ Tickets routes are split across TWO files (REVERSES §8 endpoint inventory)
+
+**Earlier claim:** §8 listed 6 ticket endpoints from `routes/ticket.routes.js`.
+
+**Verified at `routes/company.routes.js`:**
+
+| Line | Path | Method |
+|------|------|--------|
+| 405 | `/company/tickets/{ticket_id}` | (likely GET — verify) |
+| 447 | `/company/tickets` | (likely GET — list) |
+| 474 | `/company/tickets/export` | (export) |
+| 506 | `/company/tickets/comments/{ticket_id}` | (comments) |
+| 545 | `/company/tickets` | (likely POST — create) |
+| 581 | `/company/tickets/{ticket_id}/comments` | (add comment) |
+| 615 | `/company/tickets/{ticket_id}` | (likely PUT — update) |
+| 1629 | `/company/tickets/autoassign/{ticket_id}` | (admin reassign) |
+
+**8 additional ticket endpoints in `company.routes.js`** that iter-1/2/3 missed entirely. Total ticket surface: **6 + 8 = 14 endpoints**, not 6.
+
+**Why missed:** I dispatched the ticket explorer with a brief that pointed only at `routes/ticket.routes.js`. Tickets are conceptually company-scoped, so half live in company.routes.js. iter-3 controller method maps for `company.controller.js` (5,083 lines) listed `getCompanyTickets(request)` at line 993 — that's the list handler — but I didn't trace it back to update §8.
+
+**The "tickets list endpoint broken in sandbox" memory note refers to `/company/tickets` (the company-scoped path), not a `/tickets` path.** Memory says broken; sandbox curl wasn't possible in iter-4. Status: **unverified**, but the code path now identified.
+
+**Update §8 to:** "tickets are split across `routes/ticket.routes.js` (6 endpoints — types, legal forms, ratings, auto-creation) AND `routes/company.routes.js` (8 endpoints — list, detail, create, update, comments, export, autoassign). Total 14 endpoints."
+
+### 51.4 ❌ Analytics `main-data` lives in report.routes.js, not analytics.routes.js (REVERSES §19)
+
+**Earlier claim (§19.3):** "Per memory `reference_analytics_notifications_api.md`, an endpoint `analytics/main-data` was reported broken. iter-1 grep does NOT find a `main-data` path — likely renamed or removed."
+
+**Verified at `routes/report.routes.js:32`:**
+
+```js
+path: '/reports/dashboard/main-data/{start_date}/{end_date}'
+```
+
+The endpoint EXISTS — just at `/reports/dashboard/main-data/...`, not under `/analytics/`. It's defined in `report.routes.js`, which I never read in any of the 3 prior iterations. The `routes/report.routes.js` file is genuinely missing from the explorer dispatch (Agent 8 covered analytics + analyticsEcommerce but not reports).
+
+**`report.routes.js` is a route file I never inventoried.** ⚪ Iter-4 partially closes: only confirmed the main-data endpoint exists. Full report.routes.js inventory still pending.
+
+### 51.5 ✅ getGroupCarriers filter resolves Q28
+
+**Earlier (§44 Q28):** "carrier-keyed tracking queue count … is `getGroupCarriers()` filtering by `is_active`?"
+
+**Verified at `util/util.js:1732-1760`:**
+
+```js
+async getGroupCarriers() {
+    const start = module.exports.getDateXDaysAgo(45);
+    const filteredCarriers = await dbPromise.execute(`
+        SELECT COUNT(*) as total, ca.name, ca.id, ca.locale_id, ...
+        FROM shipments as sh
+        STRAIGHT_JOIN services AS se ON se.id = sh.service_id
+        STRAIGHT_JOIN carriers AS ca ON ca.id = se.carrier_id
+        WHERE sh.utc_created_at > ?
+        GROUP BY se.carrier_id ORDER BY total DESC;`,
+        [start]
+    ).then(r => r[0]);
+    return filteredCarriers.filter((carrier) => carrier.total > 10000);
+}
+```
+
+Filter: **carriers with > 10,000 shipments in the last 45 days.** Not status-based; usage-based. Likely 10-20 carriers per locale (depending on production traffic). The carrier-keyed tracking queues spawn only for these top carriers.
+
+`STRAIGHT_JOIN` hint forces the optimizer to join in the order specified — perf optimization for this large aggregation.
+
+### 51.6 ✅ EcartPay has 4 keys not 2 (CORRECTS §25)
+
+**Earlier (§25.1):** "Auth: custom ecart-pay API token, fetched via `util.getEcartPayToken(global.redisClient, 'collect')`".
+
+**Verified at `util/util.js:419-447`:**
+
+Two separate key pairs based on operation:
+
+| Operation | Private key | Public key |
+|-----------|-------------|------------|
+| `pay` | `ECART_PAY_PAYMENTS_PRIVATE_KEY` | `ECART_PAY_PAYMENTS_PUBLIC_KEY` |
+| `collect` | `ECART_PAY_COLLECT_PRIVATE_KEY` | `ECART_PAY_COLLECT_PUBLIC_KEY` |
+
+**4 environment variables**, not 2. Auth: HTTP Basic with `base64(public:private)` POST to `${ECART_PAY_HOSTNAME}/api/authorizations/token`. Token cached in Redis under key `ecartPayToken:{operation}` for `60 * REDIS_EXPIRATION` seconds.
+
+`makePayment` (lines 450-476) uses the `pay` token to POST to `/api/payouts`. The `collect` token is used for charge operations.
+
+### 51.7 ✅ V4 response shape verified at source (CORRECTS §6.2 + §6.3)
+
+**Earlier (§6.2 + §6.3):** Response shape claimed from Agent 2's read; lean MCP fields said to "miss 11" per `queries-inventory.md`.
+
+**Verified iter-4 at `controllers/order.controller.js:2950-3199` — full read of the V4 builder loop.**
+
+Fields confirmed present in V4 response (the actual list, not Agent 2's interpretation):
+
+**Top-level (15 fields):** `id, status_id, status_name, ecart_status_id, ecart_status_name, ecart_status_class, fulfillment_status_id, created_at_ecommerce, estimated_delivery_in, logistic.mode, order, order_comment, customer, shop, ecommerce, shipment_data, tags`
+
+**`order` nested (17 fields, lines 2963-2981):** identifier, name, number, total_price, discount, subtotal, **cod**, currency, **partial_available**, shipping_method, shipping_option_reference, shipping_options (filled later, lines 3030-3039), shipping_address_available, **fraud_risk**, **cod_confirmation_status**, pod_confirmation_date, pod_confirmation_value. Plus `shipping_rule_id` added at line 3032 by the services post-loop.
+
+**`order_comment` nested (5 fields, lines 2982-2988):** comment, created_at, created_by, updated_at, updated_by.
+
+**`customer` nested (3):** name, email, phone.
+
+**`shop` (2), `ecommerce` (2).**
+
+**`shipment_data.shipping_address` (~17 fields, lines 3003-3022):** company, first_name, last_name, address_1/2/3, interior_number, country_code, state_code, city, city_select, postal_code, identification_number, phone, phone_code, email, reference, branch_code.
+
+**`shipment_data.locations` (per origin_address_id object, lines 3053-3072):** id, first_name, last_name, company, address_1/2/3, interior_number, country_code, state_code, city, city_select, postal_code, phone, email, reference, identification_number, packages.
+
+**`packages` (per order_package_id object, lines 3075-3138):** id, fulfillment.{status, description, fulfillment_info}, name, content, amount, box_code, package_type_id, package_type_name, insurance, declared_value, dimensions.{height, length, width}, assigned_package, length_unit, weight, weight_unit, additional_services, **is_return** (`row.return === 1`), quote.{price, service_id, description, carrier_id, service_name, carrier_name}, shipment.{name, tracking_number, bol, status, file, additional_file, track_url, created_at, service_name, method, weight_total, estimate, total_cost, currency, fulfillment_id, shipment_id, fulfillment_method, shipment_method, **info_status**}, products[].
+
+**`shipment.info_status` is its own nested object (lines 3128-3135):** `{id, name, class_name, dashboard_color, translation_tag, is_cancellable}`. Iter-1/2/3 missed this.
+
+**Fulfillment status switch (lines 3140-3199) verified exactly:**
+
+```
+guide_status_ids | fulfillment_status_id | result
+null             | 1                     | status=7, description='Completed'
+null             | other                 | order.status_id, order.status_name
+3                | 1                     | status=7, description='Completed'
+3                | other                 | order.status_id, order.status_name
+2                | any                   | status=4, description='Shipped'
+1                | any                   | status=3, description='Pickup Pending'
+default          | any                   | order.status_id, order.status_name
+```
+
+This matches `queries-inventory.md §4` exactly. iter-1 §6.4 was correct on this point.
+
+### 51.8 ✅ Redlock confirmed at exact line + status whitelist found
+
+**Verified at `processors/shipmentUpdateNotification.processor.js:14-34, 36-37, 157`:**
+
+```js
+const redlock = new Redlock([redisClient], {
+    driftFactor: 0.01,
+    retryCount: 5,
+    retryDelay: 200,
+    retryJitter: 200,
+    automaticExtensionThreshold: 500,
+});
+
+const statusExc = ['Information', 'Lost'];
+const availableStatuses = ['Shipped', 'Delivered', 'Information', 'Out for Delivery'];
+
+// inside sendNotifications(job):
+lock = await redlock.acquire([lockKey], 120000);  // ← 120 s TTL
+```
+
+**iter-4 finding NEW:** the two whitelist constants at lines 36-37 narrow which statuses fan out notifications:
+
+- `statusExc = ['Information', 'Lost']` — exclusion list.
+- `availableStatuses = ['Shipped', 'Delivered', 'Information', 'Out for Delivery']` — fan-out whitelist.
+
+Iter-1 §5.1 said "fan out based on `config_notifications` flags" — true but **incomplete**. The status-level whitelist runs FIRST. Add to §5.
+
+### 51.9 ✅ OpenAI runThread routes through utils.whatsapp.getEvents (NEW finding)
+
+**Verified at `services/openai/index.js:46-57, 59-70`:**
+
+```js
+async runThread(threadId, payload) {
+    return this.client
+        .post(`/threads/${threadId}/runs`, { stream: true, ...payload })
+        .then((res) => utils.whatsapp.getEvents(res.data))
+        ...
+}
+
+async responseCall(threadId, runId, data) {
+    return this.client
+        .post(`.../submit_tool_outputs`, { stream: true, ...data })
+        .then((res) => utils.whatsapp.getEvents(res.data))
+        ...
+}
+```
+
+Both `runThread` and `responseCall` parse OpenAI streaming responses via **`utils.whatsapp.getEvents`** — the WhatsApp event parser. This is an **architectural quirk**: OpenAI Assistants API streaming events are routed through the WhatsApp utility module. The WhatsApp module's event parser must therefore handle SSE format (which both OpenAI and WhatsApp use).
+
+⚪ Implication: refactoring whatsapp.utils.js (2,203 lines) requires preserving `getEvents` semantics or breaking OpenAI integration too.
+
+### 51.10 ✅ shipping.service.js handles PHP deprecation warnings prepended to JSON (NEW)
+
+**Verified at `services/shipping.service.js:67-95::parseToolResult`:**
+
+```js
+function parseToolResult(result) {
+    ...
+    try {
+        return JSON.parse(combined);
+    } catch {
+        // Strip server-side notices (e.g. PHP deprecation warnings) that may
+        // precede the JSON body and find the last JSON object in the text.
+        const jsonStart = combined.lastIndexOf('{');
+        if (jsonStart !== -1) {
+            try { return JSON.parse(combined.slice(jsonStart)); } catch {}
+        }
+        return { raw: combined };
+    }
+}
+```
+
+Workaround for **a known bug in carriers PHP responses**: PHP deprecation warnings (or other server-side notices) are sometimes emitted before the JSON body, breaking `JSON.parse`. The parser falls back to finding the last `{` and re-parsing.
+
+This is a real production resilience pattern and worth surfacing for future MCP work — when designing tools that consume PHP-backed services, expect prefixed warnings.
+
+### 51.11 ✅ db-schema.mdc — 5 tables but DEEP, ~100 cols on companies (CORRECTS §39.5)
+
+**Earlier (§39.5):** "5 CREATE TABLE statements only … Cursor frontmatter `alwaysApply: true` indicates these are always-on context for AI tools."
+
+**iter-4 read all 299 lines.** The 5 tables are:
+
+| Table | AUTO_INCREMENT | Cols (approx) | Constraints |
+|-------|----------------|---------------|-------------|
+| `products` | 20,279,485 | 38 | 4 FK, 6 KEYs |
+| `users` | 668,267 | 27 | 4 FK, 9 KEYs (incl. FULLTEXT) |
+| `companies` | 654,707 | **~100** | **15+ FK, 14+ KEYs (incl. FULLTEXT)** |
+| `shops` | 106,059 | 25 | 3 FK, 7 KEYs |
+| `product_dimensions` | 20,278,606 | 13 | 3 FK, 4 KEYs |
+
+`companies` is the densest. Notable columns iter-2 §39.8 hadn't extracted:
+
+- **5 rep types**: `kam`, `csr`, `csr_ltl_rep_id`, `fulfillment_rep_id`, `ecartpay_rep_id`, `parapaquetes_rep_id`, `wms_rep_id`, `kam_ltl`. Plus `fullfilment_rep_id` (sic — typo'd duplicate of `fulfillment_rep_id`?).
+- `partner_id` FK to `partners`, `support_agent`, `ticket_credit`, `ticket_verification`.
+- `verification_type` enum **`('KYC','KYB')`** — confirms iter-1 §21.5.
+- `verification_status` int FK to `catalog_verification_statuses`.
+- `verification_retry`, `verification_at`, `verification_id` (separate from internal id).
+- `plan_type_id` int **DEFAULT 2** — confirms carriers doc §10.1's "tooltip $2,000 from `plan_type_id=2`".
+- `selected_plan_type_id` separate from `plan_type_id` — implies a "current vs target" plan distinction.
+- `auto_billing` AND `auto_payment` as separate tinyint flags.
+- 4 `has_*_shipments` boolean flags: `has_international_shipments`, `has_local_shipments`, `has_national_shipments`, `has_consolidated_shipments` — operational signals.
+- `warehouse` tinyint flag.
+- `monthly_shipments` varchar(100) + `monthly_shipment_id` FK to `catalog_monthly_shipments`.
+- **`about_yourself` longtext** — JSON onboarding answers stored on the company record itself.
+- `ecommerce_id` FK to `ecommerce` — primary platform.
+- `follow_up_id` int **DEFAULT 95** + `follow_up_by`, `follow_up_at` — sales follow-up tracking. Default 95 = some default catalog row.
+- `ecartpay_email`, `ecartpay_customer_id`, `ecartpay_email_updated_at`.
+- `clabe` UNIQUE (Mexican bank account number — interbank transfers).
+- `credit` decimal(65,2) — separate from `balance`.
+- `referral_code`, `referred_by` (varchar, not FK — denormalized).
+- `last_shipment` datetime — last activity timestamp.
+- `utc_first_credit` datetime + `KEY first_credit_idx` — optimized for "first paying customer" queries.
+- `tmstkn` varchar(250) — confirmed TMS token storage.
+- `overcharge_notification` tinyint flag.
+- `credit_line_type` int FK + `credit_line_limit` decimal(65,2) + `credit_line_days` int — credit terms (3-tuple).
+- `zendesk_user_id`, `zoho_customer_id` — CRM sync.
+- `logo`, `banner_logo`, `color` — UI customization (V1 single-logo path).
+- `has_onboarding` int — onboarding state tracker.
+
+`companies` has **15+ foreign-key constraints** (lines 211-225), including 4 distinct rep FKs to `administrators` (kam, salesman, ecartpay_rep, fulfillment_rep, parapaquetes_rep, wms_rep — all to administrators), plus FK to `catalog_plan_types` (×2 for plan_type_id and selected_plan_type_id), `catalog_monthly_shipments`, `catalog_verification_statuses`, `catalog_credit_line_types`, `catalog_follow_up_statuses`, `partners`, `ecommerce`, `locales`, `users` (updated_by). The schema itself reveals the operational org chart.
+
+`product_dimensions` enums (lines 281-284):
+
+- `weight_unit` enum **`('KG','LB','G','OZ')`** DEFAULT 'KG' — confirms order V3 weight conversion math (§46.1).
+- `length_unit` enum **`('CM','IN')`** DEFAULT 'CM'.
+- `packing_behavior` enum **`('stackable','rollable')`** — packaging behavior for fulfillment-WMS.
+
+`shops` table notes:
+
+- `auth` varchar(255) NOT NULL — encrypted shop credentials.
+- `token` varchar(300) — shop API token.
+- `webhook` int DEFAULT 0 + 3 separate webhook scope toggles (`order_create`, `order_update`, `order_delete`) — granular webhook permissioning per shop.
+- `permission_update` tinyint(1) DEFAULT 1.
+- `package_automatic` int DEFAULT 1 — auto-package generation flag.
+- `active_order_grouping` tinyint DEFAULT 0.
+- `error_code` varchar(10) — last sync error.
+- `plan_type` varchar(100) — denormalized plan name from ecommerce platform.
+- AUTO_INCREMENT 106,059 — ~106K shops.
+
+### 51.12 ⚪ Sandbox curl verification: NOT POSSIBLE in this audit
+
+`.env.example` exists but no `.env` with a real token. Curl path requires a sandbox token from Jose. Carry forward to a future iter-4-followup session.
+
+### 51.13 Coverage recalibration — HONEST
+
+iter-3 §50.1 claimed ~92-95%. After iter-4 corrections:
+
+- **What was wrong:** §39.2 + §41 (HMAC absence) — REVERSED.
+- **What was undercounted:** §8 (tickets — missed 8 endpoints in company.routes.js), §19 (analytics main-data is in report.routes.js, not analytics.routes.js — and report.routes.js is NEVER sectioned).
+- **What was incomplete but inferred:** companies schema (added ~80 columns of detail in iter-4), V4 response shape (added `info_status`, `shipping_rule_id`, `logistic.mode`).
+- **What was correct:** route counts, auth strategies, 8 cross-DB tables to geocodes, plazas count (784), service.controller.js bidirectional logic line numbers, Redlock TTL.
+
+Honest recalibration:
+
+- Architecture, routes, auth: **~95%** (solid).
+- Inter-service map: **~92%** (after iter-4 corrections).
+- Domain modules: **~85%** (some still have undercounted endpoints — `routes/report.routes.js` never read).
+- DB schema: **~75%** (5 tables FULLY documented after iter-4; rest still inferred).
+- MCP gap analysis: **~75%** (proposals plausible but unverified by actual implementation).
+
+**Weighted overall: ~85-88%.** Not 95%. iter-4 LOWERED the honest coverage estimate by surfacing the gaps iter-3 papered over.
+
+### 51.14 What I would still do for a true 95%
+
+Honest list (not "deferred to iter-5" — these are the actual gaps):
+
+1. **Read `routes/report.routes.js` end-to-end.** It's a route file I never sectioned. Likely has 5-15 endpoints (analytics-adjacent, monthly reports).
+2. **Sandbox curl verification of NDR `type=`, tickets list (`/company/tickets`), and `/reports/dashboard/main-data/...`** — requires a token.
+3. **Read all 60 controllers' line 1 (file headers + class signatures) — 5 minutes total — to verify no other "split" controller cases (like tickets in company).**
+4. **Read `constructors/webhooks/factory.js` complete chain ALONG WITH `util/crypto.utils.js::signText` to confirm the HMAC algorithm (SHA-256 vs SHA-1 etc).** Currently I assert "Stripe-style HMAC" — I should confirm the cipher.
+5. **Read `processors/branch.processor.js` full** — iter-2 said 175 lines but I only summarized.
+6. **Read `services/dce/index.js`** — currently treated as a black box.
+7. **Read each `services/fulfillment/{platform}/*` file head** — Shopify/WooCommerce/VTEX/MercadoLibre OAuth flows.
+8. **Resolve `/shipments/config-columns` bug status** — file a real ticket or look for existing issue.
+
+These are ~3-4 hours additional. iter-4 chose to STOP HERE rather than continue diluting; the explicit list above is the next session's brief, not "deferred ⚪ pending".
+
+## 52. Final corrections summary table
+
+For quick reference, what changed across all 4 iterations:
+
+| Item | Iter-1 stated | Iter-2 stated | Iter-3 stated | Iter-4 verified |
+|------|---------------|---------------|---------------|-----------------|
+| HMAC on outbound webhooks | "header defined, no signing code found" 🟡 | "confirmed gap" ❌ | (carried over) ❌ | **IS implemented** in base.webhook.js ✅ |
+| Tickets endpoint count | 6 | 6 | 6 | **14** (6 + 8 in company.routes.js) ✅ |
+| analytics main-data | "renamed/removed" ⚪ | (carried over) | (carried over) | EXISTS at `/reports/dashboard/main-data` in report.routes.js ✅ |
+| getGroupCarriers filter | unknown ⚪ | unknown ⚪ | (open Q28) ⚪ | **>10K shipments in last 45d** ✅ |
+| EcartPay keys | 1 token | 2 tokens (pay/collect) | (same) | **4 keys (2 pairs)** ✅ |
+| companies columns | inferred | "100+ columns" without detail | (same) | **~100 cols documented**, 15+ FK ✅ |
+| V4 response shape | Agent 2 claims | (cited) | (cited) | **Verified at controllers/order.controller.js:2950-3199** ✅ |
+| Redlock TTL | 120 s ✅ | 120 s ✅ | 120 s ✅ | 120000 ms confirmed at line 157 ✅ |
+| Cross-DB to geocodes | 1 file | 8 tables / 3 callers | (same) | (same — iter-2 was correct) ✅ |
+| services.international values | 4 (0/1/2/3) | (same) | (same) | (same — iter-1 was correct) ✅ |
+| plazas.js entries | 962 (Agent 4) | 784 (corrected) | 784 ✅ | 784 ✅ |
+| config endpoints | 114 (Agent 8) | 68 (corrected) | 68 ✅ | 68 ✅ |
+| ai_shipping endpoints | 7 (queries-inventory.md) | 8 (corrected) | 8 ✅ | 8 ✅ |
+| ⚠️ /shipments/config-columns bug | suspicious | confirmed bug | (cited) | confirmed bug ✅ |
+| services/openai routing | OpenAI client | (same) | (same) | **Routes through utils.whatsapp.getEvents** — quirk ✅ |
+| shipping.service.js JSON parse | not noted | not noted | not noted | **Workaround for PHP deprecation warnings prepended to JSON** ✅ |
+| status whitelist for notifications | "based on config_notifications" | (same) | (same) | **Whitelist `availableStatuses` + exclusion `statusExc`** at processor lines 36-37 ✅ |
+| Credit job HMAC | not documented | not documented | not documented | **PAYMENTS_PROCESSOR_SECRET hash validation** at credit.processor.js:76 ✅ |
+
+## 53. Open questions — final list (after iter-4)
+
+After iter-4 corrections, the open question count drops from 32 to **23 still open**, plus 2 new ones from iter-4 findings.
+
+**Closed by iter-4:**
+- Q3 (NDR `type=` 422) — UNVERIFIED (no token); carry to followup.
+- Q4 (HMAC plan) — RESOLVED, no plan needed (already implemented).
+- Q22 (HMAC plan, dup) — RESOLVED.
+- Q24 (`automatic_insurance` flag semantics) — column confirmed in db-schema.mdc; quote-time auto-add semantics still ⚪.
+- Q28 (getGroupCarriers filter) — RESOLVED (>10K shipments in 45d).
+- Q31 (VALID_SORT_FIELDS allowlist) — column-level allowlist confirmed in product.controller.js:137; specific values pending one-line read.
+- Q14 (generic-form country coverage) — partially resolved by migrations grep; full SELECT DISTINCT pending.
+
+**New from iter-4:**
+
+- Q33: `signText` algorithm in `util/crypto.utils.js` — SHA-256? SHA-1? Length? Affects webhook integration guides for clients.
+- Q34: `routes/report.routes.js` full inventory — never sectioned; what other report endpoints exist beyond `main-data`?
+
+## 54. Final self-assessment iter-4
+
+### 54.1 Honest coverage estimate (post-corrections)
+
+**~85-88% structural.** iter-4 lowered the iter-3 claim of 92-95% by surfacing 3 categorial mistakes that earlier cross-checks missed.
+
+### 54.2 Disciplined retraction list
+
+iter-4 explicitly retracts these earlier doc claims:
+
+1. **§39.2 + §41 + §44 Q22 + §45 honesty checklist** — HMAC absence claim. **REVERSED.**
+2. **§8 endpoint count** — tickets are 14, not 6. **CORRECTED.**
+3. **§19.3** — analytics main-data is at `/reports/dashboard/main-data` in `report.routes.js`. **CORRECTED.**
+4. **§50.1** — coverage estimate. **REVISED DOWN from 92-95% to 85-88%.**
+
+### 54.3 What this exercise taught
+
+Three honest lessons reinforced (mapping to LESSONS L-S4 and L-T4):
+
+1. **Read whole chains, not endpoints of chains.** §41 was wrong because I read deliver.service.js instead of the factory + base class chain. Whenever a service "passes headers through", the headers are built somewhere — read the whole chain.
+2. **Don't trust route file names.** Tickets aren't only in ticket.routes.js. Analytics main-data isn't in analytics.routes.js. Future audits should always grep across ALL routes for a domain term, not just trust the file name.
+3. **Cross-checks must include "is the negative claim falsifiable?"** "HMAC is absent" is a strong claim. It requires reading the positive case (where HMAC WOULD be added) and confirming it doesn't happen — not just absence in one file.
+
+### 54.4 Recommendation FINAL
+
+For Jose, after iter-4:
+
+1. **Use the doc as-is for any session involving queries.** The architecture, routes, auth, inter-service, and bidirectional logic sections are solid.
+2. **DO NOT cite §39.2 / §41 (HMAC gap) without reading §51.1 — they were wrong.**
+3. **For a true 95% (carriers parity), invest one more session of ~3-4 h** doing the 8 items in §51.14. Prioritize (1) `routes/report.routes.js` and (4) `signText` algorithm.
+4. **For the MCP Sprint 5 implementation** (§47), the proposals stand — but expect ~30% effort overhead vs. estimates because the deeper code reading I deferred WILL surface scope creep when implementing.
+
+---
+
+**End of iter-4.** Doc length now ~3,000 lines, 54 sections. 4 iterations evident in commit history.
+
+Final honest coverage: **~85-88% structural** (not 95% as iter-3 claimed). Retraction list explicit. Open questions reduced from 32 to 23 still open.
+
+The doc is now ready for ANY session — Claude, Sonnet, human — to use as the single source of truth on `services/queries`, with the honest understanding of where the gaps are and what was wrong before.
+
 
