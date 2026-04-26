@@ -67,7 +67,7 @@ For each prompt:
 Replace `<PROJECT>` with carriers/queries/geocodes/ecommerce/admin-monorepo/accounts and `<PROMPT_FILE>` with the corresponding `.md` file from `.claude/prompts/`.
 
 ```
-Sesión de deep reference audit del proyecto queries — bar: ser el mejor del mundo.
+Sesión de deep reference audit del proyecto <PROJECT> — bar: ser el mejor del mundo.
 
 Modelo: Opus 4.7 (1M context). Duración esperada: 2-4 horas.
 
@@ -102,7 +102,7 @@ LECTURA OBLIGATORIA, en este orden exacto:
    de los 53k tokens es trivial vs el costo de producir un doc que
    falle el bar.
 
-3. ai-agent/envia-mcp-server/.claude/prompts/GEOCODES_DEEP_AUDIT_PROMPT.md — runbook
+3. ai-agent/envia-mcp-server/.claude/prompts/<PROMPT_FILE> — runbook
    ejecutable: scope, methodology, quality gates, honesty traps,
    anti-patterns. Síguelo paso a paso.
 
