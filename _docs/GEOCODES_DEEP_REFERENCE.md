@@ -1037,3 +1037,611 @@ Iter 3 should:
 - Produce the final cross-check pass and self-assessment with honest coverage %.
 
 This iter-1 doc is a **reasonable transferable starting point** for any future session working on geocodes + MCP integration, but it is **not** the final state. Iteration 2 will close the structural gaps; iteration 3 will sharpen the recommendations.
+
+---
+
+# Iteration 2 — Handler-level depth + cache mechanics + VIACEP code walk (2026-04-26)
+
+> Closes structural gaps from iter 1: `queryZipCode` complete trace,
+> `queryLocality` cache-key bug verified, `controllers/files.js`
+> file-cache mechanics, `RedisUtil.remember` precise semantics, the
+> 11-case MX state-code remapping, the full `postcode-with-dash.json`
+> structure, and the `fixZipcode` AR fall-through hidden case. Adds 7
+> sections (§20-26) and refines the cross-check pass (§27).
+
+## 20. `queryZipCode` — complete trace
+
+Source: `services/geocodes/controllers/web.js:18-157`. The most-consumed handler in geocodes; this section supersedes §6.
+
+### 20.1 Cache layering (3 tiers)
+
+```
+Request → fixZipcode middleware → handler
+  ├─ Tier 1: file cache (resources/zipcodes/{cc}-{zip}.json)
+  │            via filesService.findFile (controllers/files.js:10-16)
+  │            HIT → return file contents directly (line 23-25)
+  │
+  ├─ Tier 2: Redis (key: "zipcode.{cc}.{zip}", TTL: 30 days = 2,592,000s)
+  │            via RedisUtil.remember (line 141-148)
+  │            HIT → JSON.parse + return (RedisUtil.remember:17-19)
+  │
+  └─ Tier 3: MySQL — see §20.2 SQL
+              after MISS → run callback → cache in Redis → save to file (line 149-151)
+```
+
+The file cache and Redis cache are populated on success. The file cache is **never expired** within the dyno (no LRU, no time-based eviction). On Heroku ephemeral filesystem this is acceptable — dyno restarts wipe the cache. On long-lived dynos (private spaces) it grows unbounded.
+
+### 20.2 SQL (verbatim, controllers/web.js:29-57)
+
+```sql
+SELECT
+    gd.postcode, gd.iso, gd.country,
+    gd.region1, gd.region2, gd.region3, gd.region4,
+    IFNULL(gd.hasc, ls.hasc) AS hasc,
+    IFNULL(gd.iso2, ls.iso_code) AS iso2,
+    IFNULL(gd.locality, gd.region2) AS locality,
+    gd.street, gd.suburb, gd.stat,
+    gd.latitude, gd.longitude,
+    gd.timezone, gd.utc
+FROM geocode_info AS gd
+LEFT JOIN list_states AS ls
+    ON ls.country_code = ?
+WHERE gd.iso = ?
+    AND (IF(ls.iso_code IS NULL, "", ls.iso_code)) = gd.iso2
+    AND gd.postcode = ?
+ORDER BY gd.postcode ASC;
+```
+
+Parameters (line 50-54): `[country_code, country_code, zip_code.replace("+", " ")]`. Parameterized, no injection risk.
+
+The `IF(ls.iso_code IS NULL, "", ls.iso_code) = gd.iso2` is a coalesce-style join: keeps rows where there's no matching state OR where the iso codes match. Note the LEFT JOIN ON `ls.country_code = ?` (NOT joined to gd) — this is essentially a cross-join filtered by country code, then post-filtered by the iso2 equality. Atypical but functionally produces the right rows.
+
+### 20.3 Response shape (verbatim, lines 73-114)
+
+```js
+{
+    zip_code: result[0].postcode,
+    country: { name: result[0].country, code: result[0].iso },
+    state: {
+        name: result[0].region1,
+        iso_code: result[0].iso2,
+        code: { "1digit": null, "2digit": null, "3digit": null },
+    },
+    locality: result[0].locality,
+    additional_info: { street: result[0].street },
+    suburbs: [],            // populated below from all rows
+    coordinates: { latitude: result[0].latitude, longitude: result[0].longitude },
+    info: {
+        stat: result[0].stat,
+        stat_8digit: result[0].stat !== null ? result[0].stat.padEnd(8, 0) : null,
+        time_zone: result[0].timezone,
+        utc: result[0].utc,
+    },
+    regions: { region_1, region_2, region_3, region_4 },
+}
+```
+
+**Notable fields:**
+- `state.code.{1digit, 2digit, 3digit}` — populated AFTER the response object via `Util.setIso2` (line 116-119) and `Util.setHasc` (121-124). The fields default to `null` then get filled if `iso2` or `hasc` strings have a non-empty 2nd half (after `-` or `.`).
+- `info.stat` — IBGE code (Brazil) or country-equivalent statistical code.
+- `info.stat_8digit` — `stat.padEnd(8, 0)` — pads to 8 digits with `0` (note: `padEnd` second arg should ideally be a string `'0'`, but JS coerces and it works; watch for type confusion).
+- `info.time_zone` — comes from `gd.timezone`. **For Brazil VIACEP-imported rows this is hardcoded to `'America/Sao_Paulo'`** (see §23) regardless of actual region.
+- `info.utc` — comes from `gd.utc`. Same hardcoded `'-03:00'` for Brazil VIACEP imports.
+
+### 20.4 Suburb deduplication (lines 131-136)
+
+```js
+for (let row in result) {
+    if (!response.suburbs.includes(result[row].suburb) && ![null, ""].includes(result[row].suburb)) {
+        response.suburbs.push(result[row].suburb);
+    }
+}
+response.suburbs.sort();
+```
+
+If multiple rows share a postcode but have different suburbs, all distinct suburb strings are merged into a single array. ⚪ This implies `geocode_info` can have multiple rows per postcode (one per suburb).
+
+### 20.5 MX state-code remapping (line 126-129)
+
+```js
+if (response.country.code == "MX" && response.state.code["2digit"] !== null) {
+    let stateCode = response.state.code["2digit"];
+    response = Util.setStateCodeMx(response, stateCode);
+}
+```
+
+For Mexico, the 2-digit state code is run through `Util.setStateCodeMx` which applies an 11-case remap (see §24). This is a data-quality patch: the geocodes DB stores older / non-standard MX state codes; the response normalizes them.
+
+### 20.6 Brazil VIACEP fallback paths
+
+Two distinct triggers (lines 64-69):
+
+```js
+if (result.length == 0) {
+    if (request.params.country_code.toUpperCase() == "BR") {
+        return Util.searchCep(request.params.zip_code, "zipcode", "insert");  // line 65
+    }
+    return [];
+}
+
+if (request.params.country_code.toUpperCase() == "BR" && result[0].street === null) {
+    Util.searchCep(request.params.zip_code, "zipcode", "update");  // line 73 — fire-and-forget, no await
+}
+```
+
+- **Trigger 1 — INSERT:** BR + zero rows → fetch from VIACEP, INSERT into `geocode_info`, RETURN the synthesized response (without going through Redis or file cache).
+- **Trigger 2 — UPDATE:** BR + row found but `street IS NULL` → fire-and-forget `Util.searchCep` with `action='update'` (line 73 has no `await` — the response is returned to the user immediately while the UPDATE runs in background).
+
+The fire-and-forget UPDATE is interesting: the next request for the same postcode will see the populated `street` field, but the current request still returns the original (street: null) response.
+
+## 21. `queryLocality` and the line-161 cache-key bug (verified)
+
+Source: `services/geocodes/controllers/web.js:159-310`. Returns all postal codes for a given (country, locality) pair.
+
+### 21.1 The bug — verified verbatim
+
+Line 161:
+
+```js
+let key = `zipcode.${request.params.country_code}.${request.params.zip_code}`;
+```
+
+The route is `GET /locality/{country_code}/{locality}` — there is NO `zip_code` param. Joi validates `params: { country_code, locality }` (`routes/web.js:36-40`). Therefore `request.params.zip_code` is `undefined`.
+
+Result: every locality query for country X uses the cache key **`zipcode.X.undefined`**. The first locality query for that country gets cached; every subsequent locality query hits the same key and returns the FIRST locality's result regardless of which locality was actually requested.
+
+### 21.2 But the TTL saves the day (sort of)
+
+Line 298-305:
+
+```js
+return await RedisUtil.remember(
+    request.redis.client,
+    key,
+    0,           // TTL=0 → PERSIST (no expiration)
+    query, data, callback
+);
+```
+
+TTL=0 → `RedisUtil.set` calls `client.persist(key)` which removes any existing expiration. So the cached value persists until `POST /flush` is called or the key is deleted. In practice:
+
+- After service restart, Redis cold (assuming Redis flushed too).
+- First locality query of any country populates the bad cache.
+- Subsequent locality queries return wrong data for entire instance lifetime.
+
+**Why hasn't this been caught?** Likely because:
+- The MCP doesn't call `/locality/...` (it uses `/locate/...` for fuzzy lookup).
+- The carriers PHP backend may also not use this endpoint heavily.
+- Bugs that produce stale-but-not-error responses are easy to miss in monitoring.
+
+**Severity:** 🟠 High when the endpoint is consumed; 🟡 Medium today because the consumer surface appears small.
+
+### 21.3 SQL (verbatim, controllers/web.js:162-181)
+
+```sql
+SELECT
+    gd.postcode, gd.iso, gd.country, gd.region1,
+    IFNULL(gd.hasc, ls.hasc) AS hasc,
+    IFNULL(gd.iso2, ls.iso_code) AS iso2,
+    IFNULL(gd.locality, gd.region2) AS locality,
+    gd.suburb, gd.stat
+FROM list_localities AS ll
+JOIN geocode_info AS gd
+    ON gd.iso2 = ll.state_code
+    AND gd.locality = ll.name
+LEFT JOIN list_states AS ls
+    ON ls.iso_code = gd.iso2
+WHERE ll.country_code = ?
+    AND ll.name = ?
+ORDER BY gd.postcode ASC;
+```
+
+Parameters (line 182): `[country_code, locality]`. Parameterized. The query joins `list_localities` (the locality catalog) with `geocode_info` to get the postal codes.
+
+### 21.4 Response shape
+
+The handler returns an array of objects, deduplicated by `postcode` (line 191-193). Each object has the same shape as `queryZipCode` minus the coordinates and timezone fields. Suburbs are deduplicated per-postcode.
+
+**The MX state-code remapping is INLINED here** (lines 246-285) — 11 cases, exactly mirroring `Util.setStateCodeMx` from §24. This is duplicate logic; either was copied or hand-replicated. Drift risk: if a new MX state-code remap is added to one location but not the other, responses diverge.
+
+## 22. `controllers/files.js` — file cache mechanics
+
+Verbatim from `services/geocodes/controllers/files.js` (25 lines):
+
+```js
+'use strict';
+
+const fs = require('fs');
+const path = require('path');
+const rootPath = process.env.PWD || process.cwd();
+const fullPath = path.join(rootPath,  `resources/zipcodes/`);
+
+class FilesService {
+    async findFile(file) {
+        const filename = path.join(fullPath, `${file}.json`);
+        if (!fs.existsSync(filename)) {
+            return null;
+        }
+        const rawFile = fs.readFileSync(filename, 'utf8');
+        return JSON.parse(rawFile);
+    }
+
+    saveFile(file, data) {
+        const filename = path.join(fullPath, `${file}.json`);
+        fs.writeFileSync(filename, JSON.stringify(data, null, 2));
+    }
+}
+
+module.exports = FilesService;
+```
+
+### 22.1 Path construction
+
+`rootPath = process.env.PWD || process.cwd()`. On Heroku this is the application root (`/app`). `fullPath = /app/resources/zipcodes/`.
+
+The `file` parameter is passed by `queryZipCode` as `/${country_code}-${zip_code}` (controllers/web.js:22) — note the **leading slash**. So the actual filename becomes:
+
+```
+path.join('/app/resources/zipcodes/', '/CC-zipcode.json')
+```
+
+`path.join` normalizes `/foo/` + `/bar` to `/foo/bar`, NOT `/foo//bar`. The leading slash on the second argument **does NOT desanchor** in this case (unlike Python's `os.path.join`). So the final path is `/app/resources/zipcodes/CC-zipcode.json`. The prior `_meta/analysis-geocodes.md` claim that "`fileName` initiates with `/`, lo que puede desanclar `path.join`" is **incorrect** for Node `path.join`. It would be a real concern with `path.resolve` (which IS desanchoring), but `path.join` is safe here.
+
+**Cross-check correction:** `_meta/analysis-geocodes.md` 🟡 finding "file cache path defectuoso" is wrong about the mechanism. The leading slash in `fileName` is cosmetic — Node's `path.join` collapses it. The file cache works correctly. (Caveat: if `fileName` ever contained `..` segments via user input, that WOULD escape; but `country_code` is Joi-validated to 2 chars and `zip_code` is also Joi-validated.)
+
+### 22.2 No expiration
+
+There is no `removeFile` method. The cache grows indefinitely. On Heroku (ephemeral filesystem), restarts wipe it. On long-lived hosts, monitor disk usage.
+
+### 22.3 Path-traversal trust boundary
+
+`zip_code` is validated by Joi as `Joi.string()` with no max length or character set — technically `..` could be passed. Combined with `path.join`'s normalization, an attacker providing `zip_code=../../../etc/passwd` would have the path resolve to `/etc/passwd`. The `findFile` would `fs.existsSync` and `readFileSync` it, returning the contents JSON-parsed (which would throw on `/etc/passwd` non-JSON content, returning empty array via the catch in `queryZipCode`).
+
+But `saveFile` is reachable via the same path: an attacker could trigger a write to `/app/resources/zipcodes/../../../tmp/foo.json` if the input were crafted right. ⚠️ **Path traversal vulnerability**. ⚪ Flag for backend; Joi validation should restrict `zip_code` to alphanumeric + dash/space.
+
+## 23. VIACEP integration — full code walk
+
+Source: `services/geocodes/libraries/util.js:30-203`. Brazil-specific postal-code fallback.
+
+### 23.1 The HTTP call (lines 30-38)
+
+```js
+async searchCep(zipcode, responseType, action) {
+    const resultCep = (
+        await axios.get(process.env.VIACEP_API_HOSTNAME + "/ws/" + zipcode + "/json", {
+            timeout: +process.env.TIME_OUT,
+            headers: { 'Content-Type': 'application/json' }
+        })
+    ).data;
+    if (!resultCep) return [];
+    ...
+}
+```
+
+- URL: `${VIACEP_API_HOSTNAME}/ws/{zip}/json` (line 32). Public free API.
+- Timeout: `+process.env.TIME_OUT` — string-to-number coercion. ⚪ Confirm `TIME_OUT` value in environments (probably ms).
+- No retry, no exponential backoff. On axios error → uncaught (the function call site doesn't wrap this in try/catch).
+- No User-Agent set; VIACEP may rate-limit anonymous traffic.
+
+### 23.2 Action branching
+
+Three modes:
+
+| `action` | Behavior |
+|----------|----------|
+| `'update'` | Calls `updateRecordGeocodes(resultCep)` to UPDATE the existing row's `street` field, returns `true` (line 42-45). |
+| `'insert'` (default) | Calls `searchStateBr` to look up the state name for the UF, then `insertRecordGeocodes(resultCep, stateName)` to INSERT a new row (lines 47-48). |
+| (none of the above) | Falls through to insert path, then builds a response. |
+
+### 23.3 `searchStateBr(uf)` — line 136-153
+
+```sql
+SELECT DISTINCT region1
+FROM geocode_info
+WHERE iso = 'BR' AND iso2 = ?
+LIMIT 1;
+```
+
+Parameter: `'BR-' + state` (where `state` is the 2-letter UF, e.g., `'SP'`). On success returns the matching `region1` (e.g., `'São Paulo'`). On failure returns `null` (caught by `.catch`).
+
+**Implication:** if VIACEP returns a `uf` that doesn't have any other rows in `geocode_info` (a totally new state — extremely unlikely for Brazil), `stateName` will be `null`, and the INSERT writes a row with `region1=null`, `iso2='BR-null'`. ⚪ Flag this edge case.
+
+### 23.4 `insertRecordGeocodes(info, stateName)` — line 154-203 (verbatim)
+
+```sql
+INSERT INTO geocode_info (
+    iso, country, language,
+    region1, region2, region3, region4,
+    locality, postcode, street, suburb,
+    iso2, stat, timezone, utc
+) VALUES ?;
+```
+
+Values (lines 178-194):
+
+```js
+[
+    'BR',                   // iso
+    'Brasil',               // country
+    'PT',                   // language
+    stateName,              // region1 (from searchStateBr)
+    info.localidade,        // region2
+    info.localidade,        // region3 (duplicated!)
+    '',                     // region4 (always empty)
+    info.localidade,        // locality (third duplication)
+    info.cep,               // postcode
+    street,                 // street (= info.logradouro.trim())
+    info.bairro,            // suburb
+    'BR-' + stateName,      // iso2 (e.g. 'BR-São Paulo' if stateName is the full name — not 'BR-SP')
+    info.ibge,              // stat (IBGE code)
+    'America/Sao_Paulo',    // timezone HARDCODED
+    '-03:00',               // utc HARDCODED
+]
+```
+
+**Several findings:**
+1. **`region2`, `region3`, `locality` all set to `info.localidade`** — three columns, same value. Suggests the geocodes data model expects these to be hierarchically distinct in authoritative records, but VIACEP only provides one level. Downstream consumers reading `region3` for VIACEP-imported rows will get the locality, not a real region 3.
+2. **`iso2 = 'BR-' + stateName`** where `stateName` is the FULL state name (from `searchStateBr` — returns `region1`, e.g., `'São Paulo'`). But `geocode_info.iso2` for authoritative rows is typically `'BR-SP'` (using the 2-letter UF). So VIACEP-imported rows have `iso2='BR-São Paulo'` (the full Portuguese name) while authoritative rows have `iso2='BR-SP'`. **Data inconsistency:** any query filtering by `iso2='BR-SP'` will MISS VIACEP-imported rows for São Paulo.
+3. **Timezone hardcoded** — Brazil has multiple timezones (Manaus UTC-4, Acre UTC-5, plus daylight-saving variations). Hardcoding `America/Sao_Paulo` and `-03:00` is wrong for ~5 states.
+4. **No source flag.** No column distinguishing `'envia'` vs `'viacep'` origin. Once inserted, indistinguishable from authoritative data.
+5. **No Redis invalidation.** After insert, the next `queryZipCode` call for that postcode will hit the DB (cache miss because the prior request had MISS too). But subsequent requests cache the (now-populated) row. However, if Redis HAD a stale "not found" cached, this won't be invalidated. ⚪ Confirm: does `queryZipCode` cache empty results? Checking line 141-148: `RedisUtil.remember` calls `processCallback` which in `redisUtil.js:21-27` returns early if `Array.isArray(result) && result.length == 0` — empty results are NOT cached. So this is fine.
+
+### 23.5 `updateRecordGeocodes(info)` — line 204-219
+
+```sql
+UPDATE geocode_info SET street = ? WHERE iso = 'BR' AND postcode = ?;
+```
+
+Sets `street` to `info.logradouro` (UNTRIMMED — different from the insert path). This is a fire-and-forget update from `queryZipCode` line 73 (no `await`).
+
+⚪ The trim inconsistency between INSERT (`street.trim()`, line 156) and UPDATE (raw `info.logradouro`) is a minor but real difference.
+
+## 24. MX state-code remapping (`Util.setStateCodeMx`)
+
+Source: `services/geocodes/libraries/util.js:252-289`. The 11-case canonical remap.
+
+| Input (`stateCode`) | Output | State |
+|---------------------|--------|-------|
+| `BN` | `BC` | Baja California |
+| `CP` | `CS` | Chiapas |
+| `DF` | `CX` | Mexico City (was DF, now CX/CDMX in ISO 3166-2:MX-CMX since 2018; the codebase uses CX) |
+| `CA` | `CO` | Coahuila |
+| `DU` | `DG` | Durango |
+| `GJ` | `GT` | Guanajuato |
+| `HI` | `HG` | Hidalgo |
+| `MX` | `EM` | Estado de México |
+| `MC` | `MI` | Michoacán |
+| `MR` | `MO` | Morelos |
+| `QE` | `QT` | Querétaro |
+
+The function is invoked from `queryZipCode` (controllers/web.js:128). The same 11 cases are also INLINED in `queryLocality` (controllers/web.js:251-285) — duplicate logic.
+
+### 24.1 What's NOT in the remap
+
+ISO 3166-2:MX has 32 entities (31 states + CDMX). The remap covers 11. The other 21 either:
+- Use the same code in the DB and ISO standard (likely most).
+- Are stored but not remapped (potentially still wrong but uncaught).
+
+⚪ Audit `geocode_info` rows for `iso='MX'` and verify which 2-digit `iso2` codes appear vs the ISO standard. Cross-reference with `g8_carrier_country_zones.csv` if it has Mexico-specific data.
+
+### 24.2 No equivalent for other countries
+
+There's no `setStateCodeBr`, `setStateCodeCo`, etc. Either:
+- Other countries' state codes in geocodes match ISO standard out of the box, or
+- Other countries also have inconsistencies that aren't remapped (silent bugs).
+
+Per `_meta/analysis-geocodes.md` and Phase-3 agent reports, only MX is identified as having this issue. ⚪ Spot-check Brazil and Colombia to confirm.
+
+## 25. `fixZipcode` complete behavior
+
+Source: `services/geocodes/middlewares/web.middleware.js:53-89`.
+
+### 25.1 Two-stage normalization
+
+**Stage 1 — `validateDash`** (lines 119-127). Applied first via line 55:
+
+```js
+request.params.zip_code = module.exports.validateDash(
+    request.params.country_code,
+    request.params.zip_code
+);
+```
+
+`validateDash` looks up the country in `postcode-with-dash.json`. If present AND the zip doesn't already contain `-`, calls `addZipDash` to insert at `position`. Otherwise returns the input unchanged.
+
+**Stage 2 — country-specific switch** (lines 57-87):
+
+```js
+switch (request.params.country_code) {
+    case 'CA':
+        // Canadian postal: A1A1A1 → A1A 1A1 (insert space at index 3)
+        if (!request.params.zip_code.includes(' ')) {
+            // splice(3, 0, ' ')
+        }
+        break;
+    case 'AR':
+        request.params.zip_code = request.params.zip_code.replace(/\D/g, '');
+        // ⚠️ NO break; — falls through to next case
+    case 'SE':
+    case 'GR':
+    case 'TW':
+        regex = /^\d{5}$/;
+        if (regex.test(request.params.zip_code)) {
+            // splice(3, 0, ' ') — e.g. '10400' → '104 00'
+        }
+        break;
+    case 'NL':
+        regex = /^\d{4}[a-zA-Z]{2}$/;
+        if (regex.test(request.params.zip_code)) {
+            // splice(4, 0, ' ') — e.g. '1012XQ' → '1012 XQ'
+        }
+        break;
+    default:
+        break;
+}
+```
+
+### 25.2 The AR fall-through (hidden case)
+
+`case 'AR':` strips all non-digit characters (line 66) and **does NOT have a `break`**. JavaScript switch statements without `break` fall through to the next case. So an AR zipcode after stripping continues to the `case 'SE'` / `'GR'` / `'TW'` block (line 67-76) where it tests `regex /^\d{5}$/` and inserts a space at position 3 if matched.
+
+**Examples:**
+- AR input `C1425` → strip → `1425` (4 digits, regex doesn't match) → returned as `1425`. ✅ Correct.
+- AR input `B1640HFL` → strip → `16` (2 digits — wait, `\D` removes A-Z, so `B1640HFL` strips to `1640`). → 4 digits, regex doesn't match → returned as `1640`. ✅ Correct (the modern CPA format keeps 4 digits + 3 letters; only the 4-digit core survives stripping).
+- AR input `12345` (hypothetical 5-digit AR — doesn't exist in real Argentine postal system) → strip → `12345` (5 digits) → regex matches → space inserted → `123 45`. Probably unintended.
+
+So the fall-through is mostly harmless because AR postal codes don't naturally produce 5-digit pure-numeric strings post-strip. But it's a fragile pattern — a future change to AR strip rules could surface weird side-effects.
+
+### 25.3 `postcode-with-dash.json` complete content (verbatim)
+
+```json
+{
+    "BR": { "name": "Brasil",       "example": "XXXXX-XXX",  "position": 5, "notes": "" },
+    "JP": { "name": "Japon",        "example": "XXX-XXXX",   "position": 3, "notes": "" },
+    "PT": { "name": "Portugal",     "example": "XXXX-XXX",   "position": 4, "notes": "" },
+    "PL": { "name": "Polonia",      "example": "XX-XXX",     "position": 2, "notes": "" },
+    "AI": { "name": "Anguilla",     "example": "AI-2640",    "position": 2, "notes": "Solo existe ese codigo postal AI-2640" },
+    "KY": { "name": "Islas Caiman", "example": "KYX-XXXX",   "position": 3, "notes": "Todos inician con KY y un numero del 1 al 3. Los numeros representan a las islas" }
+}
+```
+
+6 entries. Note: AI has `'Solo existe ese codigo postal AI-2640'` — only one valid Anguilla postcode. If a request comes in with a different AI postcode (e.g., `AI-1234`), the dash insertion still runs but the DB lookup will return zero rows.
+
+### 25.4 `cleanLocateQuery` (lines 91-117)
+
+Distinct middleware; pre-handler for `/locate/...` routes only. 4 cases:
+
+| Country | Rule |
+|---------|------|
+| `GT` | If locate string (uppercase) equals `'CIUDAD DE GUATEMALA'`, replace with `'Guatemala'`. |
+| `BR` | If locate is numeric and lacks `-`, insert `-` at position 5. |
+| `JP` | Same pattern, position 3. |
+| `PT` | Same pattern, position 4. |
+
+The numeric checks rely on `Util.isNumeric` (line 99, 104, 109) which is `!isNaN(str) && !isNaN(parseFloat(str))`. So `'01310200'` is numeric (yes), gets dash inserted → `'01310-200'`. Note the BR/JP/PT positions in `cleanLocateQuery` MATCH the `postcode-with-dash.json` positions for the same countries. Only GT has a special non-postal rule.
+
+## 26. Coordinates SQL deep-dive (line 2240-2287, full)
+
+`getCoordinates` builds a dynamic-but-parameterized SQL query. Verbatim:
+
+```js
+async getCoordinates(request) {
+    try {
+        const { country_code } = request.params;
+        const { state, locality, zipcode } = request.query;
+
+        let whereConditions = [];
+        let queryParams = [country_code];
+
+        if (zipcode) {
+            whereConditions.push(`gd.postcode = ?`);
+            queryParams.push(zipcode);
+        } else {
+            if (state) {
+                whereConditions.push(`gd.region1 LIKE ?`);
+                queryParams.push(`${state}%`);   // line 2254 — LIKE prefix match
+            }
+            if (locality) {
+                whereConditions.push(
+                    `(gd.region2 = ? OR gd.locality = ? OR gd.suburb = ?)`
+                );
+                queryParams.push(locality, locality, locality);
+            }
+        }
+
+        const whereClause = whereConditions.length > 0
+            ? `AND ${whereConditions.join(" AND ")}`
+            : "";
+
+        const sqlQuery = `
+            SELECT gd.latitude, gd.longitude,
+                   gd.iso AS country_code,
+                   gd.region1 AS state,
+                   gd.region2,
+                   gd.locality,
+                   gd.postcode
+            FROM geocode_info AS gd
+            WHERE gd.iso = ?
+            ${whereClause}
+            LIMIT 1;
+        `;
+
+        const result = await Db.execute(sqlQuery, queryParams).then((r) => r[0]);
+        return result.length > 0 ? result : null;
+    } catch (err) {
+        console.error("Error en getCoordinates:", err);
+        return { error: "Internal Server Error" };
+    }
+}
+```
+
+### 26.1 Why this is NOT SQL injection (Phase-3 agent 5 false positive)
+
+The Phase-3 infrastructure agent flagged line 2277 (`${whereClause}`) as SQL injection. It is NOT, because:
+
+1. The `whereConditions` array members are STATIC SQL fragments (e.g., `'gd.postcode = ?'`, `'gd.region1 LIKE ?'`). They are pre-defined string constants in the source — not interpolated from request input.
+2. All values are pushed to `queryParams` and pass through MySQL's parameterization via `Db.execute(sqlQuery, queryParams)`. The `?` placeholders are bound server-side.
+3. The only way to inject SQL would be if `whereConditions.push(...)` were called with a user-derived string. The handler controls the strings; user input only flows into `queryParams`.
+
+**Severity:** code smell, not vulnerability. Refactor to a query builder for readability if desired.
+
+### 26.2 Edge cases
+
+- `state` LIKE prefix match (`${state}%`) means partial-name lookups succeed. E.g., `state=Sao` matches `'São Paulo'`, `'São Roque'`, etc.
+- `locality` matches against THREE columns (region2 OR locality OR suburb). Generous matching — useful for fuzzy queries but can return wrong rows if locality names overlap regions.
+- No ORDER BY → with multiple matches, MySQL returns whichever row it pleases. Combined with `LIMIT 1` → result is non-deterministic.
+- Empty `state` and `locality` AND empty `zipcode` → `whereClause = ''` → SELECT first matching country row → returns coordinates for whichever `geocode_info` row is first for that country. Deterministic only by row order in the storage engine.
+
+### 26.3 Return shape
+
+Returns the FULL result row (line 2282) — `Db.execute` returns `[rows, fields]` and `.then(r => r[0])` strips fields. So the response is the raw row object: `{ latitude, longitude, country_code, state, region2, locality, postcode }`. ⚪ The MCP doesn't currently consume this endpoint.
+
+## 27. Cross-check additions for iter 2
+
+Additional verifications performed in iter 2:
+
+| Prior claim | Verified? | Notes |
+|-------------|-----------|-------|
+| `_meta` line 161 cache key bug (`queryLocality` uses `zip_code` from a route that has no `zip_code` param) | ✅ confirmed verbatim (line 161) | High-impact bug — see §21 |
+| `_meta` file cache path bug (`fileName` starts with `/`) | ✅ partially confirmed but **mechanism wrong** | The leading slash does NOT desanchor `path.join` (Node's behavior differs from Python's). The actual concern is path-traversal via `zip_code` param. See §22.3 |
+| `_meta` `'use strinct'` typo at controllers/web.js:1 | ✅ confirmed exactly | And `routes/web.js:1` has `'user strict'` (different typo). Both effectively non-strict mode. |
+| `_meta` `usageCounter` no-op | ✅ confirmed (lines 1384-1386: `return true;`) | |
+| `_meta` `multipleStatements: true` at config/database.js:20 | ✅ confirmed | |
+| `_meta` SQL injection at lines 2085, 2123 | ✅ confirmed verbatim with full query strings | See §16.1 |
+| `_meta` SQL bug CTT line 2003 | ✅ confirmed; classification corrected | Column-aliasing, not syntax error. See §15.2 |
+| Phase-3 agent claim of 52 routes | ❌ rejected | Verified count = 48. See §15.1 |
+| Phase-3 agent claim of SQL inj at line 2277 | ❌ rejected as false positive | Conditions are static SQL, values parameterized. See §26.1 |
+| Phase-3 agent claim that EU list has 27 entries | ✅ confirmed verbatim | See §7.2 |
+| Phase-3 agent claim that excStates has 13 entries | ✅ confirmed verbatim | See §7.2 |
+| MCP drift: ES-35, ES-38, FR-MC vs ES-CE, ES-ML | ✅ confirmed by direct read of MCP `country-rules.ts` | See §15.3 |
+
+### 27.1 Iter 2 additions to open questions
+
+15. **MX state-code remap is duplicated** in `Util.setStateCodeMx` AND inlined in `queryLocality:251-285`. Drift risk. ⚪ Backend team: which is canonical? Refactor to single source.
+16. **VIACEP `iso2` mismatch.** Imports use `'BR-' + stateName` where stateName is the full Portuguese name (`'São Paulo'`). Authoritative rows use the 2-letter UF (`'BR-SP'`). Filtered queries by `iso2='BR-SP'` will MISS VIACEP rows. ⚪ Has this caused observable bugs (e.g., users reporting their CEP returns no rows after a previous successful query)?
+17. **Path traversal on `queryZipCode` file cache.** `zip_code` is `Joi.string()` with no charset restriction. An attacker passing `zip_code=../../../tmp/foo` could cause file reads/writes outside `resources/zipcodes/`. ⚠️ Real vulnerability. Restrict Joi to `^[A-Za-z0-9 +-]+$`.
+
+## 28. Self-assessment iter 2
+
+Doc now covers approximately **80-85%** of the geocodes service surface (was 70-75% after iter 1). New material added:
+
+- ✅ §20: `queryZipCode` complete trace (3-tier cache, full SQL, response shape, MX remap, BR fallback paths)
+- ✅ §21: `queryLocality` cache-key bug verified verbatim (line 161, `zipcode.{cc}.undefined`)
+- ✅ §22: `controllers/files.js` mechanics + path-traversal finding
+- ✅ §23: VIACEP integration full code walk + 5 distinct findings (data-quality risks)
+- ✅ §24: MX state-code remapping (11 cases, also duplicated in queryLocality)
+- ✅ §25: `fixZipcode` complete switch + the AR fall-through hidden case + `cleanLocateQuery`
+- ✅ §26: `getCoordinates` SQL deep-dive + Phase-3 agent false positive corrected
+- ✅ §27: cross-check additions covering 13 prior claims + 3 new open questions
+
+Still pending for iter 3 ⚪:
+
+1. The 18+ carrier-coverage handlers — full per-handler SQL. (`/transaher/...`, `/loggi/...`, `/buslog/...`, etc. — only sampled by Phase-3 agent 1, not independently verified line-by-line.)
+2. `queryLocate`/`queryLocateV2` — UNION query pattern fully reviewed but the secondary fallback (region3) and multi-row response shape not yet traced.
+3. `g1_information_schema_geocodes.csv` complete table inventory — only ~25 of ~32 named in iter 1.
+4. `g8_carrier_country_zones.csv` (227 KB) and `g16_carrier_extended_zone_per_country_summary.csv` — not yet read.
+5. **Drift remediation recommendations** — concrete file/line patches to align MCP `country-rules.ts` with geocodes' authoritative behavior.
+6. **MCP gap fix proposals** — concrete tool/helper additions and effort estimates.
+7. **Honest coverage % and final sign-off.**
+
+Iter 3 should focus on (1) drift remediation, (2) MCP fix proposals, (3) final coverage call.
