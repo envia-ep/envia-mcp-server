@@ -7,7 +7,7 @@
 
 The MCP project requires deep, transferable knowledge bases for each backend service it consumes. The pattern is:
 
-1. **Per-project deep reference doc** in `_docs/<PROJECT>_DEEP_REFERENCE.md`.
+1. **Per-project deep reference doc** in `_docs/QUERIES_DEEP_REFERENCE.md`.
 2. **Same depth and structure** as `_docs/CARRIERS_DEEP_REFERENCE.md` (gold standard, ~92-95% coverage, 2,142 lines, 40 sections, 3 iterations).
 3. **Honest about gaps** — every doc closes with self-assessment + ⚪ pending list.
 4. **Decision-relevant** — not just architectural curiosity but enables MCP tool design, debugging, and incident response.
@@ -67,9 +67,22 @@ For each prompt:
 Replace `<PROJECT>` with carriers/queries/geocodes/ecommerce/admin-monorepo/accounts and `<PROMPT_FILE>` with the corresponding `.md` file from `.claude/prompts/`.
 
 ```
-Sesión de deep reference audit del proyecto <PROJECT> — bar: ser el mejor del mundo.
+Sesión de deep reference audit del proyecto queries — bar: ser el mejor del mundo.
 
 Modelo: Opus 4.7 (1M context). Duración esperada: 2-4 horas.
+
+PRE-FLIGHT (antes de cualquier lectura, ejecuta los 3 en orden):
+
+1. `git status` desde el monorepo root. Si hay WIP no commiteado:
+   `git stash push -u -m "pre-<PROJECT>-audit-WIP"`. Restáuralo al
+   cierre si aplica. Esto cumple LESSON L-G1 y evita que el audit
+   mezcle líneas con trabajo previo. Default seguro: stash. Sólo
+   commitea si el WIP tiene un checkpoint lógico claro.
+2. Confirma modelo: Opus 4.7 (1M context). Si estás en Sonnet,
+   aborta y abre Opus — la profundidad requerida no se logra con
+   un modelo más chico.
+3. Working directory: `ai-agent/envia-mcp-server/` para todas las
+   rutas relativas en este opening y en los runbooks.
 
 LECTURA OBLIGATORIA, en este orden exacto:
 
@@ -77,13 +90,37 @@ LECTURA OBLIGATORIA, en este orden exacto:
    encoda una corrección que pagué antes; ignorarlas repite mistakes.
 
 2. ai-agent/envia-mcp-server/_docs/CARRIERS_DEEP_REFERENCE.md — gold
-   standard. 40 secciones, 2,142 líneas, 3 iteraciones documentadas.
-   ESTE es el bar de profundidad y estructura. Si tu output no replica
-   este nivel, no es suficiente.
+   standard. 40 secciones, 2,142 líneas (~53k tokens, ~5% de tu context
+   budget en Opus 1M), 3 iteraciones documentadas. ESTE es el bar de
+   profundidad y estructura. Si tu output no replica este nivel, no es
+   suficiente.
 
-3. ai-agent/envia-mcp-server/.claude/prompts/<PROMPT_FILE> — runbook
+   LECTURA OBLIGATORIAMENTE COMPLETA Y SECUENCIAL. No selectiva — los
+   patrones críticos (iteración 1→2→3, cross-check pass, honesty traps,
+   self-assessment honesto) están dispersos en §10, §15, §20-22, §28,
+   §30, §40. Lectura parcial garantiza output insuficiente. El costo
+   de los 53k tokens es trivial vs el costo de producir un doc que
+   falle el bar.
+
+3. ai-agent/envia-mcp-server/.claude/prompts/GEOCODES_DEEP_AUDIT_PROMPT.md — runbook
    ejecutable: scope, methodology, quality gates, honesty traps,
    anti-patterns. Síguelo paso a paso.
+
+RESOLUCIÓN DE RUTAS DEL PROYECTO AUDITADO:
+
+- Primer intento: `services/<PROJECT>/` desde el monorepo root.
+- Fallback: `repos_extra/<PROJECT>/` (aplica para accounts y
+  ecart-payment).
+- Si ninguno existe, usa `find` desde el monorepo con el nombre del
+  proyecto. NUNCA inventes paths; si no encuentras, surface el blocker
+  al cierre con ⚪ pendiente — no procedas con paths supuestos.
+
+IDIOMA DEL DOC PRODUCIDO:
+
+- Inglés (consistente con `services/carriers/CLAUDE.md` y todos los
+  docs existentes en `ai-agent/envia-mcp-server/_docs/`).
+- Citas a T&C, knowledge-base u otros docs en español se mantienen en
+  español dentro de bloques quote, no se traducen.
 
 DISCIPLINA NO NEGOCIABLE:
 
