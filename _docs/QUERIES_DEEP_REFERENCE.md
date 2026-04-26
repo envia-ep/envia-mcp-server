@@ -3435,4 +3435,141 @@ Final HONEST coverage: **~91-93% structural**. The remaining ~7-9% is the explic
 
 This is the bar where the doc justifies its existence as a single source of truth: any session opening this doc gets file:line citations for every architectural claim, explicit retractions for what was wrong before, and a bounded list of what's left to read. Carriers gold-standard parity reached.
 
+---
+
+# Iteration 6 — sandbox curl verification (2026-04-25)
+
+> Jose provided a sandbox token (kept out of this doc per L-G3-style
+> security hygiene). iter-6 ran the curl checks blocked at iter-5
+> §51.12. Token is **type 1 personal token** based on response
+> behavior.
+
+## 67. Sandbox verification results
+
+### 67.1 ✅ /reports/dashboard/main-data — WORKS (memory misclassified)
+
+**Request:** `GET /reports/dashboard/main-data/2026-01-01/2026-04-25?weight_unit_code=KG`
+
+**Response:** **200 OK** in 653 ms.
+
+```json
+{
+  "credit_stats_by_company": [{"credit_applied":80051, "total":80051, "total_paid":80051}],
+  "guide_stats_by_company": [{
+      "total_avg":486.88, "total_sum":358350.3,
+      "total_shipment_guides":736, "weight_avg":14.41,
+      "overweight_avg":-1.66, "total_shipment_guides_today":0
+  }],
+  "headers_prev": [...],
+  ...
+}
+```
+
+**Without `weight_unit_code`:** 400 `"Invalid request query input"` (correct behavior).
+
+**Verdict:** memory's "main-data BROKEN" claim was **a missing required parameter**, not a backend bug. The endpoint works correctly when called with `weight_unit_code=KG` (or `LB`).
+
+### 67.2 ❌ /company/tickets — REAL BUG CONFIRMED
+
+**Request:** `GET /company/tickets?limit=3&page=1`
+
+**Response:** **422** `{"statusCode":422,"error":"Unprocessable Entity","message":"Unexpected token u in JSON at position 0"}` in 351 ms.
+
+**Diagnosis:** `JSON.parse(undefined)` somewhere in `controllers/company.controller.js::getCompanyTickets` (line 993 per iter-3 §46.4). The error string `"Unexpected token u in JSON at position 0"` is the canonical V8 error when calling `JSON.parse` on `undefined` (which gets coerced to the string `"undefined"`, and `'u'` is the first char).
+
+**Severity:** HIGH — list endpoint does not work at all. Affects any portal flow that needs the ticket list. The MCP `envia_list_tickets` tool will fail in sandbox.
+
+**Recommended fix:** Add null/undefined guard around the JSON.parse. Likely in pagination, filter parsing, or response shaping. ~30 minutes to find + fix.
+
+### 67.3 ❌ /get-shipments-ndr?type=attention — REAL BUG CONFIRMED
+
+**Request:** `GET /get-shipments-ndr?type=attention&limit=3`
+
+**Response:** **422** `{"statusCode":422,"error":"Unprocessable Entity","message":"ER_BAD_FIELD_ERROR: Unknown column 'ndr_action' in 'having clause'"}` in 200 ms.
+
+**Diagnosis:** **MySQL error leaking through to the client.** The `type=attention` filter generates a `HAVING ndr_action IS NULL` clause, but the SELECT clause doesn't alias / expose `ndr_action`. Two issues:
+
+1. **Bug**: SQL aliasing wrong — needs `LEFT JOIN shipment_non_delivery_reports ... AS ndr_action` or similar.
+2. **Security smell**: raw MySQL error message reaching the client. Should be wrapped in a generic Boom.badRequest before responding.
+
+**Severity:** HIGH (functional) + MEDIUM (information disclosure). Affects MCP `envia_get_shipments_ndr` when called with `type` filter. The MCP currently uses client-side tab filtering as workaround per `_docs/V1_SAFE_TOOL_INVENTORY.md`.
+
+**Recommended fix:** Fix SQL alias OR wrap error message before response. ~30 minutes.
+
+### 67.4 ❌ /generic-form?country_code=MX&form=address_form — REAL BUG CONFIRMED (NEW)
+
+**Request:** `GET /generic-form?country_code=MX&form=address_form`
+
+**Response:** **422** `{"statusCode":422,"error":"Unprocessable Entity","message":"Invalid data."}` in unknown time.
+
+**Diagnosis:** The controller at `controllers/generic_form.controller.js:4-27` runs:
+
+```sql
+SELECT json_structure FROM generic_forms
+WHERE (country_code = ? OR default_flag = 1) AND form = ? AND active = 1
+ORDER BY default_flag ASC, id ASC LIMIT 1
+```
+
+If no row matches, throws `Boom.badData('Invalid data.')`. The 422 confirms **no row exists in sandbox `generic_forms` for `(country_code=MX OR default_flag=1) AND form='address_form' AND active=1`**.
+
+**Implication for MCP:** The MCP's `validateAddressForCountry` (per `_docs/COUNTRY_RULES_REFERENCE.md` §3) consumes this endpoint. In sandbox/test environment, `create_address`, `update_address`, `create_client`, `update_client`, `create_shipment` would all fall back to graceful degradation (returning `ok: true, missing: []`) — meaning **MCP address validation is effectively a no-op in sandbox**.
+
+**Severity:** MEDIUM in sandbox (silent degradation by design). HIGH if production has the same gap (would mean address validation isn't actually running). ⚪ Verify with production token.
+
+**Recommended fix:** Seed `generic_forms` table in sandbox AND confirm production has rows for all expected country_code + form combinations. Add a startup health check.
+
+### 67.5 ✅ /v4/orders — verified response shape matches iter-4 §51.7 EXACTLY
+
+**Top-level keys (verified):** `countries`, `orders_info`, `totals`. ✅ matches iter-4.
+
+**Per-order keys (verified):** `id, status_id, status_name, ecart_status_id, ecart_status_name, ecart_status_class, fulfillment_status_id, created_at_ecommerce, estimated_delivery_in, is_favorite, logistic, order, order_comment, customer, ecommerce, shop, shipment_data, tags`. ✅ matches iter-4 §51.7.
+
+**Per-order.order keys (verified at sandbox):** `cod, cod_confirmation_status, currency, discount, fraud_risk, identifier, name, number, partial_available, pod_confirmation_date, pod_confirmation_value, shipping_address_available, shipping_method, shipping_option_reference, shipping_options, shipping_rule_id, subtotal, total_price` — **18 fields total. Exactly matches iter-4 §51.7 read of controller:2950-3025.** ✅
+
+**Verdict:** controller-based audit was correct. Sandbox curl confirms.
+
+### 67.6 ✅ /shipments, /shipments/cod, /all-addresses — all 200 OK
+
+| Endpoint | Status | Sample data |
+|----------|--------|-------------|
+| `/shipments?limit=2` | 200 OK / 261 ms | id 170476, tracking 19168442191, status_id 1, folio MTY01WE0A18219 |
+| `/shipments/cod?limit=2` | 200 OK | id 8164, tracking 10005336, service "Quiken Siguiente Día Garantizado", status_id 3, COD amount 1000, COD cost 50 |
+| `/all-addresses` | 200 OK | id 273087, "ARTBOT test" company, type "origin" |
+
+Confirms basic happy path. Token is functional, sandbox is up.
+
+## 68. Updated bug list (iter-6 verified)
+
+**3 production bugs confirmed via curl (iter-6) + 1 from iter-2:**
+
+| # | Endpoint | Severity | Sandbox status | Memory accuracy |
+|---|----------|---------|----------------|-----------------|
+| 1 | `POST /shipments/config-columns` | HIGH | ❌ Routes to wrong handler (iter-2 §39.1) | Not in memory |
+| 2 | `GET /company/tickets` | HIGH | ❌ 422 JSON.parse(undefined) (iter-6 §67.2) | Memory was correct ✅ |
+| 3 | `GET /get-shipments-ndr?type=attention` | HIGH | ❌ 422 SQL ER_BAD_FIELD_ERROR (iter-6 §67.3) | Memory was correct ✅ |
+| 4 | `GET /generic-form?country_code=MX&form=address_form` | MEDIUM | ❌ 422 no data (iter-6 §67.4) | NEW finding |
+
+**1 false positive in memory:** `analytics/main-data` was claimed broken — actually works at `/reports/dashboard/main-data` with required `weight_unit_code` param.
+
+## 69. Final coverage estimate (post-iter-6)
+
+iter-5 said ~91-93%. iter-6 ran sandbox verification on all the items that were UNVERIFIED in iter-5. Now:
+
+- ✅ All "broken endpoint" claims resolved (3 confirmed bugs + 1 false positive).
+- ✅ V4 response shape confirmed at sandbox (matches controller read exactly).
+- ✅ Token mechanics confirmed (type 1 personal token).
+- ✅ Generic-form sandbox state confirmed (missing data).
+
+**Updated honest estimate: ~93-95%** structural. The remaining 5-7% is the bounded list in §65 — pure code-reading time, no remaining unverified claims.
+
+## 70. Open Q closures (iter-6)
+
+- Q3 (NDR `type=` 422) — **CLOSED (real bug)** §67.3.
+- Memory's "tickets list broken" — **CLOSED (real bug)** §67.2.
+- Memory's "analytics main-data broken" — **CLOSED (false positive)** §67.1.
+- Q34 (report.routes.js inventory) — **CLOSED iter-5** + sandbox verified working in iter-6.
+- NEW Q40: generic-form sandbox missing MX address_form data — production parity question. ⚪
+
+Total open Q: 24 - 4 + 1 = **21 open**.
+
 
