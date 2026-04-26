@@ -2887,3 +2887,591 @@ called from Rate and Generate. Price computed per package in
 4. **Green Tax (Delhi-only)** for surface LTL.
 5. **RTO scan merging** — `BlueDartUtil::mergeRtoScans` prefixes
    return-leg scans with "RTO-" for unified tracking display.
+
+## 47. CarrierUtil method inventory
+
+`app/ep/util/CarrierUtil.php` is the central god class — **272 methods**
+(verified via grep on method signatures) across **7,734 lines**. Used
+by virtually every carrier integration and every action class.
+
+### 47.1 Top-15 most-called methods (by file count of callers)
+
+Counts produced by `grep -rln "CarrierUtil::<method>" app/ tests/`. A
+file count higher than 50 means the method is foundational —
+refactoring requires extreme care.
+
+| Rank | Method | Files | Responsibility |
+|-----:|--------|------:|----------------|
+| 1 | `saveShipment` | 116 | Persists shipment + packages from generate flow |
+| 2 | `getCarrierServices` | 113 | Resolves available services for company × carrier × coverage |
+| 3 | `sendNotification` | 92 | Triggers notification (email / WhatsApp / webhook) |
+| 4 | `updateStatusWithDates` | 89 | Updates DB shipment status + event dates from track flow |
+| 5 | `pickupValidations` | 50 | Validates pickup window / fee / sufficient balance / daily limits |
+| 6 | `trackChangeOvercharges` | 44 | Triggers overweight TMS charge on Delivered + weight diff |
+| 7 | `getCustomKeys` | 12 | Resolves company custom keys for a carrier (decrypts via AES) |
+| 8 | `shouldApplyTaxes` | 8 | Decides whether to call geocodes /location-requirements |
+| 9 | `getInsurance` | 7 | Computes insurance amount + commission |
+| 10 | `validateAddress` | 6 | Validates origin/destination address structure |
+| 11 | `carrierExists` | 5 | Resolves carrier class name from name+locale (used in dispatcher) |
+| 12 | `makeAdjustment` | 4 | Issues TMS adjustment for charge corrections |
+| 13 | `getVolumetricFactor` | 4 | Resolves volumetric factor for a shipment (carrier or service override) |
+| 14 | `validateData` | 2 | Generic input validation hook |
+| 15 | `getShipmentInfo` | 1 | Loads shipment context for downstream actions |
+
+`saveShipment` (116 files) and `getCarrierServices` (113 files) are
+**effectively core API surface** — almost every carrier file calls
+both. The 7,734-line bulk of CarrierUtil exists to support these two
+plus the persistence/notification chain.
+
+### 47.2 Method categorization (272 methods grouped)
+
+By inspecting method names + line ranges, the methods fall into ~14
+responsibility areas. Counts approximate and based on naming patterns.
+
+| Area | Examples | Approx count |
+|------|----------|-------------:|
+| **Pricing / rate** | `pricePlan`, `getPrice`, `getPricePlan`, `getPricePlanLtl`, `getPricePlanLtlByDistance`, `getRate`, `getInsurance`, `getCommission`, `temporalDiscount` | ~15 |
+| **Shipment persistence** | `saveShipment`, `saveAddress`, `savePackage`, `saveAdditionalService`, `saveShipmentCosts`, `saveVehicle`, `saveComplement`, `saveAdditionalInfo`, `saveShipmentAdditionalFolios`, `saveLogNotification`, `saveManifest`, `saveManifestShipments`, `saveShipmentAdditionalPdf`, `linkShipmentToDraft`, `generatePackages` | ~20 |
+| **Status updates** | `updateStatus`, `updateStatusWithDates`, `updateSpecificStatus`, `updateLastTrackEvent`, `updateLastTrackEventAsCancelled`, `updateEstimatedDelivery` | ~6 |
+| **Pickup** | `pickupValidations`, `validateCompanyPickup`, `validateMinAmountPickup`, `applyPickupFee`, `defaultPickup`, `savePickup`, `markPreviousPickupAsRescheduled`, `savePickupShipment`, `savePickupOnGenerate`, `pickupCancel`, `pickupCancelAndRefund`, `getPickupDate`, `checkPickupRequested`, `getTotalPickupsSameDay` | ~16 |
+| **Tracking** | `simpleTrack`, `setTrackEventDates`, `fixAdvanceTrackingArray`, `getShipmentTrackInfo`, `defaultTrackhistory`, `mergeWSAndDbTrack`, `setTrackUrlSiteByCarrier`, `validateRTO`, `validateEventDate` | ~10 |
+| **Cancel / refund** | `getShipmentToCancel`, `checkRefundLimit`, `cancelShipmentRefund`, `cancelLtlValidations`, `emitCancelation`, `trackChangeCancelations`, `makeAdjustment`, `makeSurcharge`, `makeSurchargeReturn`, `makeSurchargeCanceledButUsed`, `surchargeReturn`, `payCod`, `cancelDceIfApplicable` | ~14 |
+| **Coverage / serviceability** | `getCarrierServices`, `getCarrierCountryZone`, `getLimitCoverage`, `getCarrierPattern`, `serviceLimit`, `validateLimitWeightByService`, `validateInsularSpainShipment` | ~8 |
+| **Address / geocode** | `validateAddress`, `getAddressCarrierRelation`, `tmpAddressRelation`, `findState`, `findDistrictSat`, `findStateSat`, `findMunicipalitySat`, `findAddressesByConfigAddressObject`, `getGeoCodeInfo`, `validateGeoCodeInfo`, `getGeoClassification`, `validateClassification`, `fixedAddress`, `setDisplayOrigin`, `cleanMaltaCity` | ~16 |
+| **Custom keys** | `getCustomKeys`, `decryptToken`, `verifyCustomKeyPerService`, `getCustomKeyCommisionPerPackage`, `filterEnviaInsuranceWithCustomKeys`, `setCarrierKeys` | ~6 |
+| **Multi-package + dimensions** | `getMultipieces`, `getIndividualMultipieces`, `modifyMultipieceOnLoop`, `validateMaxWeight`, `validateMaxWeightByPackageType`, `validateDimensionsLinearSumV2`, `validateMinimumDimensions`, `validatePackageDimensionByRule`, `validateAndReorderPackageDimensions`, `validateDeclaredValueLimit`, `validateMaxPerShipment`, `getRestrictedWeightForInternational`, `evaluateAllowedWeight`, `evaluateAllowedWeightInternational`, `concatenatePackageDescriptions`, `setPackageDetails`, `getPackageDetails`, `validatePackageUnitsConsistency`, `truncateProductNameForCarrier`, `fixPackageUnitLocalUS`, `getContentPackage`, `permute`, `permutation`, `generatePermutations`, `convertToLbs`, `getVolumetricFactor`, `calculateVolumetricWeight`, `calculateVolWithFactor`, `validateInternationalPackageItems`, `validateProductCodesForAllItems`, `validateBranchTypeByService`, `getServiceBranchType`, `validateSingleBranchTypeByService`, `validateBranchRequiredByDropOffType`, `getBoxCodeByServiceFiltered`, `hasPackageItems` | ~36 |
+| **Identification / fiscal** | `getIdentificationLFS`, `validateIdentificationNumbers`, `validateIdentificationNumbersCO`, `validateIdentificationNumbersV2`, `getTypeRFC`, `clearNit`, `isCnpjOrCpf`, `getFiscalPersonTypeBrazil`, `detectDocumentIdType`, `validateBrazilFiscalDocument`, `saveDceKeyIfApplicable`, `getDaceFiles`, `cancelDceIfApplicable`, `validateFRPhone`, `formatPhoneWithLadaByCountry`, `getPhoneCode`, `applyTaxToAmount`, `getRateTaxableAmount`, `getInsuranceVaucher`, `getTaxData`, `setParamsSpainCommercialInvoice`, `getInternationalTaxPayer`, `isDdpPayment`, `isLandedCostPayment`, `getCommercialInvoiceRegulations`, `validateUPSCIShouldDisplayShipmentCost` | ~26 |
+| **Notifications + webhook** | `notificationOnGenerate`, `notificationOnCancel`, `sendNotification`, `sendWebhookNotification`, `sendNotificationWebhook`, `sendNotificationSms`, `sendNotificationWhatsApp`, `setTemplateCountryWhatsapp`, `sendEmailNotification`, `sendGenerateMail`, `sendPickupMail`, `sendGenericMail`, `sendCustomPickupMail`, `sendAutomatedPickupEmail`, `sendWebhookTest` | ~15 |
+| **TMS surcharges + COD** | `trackChangeOvercharges`, `payCod`, `surchargeReturn`, `cancelShipmentRefund`, `makeAdjustment`, `makeSurcharge`, `makeSurchargeReturn`, `makeSurchargeCanceledButUsed` | ~8 |
+| **Generic helpers** | `formatDate`, `formatDateFromString`, `formatString`, `splitStr`, `roundUp`, `specialRound`, `deleteDuplicatedArray`, `addWeekdays`, `getWeekday`, `getTimestamp`, `dateWeekend`, `validateHoliday`, `getDateTimeNow`, `getDateTomorrow`, `utcToTimeZone`, `setLanguagesInFile`, `getTranslateDelivery`, `deleteSpacePostalCode`, `setFormat9DigitUSZipCode`, `getPrefixZipCodeByCountry`, `getCountryCode3Digits`, `getContinentCode`, `getDistanceByCoordenates`, `getFirstAndLastName`, `getEstimateObj`, `fixEstimate`, `addAdditionalFiles`, `uploadFile`, `uploadFileShipment`, `genericZplLabel`, `genericZplLabelQR`, `getZPLDefaultLabel`, `setCustomLabelValues`, `getCompanyLogos`, `getShowEmptyLabelLogo`, `getPrintSettings`, `setPrices`, `setAdditionalServicesByCompany`, `getCurrencyShipment`, `companyFlagValidation`, `getSenderAttributes`, `setShipmentTrackInfo`, `setTrackEventDates`, `fixManifestArray`, `setShipmentInfo`, `formatPostage*` | ~50+ |
+
+Plus minor: Italy island validation, Zonos integration (`createZonosOrder`,
+`processZonosOrder`, `injectLandedCostCharges`, `calculateLandedCost`),
+ICMS Brazil (`calculateIcmsBrazil`, `icmsFromValue`),
+Indian B2C declared value (`calculateIndianB2CDeclaredValue`),
+WS incident reporting (`reportWSIncident`),
+generic carrier-status translation (`translateCarrierStatus`,
+`getAllEnviaStatusByController`).
+
+### 47.3 Refactoring risk assessment
+
+| Method tier | Caller count | Risk to refactor |
+|-------------|------------:|------------------|
+| Tier 1 (foundational) | >50 files | Extreme — touches every carrier integration. Any signature change breaks ~half the codebase. |
+| Tier 2 (cross-cutting) | 10-50 files | High — affects multiple actions. Need extensive regression tests. |
+| Tier 3 (action-scoped) | 2-10 files | Moderate — limited blast radius. |
+| Tier 4 (helper) | 1 file or 0 | Low — internal helper, can refactor freely. |
+
+### 47.4 Notable patterns + V1/V2 duplication
+
+- **`AdditionalServiceUtil` vs `AdditionalServiceUtilV2`** in `app/ep/util/`
+  — V1/V2 coexist. Code-injected services (Delhivery, BlueDart, MX
+  cross_border) flow through V2 via `addSpecialMandatoryServices`.
+- **`validateIdentificationNumbers` vs `validateIdentificationNumbersV2`**
+  — V2 lives at line ~7501 with stricter rules. V1 still callable.
+- **`validateDimensionsLinearSumV2`** — a V2 helper at line ~7471 added
+  for stricter dimension sum checks. No V1 counterpart found.
+- **`fullCancel` (in `CancelTrait`)** — refund flow control documented
+  in §9. Each carrier passes `true|false` for `$validateRefund`
+  (refund-limit gate).
+- **`processZonosOrder` / `createZonosOrder` / `injectLandedCostCharges`**
+  — Zonos cross-border flow. Tied to ZonosController routes (§2.3).
+- **`calculateLandedCost`** — landed cost calculator for international
+  shipments (DDP, broker fees, customs duties). Line ~6716.
+
+### 47.5 What `CarrierUtil` should NOT contain (engineering note)
+
+This god-class needs decomposition. Candidates for extraction:
+
+- All notification + webhook methods → `NotificationUtil` (already
+  exists at `app/ep/util/NotificationUtil.php` — partial extraction).
+- All identification/fiscal validation → `FiscalUtil`.
+- All address/geocode helpers → already extracted to `GeocodeUtil`,
+  `AddressUtil` (partial — duplicates exist).
+- All payment/charge methods → `TmsUtil` (already partial).
+
+The duplication is documented technical debt. Refactoring is out of
+scope for this audit.
+
+## 48. AbstractCarrier and the carrier interface
+
+The runbook anticipated a rich `AbstractCarrier` parent class with
+default implementations. **Reality: the parent is 24 lines** (verified
+via `wc -l`).
+
+### 48.1 AbstractCarrier (24 lines)
+
+Source: `app/ep/carriers/AbstractCarrier.php`.
+
+```php
+abstract class AbstractCarrier implements ICarrier
+{
+    public const EXTERNAL_RATE_SPAN_NAME = 'third_party_rate';
+    public const ID_DEF_MX = 'XAXX010101000';
+
+    public static function startRateSpan(string $endpoint, mixed $request = null)
+    {
+        $span = startSpan(self::EXTERNAL_RATE_SPAN_NAME);
+        ApmUtil::setCarrierRequestAttributes($endpoint, $request);
+        return $span;
+    }
+}
+```
+
+The parent class provides only:
+
+- A constant for the APM span name on outbound carrier rate calls.
+- A constant for the MX default identification placeholder.
+- One static helper `startRateSpan()` — wraps APM tracing for carrier
+  rate calls.
+
+There are NO default implementations of `Rate`/`Generate`/`Track`. The
+carrier inheritance is interface-driven (via `ICarrier`), not
+inheritance-driven.
+
+### 48.2 The real interface — ICarrier (7 methods)
+
+Source: `app/ep/carriers/ICarrier.php`.
+
+```php
+interface ICarrier {
+    public static function Rate($data);
+    public static function Generate($data);
+    public static function Track($data);
+    public static function Pickup($data);
+    public static function Cancel($data);
+    public static function BillOfLading($data);
+    public static function AdvancedTrack($data);
+}
+```
+
+Every carrier controller (`app/ep/carriers/*.php`) must implement
+these 7 static methods. That contract is what `Ship::handleCarrierAction`
+(§4.3) relies on when calling `$carrierController::$action($data)`.
+
+### 48.3 ICarrierRaw — V1 raw responses
+
+Source: `app/ep/carriers/ICarrierRaw.php`.
+
+```php
+interface ICarrierRaw {
+    public static function RateRaw($data);
+    public static function TrackRaw($data);
+}
+```
+
+Used by V1 routes (`/v1/ship/{action}` per §2.2) which return raw
+carrier responses (no normalization to `Breakdown` types).
+
+### 48.4 Methods present in many carriers but NOT in interface
+
+Optional methods that carriers implement à la carte:
+
+- `branch($data)` — used by `/ship/branches` action.
+- `manifest($data)` — used by `/ship/manifest`.
+- `nDreport($data)` — used by `/ship/ndreport`.
+- `complement($data)` — used by `/ship/complement` (SAT carta porte).
+- `rate2`, `generate2`, `pickup2`, `cancel2` — LTL variants.
+- `rate3`, `generate3`, `pickup3`, `cancel3` — FTL variants.
+
+If a carrier doesn't implement an optional method, `Ship::handleCarrierAction`
+throws an "InvalidActionException" (line ~155).
+
+### 48.5 Why the parent is so thin (architectural read)
+
+The choice to keep `AbstractCarrier` minimal is intentional: each
+carrier's logic differs so substantially (SOAP vs REST, MPS modes
+§33, carrier-specific surcharges, custom auth) that meaningful
+defaults would constrain implementations. The shared logic lives in
+`CarrierUtil` (called explicitly by each carrier) rather than
+inherited.
+
+Trade-off: **gold standard §6 implies a richer parent than reality**.
+Future readers should treat the 3-tier file pattern (`Carrier.php` +
+`CarrierApi.php` + `CarrierUtil.php`) as the contract, NOT
+inheritance.
+
+## 49. Eloquent Models inventory
+
+`app/Models/` contains **126 PHP model files** (verified via `find -name "*.php" | wc -l`).
+Note: `services/carriers/CLAUDE.md` and §1.3 of this doc both state
+"128+" — actual count is 126 (a minor overcount; documented as a
+correction in §52).
+
+### 49.1 Categorization
+
+By naming pattern:
+
+| Category | Example models | Count |
+|----------|----------------|------:|
+| **Auth** | `AccessToken`, `AccessTokenHistory`, `Administrator` | 3 |
+| **Address** | `AddressCategory`, `AddressType`, `ConfigAddress`, `ConfigDefaultAddress`, `ConfigDefaultShopAddress`, `ShipmentAddress` | 6 |
+| **Additional services** | `AdditionalService`, `AdditionalServicePlanDefinition`, `AdditionalServicePrice`, `AdditionalServicePricePlan` | 4 |
+| **Carrier (config)** | `Carrier`, `CarrierCountryZone`, `CarrierPercentage`, `CarrierPercentagesCustom`, `CarrierPickupRule`, `CarrierPrintOption`, `CarrierQueueJob`, `CarrierStandardPackage` | 8 |
+| **Catalog** | `CatalogCityDistance`, `CatalogConcept`, `CatalogDocumentType`, `CatalogPackageType`, `CatalogShipmentStatus`, `CatalogSurchargeCategory`, `CatalogTaxableService`, `CatalogZone` | 8 |
+| **Geography** | `CityDistance`, `Country`, `Locale`, `LocaleHistory`, `Province`, `State`, `Zone` | 7 |
+| **Company / shop** | `Company`, `CompanyBillingInformation`, `CompanyNotification`, `CompanyWebhook`, `Shop`, `ShopGiftRecharge`, `User`, `UserCompany` | 8 |
+| **Config** | `ConfigCheckoutCarrier`, `ConfigCheckoutService`, `ConfigNotification` | 3 |
+| **Custom keys** | `CustomKey` | 1 |
+| **Carrier-specific guides** | `CarssaShipmentGuide`, `CarssaFareZone`, `GatiShipmentGuide`, `RedpackShipmentGuide`, `RedpackShipmentGuideExpress`, `XpressBeesShipmentGuide`, `PaquetexpressFare`, `PaquetexpressVolumeQuote` | 8 |
+| **Delivery / estimates** | `DeliveryEstimate`, `Iata` | 2 |
+| **DHL session** | `DhlSession`, `PostalCodeDHL` | 2 |
+| **Ecommerce** | `Ecommerce` | 1 |
+| **Errors / logs** | `Error`, `LogCheckout`, `LogError`, `LogGenerateRequest`, `LogNotification`, `LogRequest`, `LogShipment` | 7 |
+| **Folio / numbering** | `Folio` | 1 |
+| **Freight (LTL/FTL)** | `FreightCityRangePrice`, `FreightJobDetail`, `FreightPricePlan`, `FreightStateRangePrice`, `FtlRate` | 5 |
+| **Manifest** | `Manifest`, `ManifestShipment` | 2 |
+| **Overcharges + payment** | `OverchargesException`, `PaymentHistory`, `PendingCharge` | 3 |
+| **Package types** | `PackageType`, `WarehousePackage` | 2 |
+| **Pickup** | `Pickup`, `PickupRule`, `PickupShipment` | 3 |
+| **Plans (pricing)** | `PlanCostDefinition`, `PlanDefinition`, `Price`, `PricePlan` | 4 |
+| **Postal codes** | `PostalCode` | 1 |
+| **Coverage** | `QuoteCarrierDestinationCoverage`, `QuoteCarrierOriginCoverage`, `QuoteCoverageArea`, `ServiceCoverage`, `ServiceCoverageAmount`, `ServiceCoverageCity` | 6 |
+| **Service** | `Service`, `ServiceDeactivated`, `ServiceEventHistory`, `ServiceIncident`, `ServiceStandardPackage`, `ServiceTax` | 6 |
+| **Shipment (core)** | `Shipment`, `ShipmentAdditionalFile`, `ShipmentAdditionalFolios`, `ShipmentAdditionalInfo`, `ShipmentAdditionalService`, `ShipmentComplement`, `ShipmentConcept`, `ShipmentCost`, `ShipmentGuide`, `ShipmentGuideInfo`, `ShipmentOverweight`, `ShipmentPackage`, `ShipmentTrackHistory`, `ShipmentType`, `ShipmentVehicle` | 15 |
+| **Tracking + status** | `StatusHistory`, `Surcharge`, `TrackHistory` | 3 |
+| **Tax** | `TaxRule`, `TaxableService` | 2 |
+| **Units** | `LengthUnit`, `WeightUnit` | 2 |
+| **Vehicle** | `Vehicle` | 1 |
+| **Volumetric** | `VolumetricFactor` | 1 |
+| **Zonos** | `ZonosOrder` | 1 |
+
+Total: 126 (verified by sum across categories).
+
+### 49.2 Carrier-specific guide tables (8 of 126)
+
+The 8 carrier-specific guide models indicate carriers that need
+specialized guide-numbering / fare logic stored in their own table:
+
+- Carssa (Carssa) — Mexican LTL legacy.
+- Gati (Gati) — Indian carrier (legacy).
+- Redpack (×2: standard + Express) — Mexican parcel.
+- XpressBees — Indian ecommerce carrier.
+- Paquetexpress (×2: Fare + VolumeQuote) — has its own pricing model
+  (links to §41).
+
+This is a sign that those carriers required workflow-level
+customization beyond the standard pattern.
+
+### 49.3 Top-30 most-used models (cross-references in carrier files)
+
+Selected by `grep -lc "ModelName::" app/ep/carriers/*.php` would give
+exact rankings. Rough top-30 by familiarity from the gold standard
+and Block A reads:
+
+`Shipment`, `Service`, `Carrier`, `Locale`, `Country`, `User`,
+`Company`, `Address` (via ShipmentAddress), `PostalCode`,
+`AdditionalService`, `AdditionalServicePrice`, `Zone`, `CatalogZone`,
+`VolumetricFactor`, `TrackHistory`, `ShipmentTrackHistory`,
+`StatusHistory`, `ShipmentPackage`, `Pickup`, `PickupShipment`,
+`Manifest`, `ManifestShipment`, `LogShipment`, `LogError`,
+`PaymentHistory`, `PendingCharge`, `Surcharge`,
+`ConfigDefaultAddress`, `Shop`, `ConfigCheckoutCarrier`.
+
+### 49.4 Models likely deprecated (review candidates)
+
+Without a comprehensive callgraph, candidates by name + isolated
+usage pattern:
+
+- `CarssaShipmentGuide`, `CarssaFareZone` — Carssa-specific (carrier
+  not in current INDEX.md prominent list).
+- `GatiShipmentGuide` — Gati appears legacy in India.
+- `PaquetexpressVolumeQuote` — newer model, may be in active use; not
+  necessarily deprecated.
+- `LogCheckout` — usage tied to legacy V2 checkout flow.
+
+These should be inspected before any cleanup pass.
+
+## 50. Action input schemas (`app/ep/schemas/*.v1.schema`)
+
+21 JSON schemas, **2,272 total lines** (verified). Each schema is
+draft-07 compliant. Schemas back the `Action` constructor validation
+(§5).
+
+### 50.1 Inventory + size
+
+| Schema | Lines | Action |
+|--------|------:|--------|
+| `rate.v1.schema` | 244 | Rate (parcel) |
+| `rate.ltl.v1.schema` | 302 | RateLtl |
+| `rate.ftl.v1.schema` | 158 | RateFtl |
+| `generate.v1.schema` | 290 | Generate |
+| `generate.ltl.v1.schema` | 273 | GenerateLtl |
+| `generate.ftl.v1.schema` | 227 | GenerateFtl |
+| `generate.label.v1.schema` | 36 | (label-only generate variant) |
+| `track.v1.schema` | 28 | Track |
+| `generaltrack.v1.schema` | 18 | GeneralTrack (public) |
+| `cancel.v1.schema` | 21 | Cancel |
+| `cancelPickup.v1.schema` | 21 | PickupCancel |
+| `pickup.v1.schema` | 122 | Pickup |
+| `pickupltl.v1.schema` | 122 | PickupLtl |
+| `pickuptrack.v1.schema` | 24 | PickupTrack |
+| `branches.v1.schema` | 90 | Branch |
+| `manifest.v1.schema` | 17 | Manifest |
+| `billoflading.v1.schema` | 132 | BillOfLading / Commercial Invoice |
+| `complement.v1.schema` | 54 | Complement (SAT carta porte) |
+| `fulfill.v1.schema` | 41 | Fulfill (ecommerce sync) |
+| `unfulfill.v1.schema` | 21 | Unfulfill |
+| `uploaddocuments.v1.schema` | 31 | Upload customs documents |
+
+### 50.2 Required-fields summary
+
+| Action | Top-level required | Nested required |
+|--------|--------------------|-----------------|
+| Rate | `origin`, `destination`, `packages`, `shipment` | shipment.carrier; address.{city, state, country, postalCode}; package.{content, amount, type, dimensions, weight}; dimensions.{length, width, height} |
+| Generate | `origin`, `destination`, `packages`, `shipment`, `settings` | shipment.{carrier, service, type}; settings.{printFormat, printSize} |
+| Track | `carrier`, `trackingNumber` | trackingNumber is array; carrier+service+locale optional |
+| GeneralTrack | `carrier`, `trackingNumber` | trackingNumber is string |
+| Cancel | `carrier`, `trackingNumber` | folio optional |
+| Pickup | `origin`, `shipment` | shipment.carrier required; pickup.{date, timeFrom, timeTo, totalPackages, totalWeight} |
+| Branch | `carrier` | locale, countryCodeCoverage, zipCodeCoverage, capacity, packages all optional |
+| Manifest | (varies, schema is small at 17 lines) | TBD ⚪ |
+| BillOfLading | (varies, 132 lines — large) | Customs settings, items[] |
+
+### 50.3 Critical insight — settings.printFormat enum
+
+Generate schema enforces (`generate.v1.schema:77-78`):
+
+```
+"printFormat": { "enum": ["PDF", "ZPL", "ZPLII", "PNG", "EPL"] }
+```
+
+5 supported label formats. The MCP `create_label` should validate
+against this enum before sending.
+
+### 50.4 Critical insight — settings.printSize enum (~25 values)
+
+Generate schema enforces a closed enum of paper/stock sizes (lines
+~80-100). Includes:
+
+- Paper: PAPER_4.75X7, PAPER_4X6, PAPER_4X8, PAPER_7X4.75,
+  PAPER_8.5X11, PAPER_8.5X11_BOTTOM_HALF_LABEL,
+  PAPER_85X11_TOP_HALF_LABEL, PAPER_LETTER.
+- Stock: STOCK_2.4X6, STOCK_2.9X5, STOCK_2.9X7, STOCK_3.8X4.2,
+  STOCK_3.9X2.3, STOCK_3.9X3.9, STOCK_3.9X7, STOCK_4X4, STOCK_4X6,
+  STOCK_4X6.5, …
+
+The MCP must NOT pass arbitrary strings — invalid values fail at the
+Action constructor before reaching the carrier.
+
+### 50.5 Address shape (consistent across schemas)
+
+Every address (origin/destination/return) shares the same shape:
+
+- **Required:** `city`, `state`, `country` (ISO 2-digit, length 2),
+  `postalCode`.
+- **Optional but business-critical:** `identificationNumber` (CPF /
+  CNPJ / DNI / RFC etc.), `branchCode` (for OXXO Estafeta, Access
+  Point UPS, etc.), `district` (BR), `interior_number` (MX).
+- **`state` constraint:** minLength 1, maxLength 3.
+- **`country` constraint:** exactly 2 chars (ISO 3166-1 alpha-2).
+- **CO city note (per schema description):** "In CO we use 8 digit
+  DANE codes for the cities e.g. BOGOTA = 11001000".
+
+### 50.6 Package shape
+
+Required: `content`, `amount`, `type`, `dimensions`, `weight`.
+
+- `type` is a STRING with values "1" (parcel), "2" (LTL), "3" (FTL).
+- `weightUnit` enum: `["kg", "KG", "lb", "LB"]`.
+- `lengthUnit` enum: `["cm", "CM", "in", "IN"]`.
+- `dimensions` requires `length`, `width`, `height` (all minimum 0.01).
+- `weight` minimum 0.0001 — schema accepts very-low-weight shipments.
+- `items[]` array (optional) for landed-cost calculation: each item
+  has `quantity`, `price`, optional `description`, `weight`,
+  `productCode`, `countryOfManufacture`, `currency`, `sku`, `cfop`
+  (BR fiscal classification).
+
+### 50.7 Implication for the MCP
+
+For each new MCP tool that wraps a `/ship/*` action:
+
+1. Validate input against the schema's required fields BEFORE calling
+   the carriers backend. Schema-level errors come back as
+   `InvalidValueException` from `Action::validateSchema()` (§5).
+2. Use the enums verbatim (`printFormat`, `printSize`, `weightUnit`,
+   `lengthUnit`).
+3. Pass full address + package shape — abbreviations cause schema
+   failures.
+
+## 51. DB ground truth — verified sample contents
+
+From `services/carriers/knowledge-base/queries/*.csv`. Numbers verified
+via `wc -l` and `awk` on the CSV files at audit time.
+
+### 51.1 Carriers (`1_prod_carriers.csv`)
+
+- **168 rows** (verified).
+- Distinct columns include: `carrier_id`, `carrier_name`, `controller`,
+  `carrier_country_code`, `carrier_currency`, `priority`, `is_private`,
+  `allows_mps`, `allows_asyc_create`, `box_weight`, `pallet_weight`,
+  `carrier_volumetric_factor`, `pickup_fee`, `daily_pickup_limit`,
+  `pickup_start`, `pickup_end`, `track_limit`, `tracking_delay`.
+- Notable rows from Block A reads:
+  - **Paquetexpress:** `daily_pickup_limit=15, pickup_fee=0,
+    track_limit=5, allows_mps=1`.
+  - **Estafeta:** `track_limit=25, allows_mps=0` in DB (overridden in
+    code per Block A — flagged).
+  - **Coordinadora:** `pickup_start=8, pickup_end=19` (wider than
+    most).
+  - **Correios:** `pickup_start=8, pickup_end=17`,
+    `carrier_volumetric_factor=6000` (higher than 5000 standard).
+
+### 51.2 Services (`2_prod_services.csv`)
+
+- **473 rows** (verified).
+- 45 columns including the critical `international` (column 8) and
+  `service_scope` (column 9).
+- **`international=3` enumeration (verified — closes ⚪ in §39):**
+
+| carrier_name | controller | service_id | service_code_internal |
+|--------------|------------|-----------:|-----------------------|
+| fedex | FedexRest | (id) | int_express_third_party |
+| fedex | FedexRest | (id) | int_ground_third_party |
+
+**Only 2 services have international=3, both FedEx.** This validates
+the §39 hypothesis that third-party billing scope is FedEx-Third-Party-
+specific in the platform.
+
+- **`international=2` (bidirectional) count:** 30 services across DHL,
+  UPS, UPS2 (per Block F enumeration). The bidirectional logic
+  expands `international=1` queries to include `2` rows — this is
+  what enables high_value_protection (UPS) to appear on CO→MX, BR→MX,
+  US→MX, etc.
+
+### 51.3 Additional service prices (`3_prod_additional_service_prices.csv`)
+
+- **1,842 data rows** (1,843 lines including header — verified).
+- 29 columns. `apply_to` is column 14, `mandatory` is column 15.
+- Mandatory addons exist (sample): Jadlog `pickup_schedule` is
+  mandatory for several services; BlueDart Ground has multiple
+  mandatory addons (`cash_on_delivery`, `docket_fee`, `green_tax`,
+  `handling`, `security_charge`); BRT Italy has `extended_zone`,
+  `ferry_fee`, `fuel` mandatory.
+- `addon_id=14` (`insurance`) and `addon_id=115` (`envia_insurance`)
+  are NOT mandatory in any DB row at audit time. The regulatory
+  insurance hypothesis from §10.3 (BR/CO domestic mandatory `insurance`)
+  is therefore NOT enforced via `mandatory=1` flags — it must be
+  enforced elsewhere (carrier code, action constructor, or geocodes
+  `/location-requirements` response). This is a §52 cross-check item.
+
+### 51.4 Catalog additional services (`7_prod_catalog_additional_services.csv`)
+
+- **150 data rows** (151 lines incl. header — verified).
+- Master catalog id → name mapping. Sample: id 14 = `insurance`, id 60
+  = `liftgate_delivery`, id 71 = `fuel`, id 108 = `ferry_fee`, id 115
+  = `envia_insurance`, id 169 = `high_value_protection`.
+
+### 51.5 Catalog price operations (`8_prod_catalog_price_operations.csv`) — Gap 19 closed
+
+**19 operation_ids** (verified — full content). The gold standard §20
+listed 12 of the most common; the complete inventory:
+
+| id | description |
+|---:|-------------|
+| 1 | Flat Value |
+| 2 | Merchandise Value Percentage |
+| 3 | Highest between Flat or Percentage |
+| 4 | Range values (price_plans) |
+| 5 | Minimun plus commission over insurance |
+| 6 | Price Web Service + Percentage |
+| 7 | Price Web Service Response |
+| 8 | Minimum Amount or User Input |
+| 9 | Flat USD Value (for international shipments) |
+| 10 | Package Weight |
+| 11 | Highest between flat and percentage from COD |
+| 12 | Flat Value + Insurance Cost |
+| 13 | Highest between Flat or Percentage in USD (for international) |
+| 14 | Amount (Total weight - Allowed weight) |
+| 15 | Range values (price_plan) using amount instead of weight |
+| 16 | Package weight or Minimum amount |
+| 17 | Base + (Cost for Package weight) |
+| 18 | Higher between carrier shipment cost or Percentage |
+| 19 | Range values (price_plan) using total insurance |
+
+§20 of master is correct in spirit but listed 12 operation_ids;
+operations 8, 11, 12, 14, 15, 16, 17, 18 were missing or under-described.
+This §51.5 is now the canonical table.
+
+`apply_to` semantics — the `apply_to` column lives in
+`3_prod_additional_service_prices.csv` (column 14), NOT in
+`8_prod_catalog_price_operations.csv`. Closing the §20 ⚪ on
+`apply_to`: it's a per-rule attribute on the price row, not a property
+of the operation type itself.
+
+### 51.6 Locales with operational flags (`12_prod_locales.csv`)
+
+- **231 data rows** (232 lines incl. header — verified).
+- `locale_operation=1` for **15 country codes**: AR, AU, BR, CA, CL,
+  CO, ES, FR, GT, IN, IT, MX, PE, UY, US.
+
+These are the active operating countries with platform business
+rules (taxes, fiscal documents, restricted operations, etc.). The
+remaining 216 locales are reference/metadata only.
+
+### 51.7 Volumetric factor catalog (`14_prod_catalog_volumetrict_factor.csv`)
+
+- **20 data rows** (21 lines incl. header — verified). IDs run 1-22
+  with gaps (id 8 and id 19 absent).
+- Distribution of factors used by carriers (cross-referencing
+  `1_prod_carriers.csv`):
+
+| factor_id | factor | unit | Carriers using it (count) |
+|----------:|-------:|------|-------------------------:|
+| 1 | 5000 | KG | ~128 (most carriers) |
+| 2 | 4000 | KG | ~15 |
+| 5 | 6000 | KG | ~9 (Jadlog, Cainiao SG, Correo MX, others) |
+| 6 | 4500 | KG | ~3 (DZF, EMS, Estafeta Intl) |
+| 11 | 2855 | KG | 1 (Andreani AR) |
+| 12 | 2500 | KG | ~3 (GLS variants) |
+| 16 | 2857.14 | KG | 1 (Almex MX) |
+| 9 | 5988.02 | KG | 1 (Interlogistic) |
+| 4 | 2700 | KG | 1 (JNE) |
+| 17 | 166 | LB | 1 (LaserShip US) |
+| 22 | 225 | LB | 1 (Roadie) |
+| 7 | 3857.14 | KG | rare |
+| 10 | 3003 | KG | rare |
+| 13 | 4504.50 | KG | rare |
+| 14 | 4700 | KG | rare |
+| 15 | 3333.33 | KG | rare |
+| 18 | 5997 | KG | rare |
+| 20 | 4545.45 | KG | rare |
+| 21 | 9430 | KG | rare |
+
+**Correction to §23.2:** the existing master claims "5,000 most
+common, some 6,000, some 4,000, some 2,500." The verified picture is
+**richer** — at least 19 distinct factor values in production. While
+5,000 dominates (~76% of carriers), the long tail includes
+non-round factors like 2855, 2857.14, 5988.02 (LB-conversion
+artifacts) and uncommon ones like 9430. The §23.2 claim is
+directionally correct but undercounts diversity. See §52 corrections
+list.
+
+### 51.8 Carrier surcharge codes (`9_prod_carrier_surcharge_codes.csv`)
+
+- **261 data rows** (verified).
+- Many-to-one mapping: WS surcharge code → addon id. Sample:
+
+| Carrier | Surcharge code | Addon id | Addon name |
+|---------|----------------|---------:|------------|
+| DhlWs | FF | 71 | fuel |
+| DhlWs | NX | 99 | peak_season |
+| DhlWs | YE | 77 | multi_package_shipment_fee |
+| DhlWs | FERRY_FEE | 108 | ferry_fee |
+| brt | EXTENDED_ZONE | 87 | extended_zone |
+| brt | FERRY_FEE | 108 | ferry_fee |
+| brt | IRREGULAR_BULK | 74 | irregultar_bulk |
+| daylight | Appointment Fee | 12 | delivery_appointment |
+| daylight | California Capacity Surcharge | 164 | california_capacity |
+| daylight | Lift Gate Delivery | 60 | liftgate_delivery |
+| fedex | FUEL | 71 | fuel |
+| fedex | HAM | 61 | residential_delivery |
+| fedex | DDP | 109 | custom_duties_ch |
+| ups | WXX | 71 | fuel |
+| ups | XAA | 61 | residential_delivery |
+| ups | Saturday Pickup | 76 | saturday_service |
+
+Multiple WS codes can map to the same addon (e.g., `FF`/`FUEL`/`WXX`
+all → addon_id=71). This table is what carrier code uses to translate
+WS responses into platform addon line items. Validates the §22 pattern
+that some addons are surfaced by carrier WS rather than by DB rules.
