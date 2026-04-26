@@ -165,7 +165,13 @@ export async function fetchGenericForm(
     const cached = formCache.get(cc);
     if (cached) return cached;
 
-    const url = `${config.queriesBase}/generic-form?country_code=${encodeURIComponent(cc)}&form=address_form`;
+    // NOTE: the form name in the queries `generic_forms` table is `address_info`,
+    // NOT `address_form`. Using the wrong name returned 422 "Invalid data." and
+    // silently degraded `validateAddressForCountry` to a no-op (the catch below
+    // returns `[]`, getRequiredFields then sees zero required fields).
+    // Verified against dev DB on 2026-04-25: address_info has 28 countries
+    // (incl. MX, US, BR, CO, ES, AR, etc.); address_form has 0 rows.
+    const url = `${config.queriesBase}/generic-form?country_code=${encodeURIComponent(cc)}&form=address_info`;
     const res = await client.get<{ data: GenericFormField[] | string }>(url);
 
     if (!res.ok) {

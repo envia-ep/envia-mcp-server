@@ -108,7 +108,7 @@ invalid addresses that later break `rate` with cryptic 1129s.
 
 ### 3.1 Flow
 
-1. `fetchGenericForm(cc)` → `GET /generic-form?country_code={cc}&form=address_form` (queries service).
+1. `fetchGenericForm(cc)` → `GET /generic-form?country_code={cc}&form=address_info` (queries service). **Note:** form name was `address_form` until 2026-04-25; that name returned 422 (no row in `generic_forms` table) and made the validation a silent no-op — see fix in commit 3ca323b's iter-7 root cause analysis.
 2. Process-level cache per country (cleared only in tests via `clearFormCache`).
 3. Parses either an array or a JSON string (backend returns both shapes historically).
 4. On fetch failure → returns `[]` (graceful degradation).

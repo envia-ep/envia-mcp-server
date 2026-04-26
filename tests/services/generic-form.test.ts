@@ -216,7 +216,27 @@ describe('fetchGenericForm', () => {
         await fetchGenericForm('BR', client, MOCK_CONFIG);
 
         const url = mockFetch.mock.calls[0][0] as string;
-        expect(url).toContain('/generic-form?country_code=BR&form=address_form');
+        expect(url).toContain('/generic-form?country_code=BR&form=address_info');
+    });
+
+    it('should use form=address_info (NOT address_form) — regression for silent no-op bug', async () => {
+        // The queries `generic_forms` table uses the form name `address_info`.
+        // Prior versions of this service used `address_form`, which returned 422
+        // and caused validateAddressForCountry to silently degrade to a no-op
+        // since deployment. This test prevents the regression from reappearing.
+        // Verified against dev DB on 2026-04-25: form='address_form' has 0 rows;
+        // form='address_info' has 28 countries.
+        mockFetch.mockResolvedValueOnce({
+            ok: true,
+            status: 200,
+            json: () => Promise.resolve({ data: [] }),
+        });
+
+        await fetchGenericForm('MX', client, MOCK_CONFIG);
+
+        const url = mockFetch.mock.calls[0][0] as string;
+        expect(url).toContain('form=address_info');
+        expect(url).not.toContain('form=address_form');
     });
 
     it('should cache results for the same country', async () => {
