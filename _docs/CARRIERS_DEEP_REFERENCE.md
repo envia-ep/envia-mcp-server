@@ -2140,3 +2140,750 @@ This doc is now suitable as **the** starting point for any future Claude or huma
 - Auditing carrier-domain coverage of the agent.
 - Debugging shipment lifecycle incidents.
 - Onboarding into the carriers domain.
+
+---
+
+# Iteration 4 — Secondary carriers + structural completeness (2026-04-26)
+
+> Closes the ⚪ items enumerated in §40. Six secondary carrier deep-dives
+> (§41-46) extend the FedEx/UPS/DHL coverage in §36-38. Four structural
+> sections (§47-50) inventory CarrierUtil, AbstractCarrier, Models,
+> and Action JSON schemas. §51 provides verified DB ground truth from
+> production CSVs. §52 documents the cross-check pass with corrections
+> needed to §1-39 and the iter-4 self-assessment.
+>
+> Source paths in §41-46 are absolute under
+> `services/carriers/`. Numeric claims cite `path:line`, `csv:row`,
+> or knowledge-base path. Where an explorer agent's claim could not
+> be source-verified in this iteration, the section flags it with
+> "(per knowledge-base, code not directly verified)".
+
+## 41. Paquetexpress — secondary carrier deep dive
+
+Source: `knowledge-base/carrier-services/carriers-v2/paquetexpress.md`,
+`app/ep/carriers/Paquetexpress.php`,
+`app/ep/carriers/utils/PaquetexpressUtil.php`,
+`knowledge-base/queries/{1_prod_carriers,2_prod_services,g14b_paquetexpress_extended_zones_sample}.csv`.
+
+### 41.1 Identity
+
+- **Country:** Mexico (locale_id=1). Domestic only.
+- **Currency:** MXN. **VAT:** 16% inclusive.
+- **MPS:** allows_mps=1 (`1_prod_carriers.csv` Paquetexpress row).
+- **Pickup window:** 09:00–18:00 (`pickup_start=9, pickup_end=18`).
+- **Daily pickup limit:** 15 packages (unique platform-wide — see §41.10).
+- **Pickup fee:** 0 MXN.
+- **Volumetric factor:** 5,000 cm³/kg (`carrier_volumetric_factor=5000`).
+- **Track limit:** 5 days (`track_limit=5`).
+- **Tracking delay:** 0 (real-time WS updates).
+
+### 41.2 Services per country
+
+7 active services in MX (`2_prod_services.csv`):
+
+| service_id | service_code_internal | Type | Notes |
+|-----------:|-----------------------|------|-------|
+| 10 | (parcel base) | Guide | Home↔home / branch matrix |
+| 129 | `estandar` | LTL | Ground LTL |
+| 442 | (DO) | Guide | Home → branch |
+| 694 | (OD) | Guide | Branch → home |
+| 874 | (LTL DO) | LTL | LTL home → branch |
+| 875 | (LTL OD) | LTL | LTL branch → home |
+| 876 | (LTL OO) | LTL | LTL branch → branch |
+
+### 41.3 Insurance specifics
+
+- **Envia Seguro** active. Cap 5,000 USD per package.
+- Cost: 1% of declared value + 16% IVA on the premium
+  (`paquetexpress.md` §3).
+- No carrier-native insurance for parcel beyond Envia Seguro.
+
+### 41.4 COD specifics
+
+**NOT enabled in platform** for Paquetexpress
+(`paquetexpress.md` §4 — "no se ofrece COD"). Confirmed by absence of
+`cash_on_delivery` rows for Paquetexpress in `3_prod_additional_service_prices.csv`.
+
+### 41.5 Extended zone specifics
+
+Paquetexpress is the **largest extended-zone master in Mexico**:
+
+- Extended zones (rural, semi-rural): ~95,457 CPs.
+- Reacomodamiento (irregular settlements): ~48,291 CPs.
+- **Total ~143,748 CPs** classified as extended.
+
+(per `paquetexpress.md` §5; sample structure in `g14b_paquetexpress_extended_zones_sample.csv`.)
+The exact premium is rate-resolved at quote time, not a flat constant.
+
+### 41.6 Operational charges
+
+- **Pickup fee:** 0 MXN.
+- **Cross-border:** auto-applied for MX cross-country shipments per §22 (code-injected).
+- LTL tracks include base service rate; per-charge LTL itemization is
+  contract-dependent and not exposed as separate addons.
+
+### 41.7 Volumetric factor
+
+5,000 cm³/kg (`paquetexpress.md` §7; `1_prod_carriers.csv` Paquetexpress row;
+`14_prod_catalog_volumetrict_factor.csv` factor_id=1).
+Applied via `Paquetexpress.php` rate loop.
+
+### 41.8 Code-injected services
+
+None observed beyond the platform-wide `cross_border` injection
+(documented in §22 — applies to all MX-anchored cross-country shipments
+via `AdditionalServiceUtilV2::addSpecialMandatoryServices`, not
+Paquetexpress-specific).
+
+### 41.9 Hard limits
+
+- **Parcel max dimension sum:** 380 cm (L+W+H) — `Paquetexpress.php`
+  `validateDimensions()`.
+- **LTL minimum weight:** 60 kg threshold — `Paquetexpress.php`
+  branching logic in rate.
+- **LTL max dimensions:** 300 × 200 × 180 cm.
+- **Insurance cap:** 5,000 USD/package (Envia Seguro).
+- **Tracking lookback:** 5 calendar days (`track_limit=5`).
+
+### 41.10 Distinctive characteristics
+
+1. **15-package same-day pickup exception** — only carrier in the
+   platform with this rule. All other carriers cap same-day at 1.
+2. **Largest extended-zone master in MX** (~143,748 CPs across two
+   classifications).
+3. **Real-time tracking** (`tracking_delay=0`).
+4. **Zero pickup fee** (`pickup_fee=0`).
+5. **MX-only footprint** — no international services, simplifies the
+   ruleset.
+
+## 42. Estafeta — secondary carrier deep dive
+
+Source: `knowledge-base/carrier-services/carriers-v2/estafeta.md`,
+`app/ep/carriers/Estafeta.php`,
+`app/ep/carriers/utils/EstafetaUtil.php`,
+`knowledge-base/queries/{1_prod_carriers,2_prod_services}.csv`,
+`knowledge-base/carrier-services/carriers-v2/sobrepesos-deep-dive.md`.
+
+### 42.1 Identity
+
+- **Country:** Mexico exclusively.
+- **Currency:** MXN. **VAT:** 16% inclusive.
+- **MPS:** `1_prod_carriers.csv` shows `allows_mps=0` for Estafeta but
+  `Estafeta.php` runtime overrides — flagged as a cross-check candidate (see §52).
+- **Pickup window:** 09:00–18:00.
+- **Volumetric factor:** 5,000 cm³/kg.
+- **Track limit:** 25 days.
+- **Box weight cap:** 1,000 kg; pallet weight cap: 1,100 kg.
+
+### 42.2 Services per country
+
+9 services (`2_prod_services.csv`):
+
+| service_id | code | Description | Max kg | OXXO | Notes |
+|-----------:|------|-------------|-------:|------|-------|
+| 22 | `express` | Express | 71 | No | Express air |
+| 23 | `ground` | Terrestre | 71 | No | **≤5 kg overweight exemption** (§23.3) |
+| 417 | `local` | Metropolitano | 71 | No | Metro CDMX/GDL/MTY |
+| 795 | `express_do_oxxo` | Express → OXXO | 25 | Yes | Door → OXXO branch |
+| 796 | `ground_do_oxxo` | Terrestre → OXXO | 25 | Yes | Door → OXXO branch |
+| 703 | `express_od` | Express ← branch | 30 | No | Branch → home |
+| 704 | `ground_od` | Terrestre ← branch | 30 | No | Branch → home |
+| 37 | `estandar` | LTL Estándar | 1,200 | No | LTL |
+| 938 | `big_ticket` | Big Ticket LTL | varies | No | Contract LTL |
+
+### 42.3 Insurance specifics
+
+- Envia Seguro available across guide services (9 active rules per
+  `estafeta.md` §4).
+- Cap 5,000 USD/package; min 1,000 MXN.
+- LTL uses `insurance` (id 14) variant.
+- Standard exclusions apply (electronics, used items, jewelry, etc.).
+
+### 42.4 COD specifics
+
+**NOT enabled** in platform for Estafeta (`estafeta.md` §5).
+
+### 42.5 Extended zone specifics
+
+**Not configured as a separate charge** (`estafeta.md` §6). Rural/remote
+surcharges are integrated into base tariff or invoiced post-delivery
+via `rateOverWeight`-style reconciliation.
+
+### 42.6 Operational charges
+
+- **Additional handling:** triggered when any single dimension > 100 cm
+  (`4_prod_additional_service_conditions.csv`). Express/Ground/Metro:
+  186.16 MXN flat + 16% IVA. Big Ticket: 150 MXN + IVA.
+- **Cross-border:** 6 rules in catalog. 7.50 USD/package (converted to
+  MXN). Auto-applied per §22 (when MX cross-country and company
+  enrolled).
+- **LTL-only addons** (services 37, 938, 874-876 of the LTL pattern):
+  insurance LTL (mandatory), liftgate delivery, liftgate pickup,
+  pickup_schedule, pickup_appointment, delivery_schedule,
+  delivery_appointment, original_invoice.
+
+### 42.7 Volumetric factor
+
+5,000 cm³/kg (`estafeta.md` §7.5.1; `1_prod_carriers.csv` Estafeta row;
+factor_id=1).
+
+### 42.8 Code-injected services
+
+None observed in `Estafeta.php`/`EstafetaUtil.php` beyond the
+platform-wide `cross_border` rule.
+
+### 42.9 Hard limits
+
+- **Guide max:** 71 kg/package (rejects shipment->type != 1 with code
+  1100; `Estafeta.php`).
+- **OXXO services max:** 25 kg.
+- **Branch services max:** 30 kg.
+- **LTL max:** 1,200 kg per `estafeta.md` §3.2; `Estafeta.php` rate
+  validation enforces 1,100 kg single-pallet — the discrepancy is a
+  cross-check candidate (see §52).
+- **Max single dimension (guide):** 240 × 150 × 150 cm
+  (`EstafetaUtil.php`).
+- **International:** REJECTED (code 1145).
+
+### 42.10 Distinctive characteristics
+
+1. **OXXO branch convenios** — two services (id 795, 796) deliver to
+   OXXO convenience stores nationwide. `branchCode` parameter triggers
+   OXXO flow; `ESTAFETA_OXXO_MX` env var holds the location-API key
+   (per `Estafeta.php`).
+2. **Ground ≤5 kg overweight exemption** — Estafeta Ground is the only
+   service in the platform where shipments with real weight ≤ 5 kg
+   never trigger sobrepeso (per §23.3).
+3. **Dual-API integration** — coverage queries via REST
+   (`EstafetaRestApi`); rate/generate/track via SOAP (`.wsdl` files).
+4. **Dimension rounding** — all dimensions rounded UP (ceil) before
+   validation, prevents fractional-mm disputes (`EstafetaUtil.php`).
+5. **Replacement waybill tracking** — Estafeta may issue alt tracking
+   numbers on route changes; system captures both
+   (`alt_tracking_number` field).
+
+## 43. Coordinadora — secondary carrier deep dive
+
+Source: `knowledge-base/carrier-services/carriers-v2/coordinadora.md`,
+`app/ep/carriers/Coordinadora.php`,
+`app/ep/carriers/utils/CoordinadoraUtil.php`,
+`knowledge-base/queries/{1_prod_carriers,2_prod_services}.csv`,
+`carriers-v2/cod-deep-dive.md`.
+
+### 43.1 Identity
+
+- **Country:** Colombia exclusively. Domestic only.
+- **Currency:** COP. **IVA:** 19%.
+- **MPS:** No — single-package only per guide.
+- **Pickup window:** 08:00–19:00 (wider than most carriers).
+- **Pickup fee:** Free.
+- **Daily pickup limit:** 5/account.
+- **Volumetric factor:** 5,000 cm³/kg.
+
+### 43.2 Services per country
+
+3 services (`2_prod_services.csv`):
+
+| service_id | code | Visibility | Weight cap | COD |
+|-----------:|------|------------|-----------:|-----|
+| 45 | `ground` | Public | 25 kg | ✅ |
+| 767 | `ecommerce` | Public | 25 kg | ✅ (3,000,000 COP cap) |
+| 884 | `mqp` | **Private** | 25 kg | ❌ |
+
+MQP requires commercial authorization (handoff pattern §26).
+
+### 43.3 Insurance — regulatory CO domestic
+
+In CO domestic the UI shows **"Seguro"**, not "Envía Seguro". Legally
+the regulatory insurance per Colombian transportation law (cross-ref
+§10.3 of master).
+
+| Service | Insurance model |
+|---------|-----------------|
+| Ground | Mandatory, formula-based, not included |
+| Ecommerce | Included in service base (~0 additional cost) |
+| MQP | Mandatory, formula-based |
+
+- **Coverage cap:** 5,000 USD equivalent per package (~18.8M COP).
+- **Min declarable:** 1,000 MXN equivalent.
+- Standard Envia Seguro exclusions apply (electronics universally
+  excluded — see §10.1).
+
+### 43.4 COD specifics
+
+| Service | COD | Max per shipment |
+|---------|-----|------------------|
+| Ground | ✅ | 10,000 MXN equivalent (platform max per T&C §3.13) |
+| Ecommerce | ✅ | **3,000,000 COP** (service cap, stricter than platform max) |
+| MQP | ❌ | n/a |
+
+Two-tier commission: service-level minimum + addon commission. Typical
+addon range 3.0%–3.5% with a minimum. Liquidation Tue/Fri via Ecart Pay
+per §11.4.
+
+`CoordinadoraUtil::validateMinCod()` enforces minimum COD amount at
+rate time. Per the deep-dive doc, dozens of companies have negotiated
+overrides (range 0%–3% on Ground, average ~2.46%) — this exact count
+should be re-run against `3_prod_additional_service_prices.csv` filter
+for `carrier_name=coordinadora AND addon_name=cash_on_delivery` if
+needed (see §52).
+
+### 43.5 Extended zone specifics
+
+**No separate extended-zone line item** for Coordinadora (`coordinadora.md`
+§7). Any rural/remote surcharges are rolled into base service price.
+
+### 43.6 Operational charges
+
+Beyond COD addon (§43.4) and mandatory insurance (§43.3), no
+auto-applied operational charges observed. Code-injected services per
+§22 do not list Coordinadora.
+
+### 43.7 Volumetric factor
+
+5,000 cm³/kg uniformly across all 3 services. `Coordinadora.php` calls
+`VolumetricFactor::find()` in rate loop. `coordinadora.md` §7.5.3 notes
+volumetric and mandatory insurance are independent line items on
+Ground/MQP.
+
+### 43.8 Code-injected services
+
+None observed in `Coordinadora.php`. Contrast with Delhivery/BlueDart
+(§45/§46).
+
+### 43.9 Hard limits
+
+- **Weight:** 25 kg/package (all 3 services).
+- **Packages per guide:** 1 (no MPS).
+- **Insurance:** 5,000 USD or equivalent/package.
+- **COD Ground:** 10,000 MXN equivalent platform cap.
+- **COD Ecommerce:** 3,000,000 COP service cap.
+- **Daily pickups:** 5/account.
+
+### 43.10 Distinctive characteristics
+
+1. **Domestic-only scope** — zero international complexity.
+2. **Ecommerce service has insurance baked in** — unique among CO
+   carriers; selling point for low-value recurring volume.
+3. **MQP is private** — two-tier market (public Ground/Ecommerce vs
+   commercial-authorized MQP).
+4. **Free pickup with extended window** (08:00–19:00).
+5. **Regulatory "Seguro" displaces "Envía Seguro"** in CO domestic UI —
+   uninformed customers may assume no coverage.
+
+## 44. Correios — secondary carrier deep dive
+
+Source: `knowledge-base/carrier-services/carriers-v2/correios.md`,
+`app/ep/carriers/Correios.php`,
+`app/ep/carriers/utils/CorreiosUtil.php`,
+`knowledge-base/queries/{1_prod_carriers,2_prod_services}.csv`,
+`carriers-v2/sobrepesos-deep-dive.md`.
+
+### 44.1 Identity
+
+- **Country:** Brazil exclusively. Domestic + LTL.
+- **Currency:** BRL. **Tax:** 14.21% embedded in fiscal catalog.
+- **MPS:** No (1 guide per shipment).
+- **Pickup window:** 08:00–17:00 local.
+- **Volumetric factor:** 6,000 cm³/kg
+  (`CorreiosUtil.php`; cross-checked with `14_prod_catalog_volumetrict_factor.csv`
+  factor_id=5).
+
+### 44.2 Services
+
+7 active services (`2_prod_services.csv`):
+
+| service | code | Type | Speed | Max kg | COD |
+|---------|------|------|-------|-------:|-----|
+| Sedex | 03220 | Parcel | Next-day | 25 | ❌ |
+| Sedex Hoje | 03662 | Parcel | Same/next-day | 25 | ❌ |
+| Sedex Grandes | 03212 | Parcel | 2-5d | 25 | ❌ |
+| PAC | 03298 | Parcel | 2-5d | 25 | ❌ |
+| PAC Grandes | 03328 | Parcel | 2-5d | 25 | ❌ |
+| Mini | 04227 | Parcel | 1-4d | 25 | ❌ Mini → PAC if real >300g |
+| TCL (Cargas) | 00001 | LTL | 1-4d | 25/piece, 333/guide | ❌ |
+
+Sedex = express; PAC = economy; Mini = low-weight optimized.
+
+### 44.3 Insurance — regulatory BR domestic (id 52)
+
+Correios applies the `insurance` variant (id 52 per §10.3) — the
+carrier-native / regulatory product specific to Brazilian postal law.
+
+- **Coverage cap:** 5,000 USD per package (≈25,000 BRL).
+- **Cost:** 1.5%–tariff % depending on profile.
+- **Mandatory declaration:** **Nota Fiscal eletrônica (XML) is
+  obligatory** by Brazilian regulation. Weight/dimensions in the Nota
+  Fiscal must match shipment reality to avoid penalty.
+- **UI label:** "Seguro" in BR domestic (no "Envía Seguro" toggle).
+- Outbound BR international shows both toggles per envia-insurance
+  deep-dive.
+- Standard exclusions (electronics, used, jewelry, etc.).
+
+### 44.4 COD specifics
+
+**Correios does NOT support COD.** For BR COD, use Jadlog
+(per §11.2 and `cod-deep-dive.md`).
+
+### 44.5 Extended zone specifics
+
+**No separate extended-zone line item** (`correios.md` §7). Rural
+surcharges integrated into base tariff via Correios' official rate
+table.
+
+### 44.6 Operational charges
+
+4 optional/conditional addons:
+
+1. **Acknowledgment Receipt** (Aviso de Recebimiento): formal POD with
+   recipient signature. Cost: Correios API value + ~10% margin.
+2. **Indirect Signature Required** (Firma Indirecta): adult signature
+   at destination.
+3. **Big Format**: auto-applied when sum-of-dimensions exceeds
+   Correios' max. NOT optional.
+4. **Liftgate Pickup** (TCL only): catalog default 0 BRL with possible
+   company override.
+
+### 44.7 Volumetric weight + the distinctive `rateOverWeight` recalc
+
+The defining Correios characteristic is **custom recalculation logic
+unique in the platform** at `Correios.php:1705`.
+
+#### 44.7.1 Standard volumetric formula
+
+```
+billable_weight  = max(real_weight, volumetric_weight)
+volumetric_weight = (L × W × H cm) / 6000
+```
+
+Factor 6,000 (`CorreiosUtil.php`; factor_id=5).
+
+#### 44.7.2 `rateOverWeight()` — only carrier with this
+
+When tracking returns measured weight + dimensions at delivery,
+Correios is **the ONLY carrier** that calls its own `rateWS` with the
+real measurements to obtain the carrier's official re-quote, instead
+of using the generic volumetric formula in §23.2.
+
+Logic (per `Correios.php:1705-1784`):
+
+1. `LogShipment` carries the original request JSON.
+2. Tracking WS reports `realWeight`/`realLength`/`realWidth`/`realHeight`.
+3. `rateOverWeight($user, $data)` reconstructs the request with real
+   measurements (lines 1707-1732).
+4. **Mini → PAC auto-downgrade**: if original service was `mini` and
+   real weight > 300 g, switch to PAC (lines 1713-1715). No other
+   carrier does this.
+5. Reinvokes `setRateItems` + `rateWS` (lines 1754-1765) for the
+   official re-quote.
+6. Returns the recalculated rate object (line 1779).
+7. Cylinder format ("rolo/esferico") adds flat 20.92 BRL surcharge
+   (line 1768-1769).
+
+| Aspect | Standard formula (most carriers) | Correios `rateOverWeight` |
+|--------|----------------------------------|---------------------------|
+| Source | Generic volumetric calc | Carrier API re-quote |
+| Mini→PAC | n/a | Auto-downgrade if real >300g |
+| Cylinder fee | n/a | +20.92 BRL flat |
+| Dispute strength | Moderate | Strong (carrier-validated) |
+
+### 44.8 Hard limits
+
+- **Parcel:** 25 kg/package.
+- **LTL:** 25 kg/piece, 333 kg/guide max.
+- **Dimensional minimums:** length ≥13 cm, width ≥8 cm, height ≥1 cm
+  (auto-enforced in `setRateItems`, `Correios.php`).
+- **Sedex Grandes / PAC Grandes** require `max(L,W,H) > 100 cm` — else
+  service is skipped during rate loop.
+- **No MPS.**
+
+### 44.9 Code-injected services
+
+One — **"Big Format"** auto-applied to Sedex Grandes (03212) and PAC
+Grandes (03328). Triggered automatically by Correios controller when
+sum-of-dimensions exceeds carrier max.
+
+### 44.10 Distinctive characteristics
+
+1. **Only carrier with custom `rateOverWeight` recalculation** — direct
+   API re-quote vs generic formula.
+2. **Mini → PAC auto-downgrade** (>300 g real weight).
+3. **Regulatory `insurance` (id 52)** tied to Brazilian postal law.
+4. **Nota Fiscal mandatory** — XML invoice with shipment, regulator
+   cross-checks weight/dimensions.
+5. **No COD support** — only major BR domestic without platform COD.
+6. **Volumetric factor 6,000** (less aggressive than 5,000 standard).
+7. **Cylinder format flat surcharge** (+20.92 BRL).
+
+## 45. Delhivery — secondary carrier deep dive
+
+Source: `knowledge-base/carrier-services/carriers-v2/delhivery.md`,
+`app/ep/carriers/Delhivery.php`,
+`app/ep/carriers/utils/DelhiveryUtil.php`,
+`knowledge-base/queries/{1_prod_carriers,2_prod_services,g13_zones_india_b2b_summary}.csv`,
+`carriers-v2/extended-zone-deep-dive.md`.
+
+### 45.1 Identity
+
+- **Country:** India only (domestic parcel + LTL).
+- **Currency:** INR. **GST:** 18%.
+- **MPS:** Yes.
+- **Pickup window:** 09:00–18:00.
+- **Volumetric factor:** 5,000 cm³/kg.
+- **Auto-rejects:** >1,000 kg LTL guide; >25 kg/piece guide.
+
+### 45.2 Services per country
+
+8 services (`2_prod_services.csv`):
+
+| service | shortname | shipment_type | Weight slab | ETA | Notes |
+|---------|-----------|---------------|------------:|-----|-------|
+| Surface 250gr | `250gr` | guide | 0-0.25 kg | 2-4 d | Auto-routed by weight |
+| Surface | `surface` | guide | 0.26-1.00 kg | 2-4 d | Auto-routed |
+| Surface 2kg+ | `2kg` | guide | 1.01-4.00 kg | 2-4 d | Auto-routed |
+| Surface 5kg+ | `bulk` | guide | 4.01-9.00 kg | 2-4 d | Auto-routed |
+| Surface 10kg+ | `heavy` | guide | 9.01-19.00 kg | 2-4 d | Auto-routed |
+| Surface 20kg+ | `heavy20` | guide | 19.01-100.00 kg | 2-4 d | Auto-routed |
+| Air | `express` | guide | ≤5 kg | 1-2 d | Air; rejects >5 kg |
+| B2B | `b2b` | ltl | ≤1,000 kg/guide | 2-4 d | LTL door-to-door |
+
+`DelhiveryUtil::resolveSurfaceServiceByWeight()` (lines ~244-266)
+auto-selects the single Surface variant matching shipment weight.
+
+### 45.3 Geographic footprint and zone semantics
+
+**B2B Zone Codes** (`g13_zones_india_b2b_summary.csv`): 9 letter codes
+forming an 81-pair origin×destination matrix:
+
+- N1, N2 — North regions (2 zones).
+- E — East.
+- NE — Northeast.
+- W1, W2 — West regions.
+- S1, S2 — South regions.
+- C — Central.
+
+**Pincode coverage** (per `extended-zone-deep-dive.md`): Delhivery has
+**~6.6 million origin×destination pairs** in `pincodes_delhivery_coverage`
+with B2C zone codes including D, D2 (legacy/B2C-specific). The 9-letter
+zone codes apply to B2B routing only — the older D/D2 codes belong to
+a different table for B2C.
+
+Serviceability checks:
+
+- B2B → `Delhivery::checkPincodeServiceabilityB2BWs()` (line ~2222).
+- B2C → `Delhivery::checkPincodeServiceabilityB2CWs()` (line ~2255).
+
+Both set `$data->destination->oda` and `$data->destination->extendedZone`.
+
+### 45.4 Insurance specifics
+
+- **Guide:** `envia_insurance` at 1% of declared value, min 1-50 INR
+  (per Surface variant). Cap ~445,000 INR (~5,000 USD equiv).
+- **B2B (LTL):**
+  - **`insurance` (id 14)**: LTL-specific declared-value insurance,
+    ~0.25% with contract-negotiated minimum.
+  - **`owner_risk` (id 137)**: auto-injected when `insurance` is NOT
+    selected (see §45.8). Remitter assumes transport risk, lower
+    tariff.
+
+`DelhiveryUtil::adjustInsuranceValues()` reconciles values at runtime.
+
+### 45.5 COD specifics
+
+- **Guide:** ~2% of COD amount; minimum 33-41 INR per Surface variant.
+- **B2B:** Flat **150 INR per guide** (no percentage).
+- Liquidation Tue/Fri via Ecart Pay (per §11.1).
+- Platform cap 10,000 MXN equivalent per shipment.
+
+### 45.6 Extended zone specifics
+
+For B2C: `extended_zone` auto-injected when `oda=true` from
+serviceability WS. For B2B: `state_charge` instead — by-weight
+surcharge in LTL extended zones.
+
+### 45.7 Operational charges
+
+| Addon | id | Availability | Notes |
+|-------|---:|--------------|-------|
+| `cash_on_delivery` | 34 | All services | See §45.5 |
+| `envia_insurance` | 115 | Guide | 1% min 1-50 INR |
+| `insurance` | 14 | LTL | Carrier declared-value LTL |
+| `owner_risk` | 137 | LTL only | Auto-injected if no insurance |
+| `docket_fee` | 126 | LTL only | Base 0 INR; ~130-170 INR overrides |
+| `handling` | 119 | LTL only | 4.13 INR/kg base |
+| `extended_zone` / `state_charge` | 87 / 120 | Conditional | Code-injected — see §45.8 |
+| `green_tax` | 97 | Conditional (Delhi) | Code-injected |
+| `oda` | 89 | Conditional | Code-injected |
+| `reverse_pickup` | 139 | Guide only | Code-injected (flag-driven) |
+
+### 45.8 Code-injected services — VERIFICATION TABLE (LESSON L-T4 cross-check)
+
+The §22 claim — "Delhivery auto-injects 6 services in code, not via DB
+rules" — was independently verified during this audit by direct grep on
+`Delhivery.php`. Result: **all 6 services confirmed present in code**.
+
+| Service | Verified | File:line | Trigger condition | Shipment type |
+|---------|----------|-----------|-------------------|---------------|
+| `green_tax` | ✅ | `Delhivery.php:2197` | type=2 AND state='DL' | LTL only |
+| `owner_risk` | ✅ | `Delhivery.php:2201` | type=2 AND no `insurance` selected | LTL only |
+| `reverse_pickup` | ✅ | `Delhivery.php:2205` | type≠2 AND `reversePickup=true` | Guide only |
+| `extended_zone` | ✅ | `Delhivery.php:2209` (left arm of ternary) | `extendedZone=true` AND type≠2 | Guide |
+| `state_charge` | ✅ | `Delhivery.php:2209` (right arm of ternary) | `extendedZone=true` AND type=2 | LTL |
+| `oda` | ✅ | `Delhivery.php:2212` | `oda=true` | Both |
+
+Injection point: `Delhivery::setAdditionalServices()`, called from
+`DelhiveryUtil::getServiceabilityInfo()` during the Rate action.
+Services are appended to `$package->additionalServices` then totals
+recomputed.
+
+`setAdditionalServicesByShipment()` (~line 2283) post-processes by
+applying divisional logic to ODA, extended_zone, and green_tax when
+multiple packages exist.
+
+### 45.9 Hard limits
+
+- **Guide weight:** 25 kg/package operationally; Surface variants slab
+  the routing.
+- **Air weight:** ≤5 kg (rejects >5 kg).
+- **B2B max:** 1,000 kg/guide.
+- **GST number** required for label printing — `DelhiveryUtil::getSellerGstNumber()`
+  enforces 15-char GSTIN or returns dummy `00AXXXX0000X0Z0`.
+- **Credentials:** `DELHIVERY_B2B_IN` env var with 5 pipe-separated
+  fields (parsed by `DelhiveryUtil::parseCredentials()`).
+
+### 45.10 Distinctive characteristics
+
+1. **Most code-injected services in the platform** (6 confirmed).
+2. **Weight-slab auto-routing** — single rate request resolves to the
+   single applicable Surface variant by package weight.
+3. **B2B vs B2C zone semantics differ** — 9 letter codes for B2B vs
+   D/D2/E/Nx/Wx/Sx/etc for B2C ~6.6M pincode pairs.
+4. **Owner Risk auto-injection** — B2B shipments must carry either
+   carrier insurance or owner risk; never both, never neither.
+5. **Credentials per service variant** — `Delhivery::getKeyName()` maps
+   service shortname → env key, allowing different creds per surface
+   variant.
+
+## 46. BlueDart — secondary carrier deep dive
+
+Source: `knowledge-base/carrier-services/carriers-v2/bluedart.md`,
+`app/ep/carriers/BlueDart.php`,
+`app/ep/carriers/utils/BlueDartUtil.php`,
+`knowledge-base/queries/{1_prod_carriers,2_prod_services}.csv`.
+
+### 46.1 Identity
+
+- **Country:** India only.
+- **Currency:** INR. **GST:** 18%.
+- **MPS:** Yes.
+- **Pickup window:** 09:00–18:00, no charge.
+- **Volumetric factor:** 5,000 cm³/kg.
+- **Max weight:** 25 kg/piece (guide); 2,500 kg/guide (LTL).
+
+### 46.2 Services
+
+3 services (`2_prod_services.csv`):
+
+| service_id | shortname | type | Max | ETA | Service code |
+|-----------:|-----------|------|----:|-----|--------------|
+| 244 | `air_etail` | Guide (air) | 25 kg (op 10) | 1-2 d | `A` |
+| 245 | `dart_plus` | Guide | 25 kg | 2-4 d | `A\|L` (5-zone matrix) |
+| 243 | `ground` | LTL (B2B) | 2,500 kg/guide | 1-2 d | `E` |
+
+All 3 services enable COD.
+
+### 46.3 Zone semantics — 5 classifications
+
+`BlueDartUtil::getShipmentZone()` (~line 313-349):
+
+1. **Metro** — Delhi, Mumbai, Bangalore, Chennai, Kolkata, Hyderabad
+   (lowest cost).
+2. **Intra-City** — same city origin/destination.
+3. **Intra-Region** — same logistic region.
+4. **ROI** (Rest of India) — all other domestic coverage.
+5. **NE-J&K** (Northeast + Jammu & Kashmir) — special tariff, longest
+   ETA, sparse pincode coverage.
+
+Zone lookup dispatches by service:
+
+- `dart_plus` → `GeocodeUtil::getCoverageBluedartPlus()` returns
+  `zone_type`. 5-zone to CatalogZone mapping at lines ~379-397.
+- Other services → `checkCoverageWS()` with productCode (`A` air, `E`
+  surface), extracts `ecom_zone`.
+
+No standalone ODA addon line; price varies by zone within service
+rates.
+
+### 46.4 Insurance specifics
+
+- **Guide:** `envia_insurance` 1% min 1-50 INR; cap ~445,000 INR.
+- **LTL:** `owner_risk` is the primary auto-injected coverage for B2B.
+  Coexists with full `insurance` option.
+- Standard exclusions.
+- `BlueDart.php:49` validates 30 kg max for air services.
+
+### 46.5 COD specifics
+
+- Max per shipment: 10,000 MXN equivalent.
+- All 3 services COD-enabled.
+- Min 33-35 INR (guide); contract-dependent (LTL).
+- Percentage ~2% with overrides.
+- Liquidation Tue/Fri.
+
+### 46.6 Extended zone + LTL surcharges
+
+**RAS (Remote Area Surcharge)** — LTL-specific, state-based
+(`BlueDartUtil.php:252`). Triggered for states **BH, JH, KL, JK, LA**:
+
+- Adds `state_charge` (type=2, by-weight, ~5.31 INR/kg).
+- Guide extended zone (type=1) base varies: 7 INR (Metro/South/West),
+  12 INR (North), 15 INR (NE/J&K) per kg; min 1,500-3,000 INR.
+- NE-J&K markup: 3,000 INR floor.
+
+LTL addons:
+
+- **`docket_fee`**: 106.2 INR flat.
+- **`owner_risk`**: tariff per contract.
+- **`state_charge`**: see RAS above.
+- **`green_tax`**: Delhi origin/destination, `service=ground` only.
+- **`handling`**: weight-tiered.
+
+### 46.7 Volumetric factor
+
+5,000 cm³/kg uniformly. `BlueDart.php:46` calls `getWeight(null, service->volumetricFactor)`.
+
+### 46.8 Code-injected services — VERIFICATION TABLE (LESSON L-T4 cross-check)
+
+The §22 claim — "BlueDart auto-injects `owner_risk`, `reverse_pickup`,
+`state_charge`, `green_tax`" — was independently verified.
+
+| Service | Verified | File:line | Trigger | Shipment type |
+|---------|----------|-----------|---------|---------------|
+| `owner_risk` | ✅ | `BlueDartUtil.php:294` | type=2 (LTL) | LTL only |
+| `reverse_pickup` | ✅ | `BlueDartUtil.php:299` | type=1 AND `reversePickup=true` | Guide only |
+| `state_charge` | ✅ | `BlueDartUtil.php:253` | type=2 AND state ∈ {BH, JH, KL, JK, LA} | LTL only |
+| `green_tax` | ✅ | `BlueDartUtil.php:285` | service='ground' AND (origin=DL OR dest=DL) | LTL only |
+
+All 4 confirmed. Injection occurs in `setAdditionalsServices()`/`setGreenTax()`,
+called from Rate and Generate. Price computed per package in
+`AdditionalServiceUtil::getAdditionalServicesCost`.
+
+### 46.9 Hard limits
+
+- Guide weight: 25 kg/piece (rejects >30 kg with `InvalidValueException 1105`,
+  `BlueDart.php:49`).
+- LTL min: 20 kg.
+- LTL max: 2,500 kg/guide.
+- Insurance: 445,000 INR cap.
+- COD: 10,000 MXN equivalent platform cap.
+
+### 46.10 Distinctive characteristics
+
+1. **5-zone semantic** (Metro / Intra-City / Intra-Region / ROI /
+   NE-J&K) — unique zone classification model.
+2. **RAS state-based LTL surcharge** for 5 specific states.
+3. **Auto-injection on shipment type** — LTL always carries
+   `owner_risk`; B2C guide carries `reverse_pickup` if flag.
+4. **Green Tax (Delhi-only)** for surface LTL.
+5. **RTO scan merging** — `BlueDartUtil::mergeRtoScans` prefixes
+   return-leg scans with "RTO-" for unified tracking display.
