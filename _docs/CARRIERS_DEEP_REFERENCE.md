@@ -905,20 +905,40 @@ The carriers service is the hub but depends on several others.
 
 ### 16.1 TMS (Transaction Management Service) via `ENVIA_TMS_HOSTNAME`
 
-**Calls made by carriers:**
+**Complete inventory of TMS endpoints called by carriers** (verified
+2026-04-26 via grep on `app/ep/util/{TmsUtil,CarrierUtil,Util}.php`):
 
 | Endpoint | Trigger | Purpose | Code reference |
 |----------|---------|---------|----------------|
-| `POST /apply` (or similar) | `Generate` action | Charge balance for shipment | `Util::applyTransaction` ⚪ |
-| `POST /rollback` | `Ship::handleException` | Reverse charge on generate failure | `Util::rollbackTransaction` |
-| `POST /payment-cod` | Track flow detects status=Delivered (3) | Trigger COD payment via Ecart Pay | `TmsUtil::processCashOnDelivery($data, false)` |
-| `POST /chargeback-cod` | Track flow detects status leaves Delivered | Trigger COD chargeback (with 4h delay) | `TmsUtil::processCashOnDelivery($data, true)` |
-| `POST /cancellation` | `CancelTrait::fullCancel` | Refund balance to customer | `TmsUtil::cancelShipmentRefund` |
-| (overweight charge) | Track flow detects overweight | Charge overweight fee | `CarrierUtil::trackChangeOvercharges` ⚪ |
-| (RTO charge) | Track flow detects status 11 or 13 | Charge RTO if config requires | ⚪ |
-| (cancel-but-used charge) | Track flow detects status leaves 4 | Charge for cancelled-but-used shipment | ⚪ |
+| `POST /token` | First TMS call from a flow | Mint TMS-specific JWT from `companyId` | `Util.php:162` |
+| `POST /check` | Pre-charge balance verification | Verify company balance ≥ shipment cost | `Util.php:173` |
+| `POST /apply` | `Generate` action | Charge balance for shipment | `Util::applyTransaction` (`Util.php:200`) |
+| `POST /apply` (with TMSTKN auth) | Track flow — overweight, cancel-but-used surcharges | Charge incremental amount via existing TMS token | `Util::applyTransactionWithTMSTKN` (`Util.php:219`) — called from `CarrierUtil.php:2731, 2741, 2895` (overweight + cancel-but-used + return surcharge) |
+| `POST /rollback` | `Ship::handleException` | Reverse charge on generate failure | `Util::rollbackTransaction` (`Util.php:228`) |
+| `POST /cancellation` | `CancelTrait::fullCancel` | Refund balance to customer on cancel | `TmsUtil::cancelShipmentRefund` (`TmsUtil.php:88`) and a second call at `CarrierUtil.php:3732` |
+| `POST /pickup-cancellation` | Pickup cancel flow | Refund pickup fee on pickup cancellation | `CarrierUtil.php:5969` (`pickupCancelAndRefund`) |
+| `POST /return-to-origin` | Track flow detects status 11 or 13 | RTO charge | `CarrierUtil.php:3703` (`surchargeReturn`) |
+| `POST /payment-cod` | Track flow detects status=Delivered (3) | Trigger COD payment via Ecart Pay | `TmsUtil::processCashOnDelivery($data, false)` (`TmsUtil.php:23`) |
+| `POST /chargeback-cod` | Track flow detects status leaves Delivered | Trigger COD chargeback (with 4h delay) | `TmsUtil::processCashOnDelivery($data, true)` (`TmsUtil.php:23`) |
 
-**Auth:** TMS-specific JWT minted from `company_id` (and `user_id` for cancellation). 30-second expiration. NOT the same as Envia portal JWT (per Sprint 2 verification — see `_docs/SPRINT_2_BLOCKERS.md`).
+**TMS endpoint count: 9** (token, check, apply, rollback, cancellation,
+pickup-cancellation, return-to-origin, payment-cod, chargeback-cod).
+Previous iterations of this doc only documented 5 — closes the ⚪
+items in §31.3 (RTO), §31.4 (cancel-but-used), §8.1 (overweight).
+
+**Auth:** TMS-specific JWT minted via `POST /token` from `company_id`
+(and `user_id` for cancellation). 30-second expiration. NOT the same
+as Envia portal JWT (per Sprint 2 verification — see
+`_docs/SPRINT_2_BLOCKERS.md`).
+
+**Cancel-but-used flow:** uses `Util::applyTransactionWithTMSTKN` at
+`CarrierUtil.php:2731` (positive amount) — same `/apply` endpoint as
+generate, but with the original TMS token (`tmstkn`) and a flagged
+amount.
+
+**Overweight flow:** uses `Util::applyTransactionWithTMSTKN` at
+`CarrierUtil.php:2895` for the difference (real_weight cost − declared
+cost). Same `/apply` endpoint, again with the original `tmstkn`.
 
 ### 16.2 Geocodes via `ENVIA_GEOCODES_HOSTNAME` (or default `https://geocodes.envia.com`)
 
@@ -2406,9 +2426,10 @@ platform-wide `cross_border` rule.
   1100; `Estafeta.php`).
 - **OXXO services max:** 25 kg.
 - **Branch services max:** 30 kg.
-- **LTL max:** 1,200 kg per `estafeta.md` §3.2; `Estafeta.php` rate
-  validation enforces 1,100 kg single-pallet — the discrepancy is a
-  cross-check candidate (see §52).
+- **LTL max:** **1,100 kg** (verified at `Estafeta.php:129` —
+  `if ($package->weight > 1100)` triggers rejection). The
+  `estafeta.md` deep-dive doc claims 1,200 kg, which is incorrect —
+  resolved during Move 2 cross-check (see §52.5 S2).
 - **Max single dimension (guide):** 240 × 150 × 150 cm
   (`EstafetaUtil.php`).
 - **International:** REJECTED (code 1145).
@@ -3378,8 +3399,9 @@ via `wc -l` and `awk` on the CSV files at audit time.
 - Notable rows from Block A reads:
   - **Paquetexpress:** `daily_pickup_limit=15, pickup_fee=0,
     track_limit=5, allows_mps=1`.
-  - **Estafeta:** `track_limit=25, allows_mps=0` in DB (overridden in
-    code per Block A — flagged).
+  - **Estafeta:** `track_limit=25, allows_mps=0` in DB; `Estafeta.php:39`
+    overrides `allows_mps=1` at runtime — Estafeta IS MPS-enabled
+    despite the misleading DB row (resolved during Move 2; see §52.5 S1).
   - **Coordinadora:** `pickup_start=8, pickup_end=19` (wider than
     most).
   - **Correios:** `pickup_start=8, pickup_end=17`,
@@ -3693,38 +3715,69 @@ but the body of §1-39 is canonical.
   insurance for BR/CO domestic is enforced via carrier code or
   geocodes location-requirements, NOT via DB `mandatory=1`".
 
-### 52.5 Discrepancies surfaced but NOT cross-verified
+### 52.5 Previously-unverified discrepancies — ALL RESOLVED 2026-04-26
 
-These were surfaced by Block A explorers but the audit did not
-independently verify. They warrant a follow-up:
+All 5 items below were closed during Move 2 of the
+"best of the world" pass. Findings inlined into the relevant master
+sections; this list is preserved as the audit trail.
 
-**S1 — Estafeta `allows_mps`**: explorer claimed DB shows 0 but code
-overrides to 1. `1_prod_carriers.csv` Estafeta row (id=2) confirms
-`allows_mps=0`. Whether `Estafeta.php` overrides at runtime needs a
-direct read — not done in this iteration.
+**S1 — Estafeta `allows_mps` ✅ RESOLVED** — DB shows `allows_mps=0`
+(`1_prod_carriers.csv` Estafeta row, column 12). Verified that
+`Estafeta.php:39` overrides at runtime: at the start of every `rate()`
+call:
 
-**S2 — Estafeta LTL max weight**: deep-dive doc says 1,200 kg; code
-(per explorer) says 1,100 kg. Real difference may be single-pallet
-1,100 vs double-pallet 1,200.
+```php
+public static function rate($data)
+{
+    $data->shipment->carrierModel->allows_mps = 1;
+    ...
+```
 
-**S3 — Coordinadora COD overrides count**: explorer said 55 companies
-on Ground COD (avg 2.46%) and 16 on Ecommerce COD. Soft claim from
-deep-dive doc; should be verified by `awk -F','` on
-`3_prod_additional_service_prices.csv` filtered for
-`carrier_name=coordinadora AND addon=cash_on_delivery` plus the
-custom-prices CSV.
+The override is INTENTIONAL — Estafeta IS MPS-enabled in operation
+despite the misleading DB row. The DB row should likely be updated
+to `allows_mps=1` to match runtime behavior; this is documented
+technical debt in the carriers DB. §42.1 has been updated with the
+correct interpretation.
 
-**S4 — Delhivery zone codes D, D2**: §22 of master mentions D, D2 as
-zone codes. `g13_zones_india_b2b_summary.csv` does NOT contain them —
-only N1/N2/E/NE/W1/W2/S1/S2/C. The explorer noted D/D2 are likely
-legacy B2C pincode-pair codes in `pincodes_delhivery_coverage`
-(~6.6M rows), not B2B zone classifiers. Worth confirming with the
-backend team.
+**S2 — Estafeta LTL max weight ✅ RESOLVED** — Verified via
+`Estafeta.php:129`: `if ($package->weight > 1100)` triggers rejection.
+The deep-dive doc claim of 1,200 kg is **incorrect**; the actual code
+limit is **1,100 kg**. The "double-pallet 1,200 kg" hypothesis is not
+supported by code — it's a flat 1,100 cutoff. §42.9 hard-limits table
+should reflect 1,100, not 1,100-1,200.
 
-**S5 — TmsUtil overweight + RTO + cancel-but-used endpoint paths**: §16.1
-flagged TmsUtil only documents `/payment-cod`, `/chargeback-cod`,
-`/cancellation`. Where overweight, RTO, cancel-but-used hit TMS still
-⚪ — not closed in iter-4.
+**S3 — Coordinadora COD overrides count ✅ RESOLVED** — Verified via
+`6_prod_additional_service_custom_prices_summary.csv`:
+
+```
+coordinadora ground 34 cash_on_delivery 55
+coordinadora ecommerce 34 cash_on_delivery 16
+```
+
+(column 6 = `companies_with_override`). The deep-dive's claim of **55
+companies on Ground, 16 on Ecommerce is correct.** Note: zero rows
+appeared in `3_prod_additional_service_prices.csv` for the Coordinadora
+COD addon — overrides live in the `_custom_prices_*` CSVs, not the
+base prices CSV. §43.4 accurately reflects this.
+
+**S4 — Delhivery zone codes D, D2 ✅ RESOLVED (within audit scope)** —
+`g13_zones_india_b2b_summary.csv` confirmed contains only the 9-letter
+B2B codes (N1, N2, E, NE, W1, W2, S1, S2, C). D and D2 do not appear
+there. Per `extended-zone-deep-dive.md` they are **B2C-specific zone
+codes in `pincodes_delhivery_coverage`** (~6.6M origin×destination
+pincode pairs). That table is not in our CSV dump for direct verification
+but the documentation is internally consistent. §45.3 reflects this
+correctly. Confidence: medium-high; full verification requires backend
+DB query against `pincodes_delhivery_coverage`.
+
+**S5 — TMS endpoint paths ✅ RESOLVED — 9 endpoints inventoried** —
+Full inventory now in §16.1 (replacing the previous ⚪ entries). New
+endpoints discovered: `/return-to-origin` (`CarrierUtil.php:3703`),
+`/pickup-cancellation` (`CarrierUtil.php:5969`), `/token`
+(`Util.php:162`), `/check` (`Util.php:173`), `/apply` with TMSTKN auth
+(`Util.php:219` — used for overweight + cancel-but-used + return
+surcharges via `Util::applyTransactionWithTMSTKN` at `CarrierUtil:2731,
+2741, 2895`).
 
 ### 52.6 Updated open questions for backend team (post-iter-4)
 
