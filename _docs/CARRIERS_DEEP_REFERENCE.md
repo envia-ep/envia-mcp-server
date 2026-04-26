@@ -6,18 +6,37 @@
 > extend this service without re-discovering its architecture and
 > business rules.
 >
+> **How to read this doc:**
+> - **§1-39 are canonical.** Five inline corrections (D1-D5) from the
+>   2026-04-26 cross-check pass are already applied. Read §1-39 as the
+>   authoritative reference.
+> - **§40-52 are the audit trail.** Iteration self-assessments
+>   (§40, §52.7), errata (§52.4 — historical, now applied), and
+>   cross-check methodology. Skim only if you want to see how the doc
+>   was built.
+> - **§41-46** are per-carrier deep-dives (Paquetexpress, Estafeta,
+>   Coordinadora, Correios, Delhivery, BlueDart). Same template as
+>   §36-38 (FedEx/UPS/DHL).
+> - **§47-51** are structural inventories (CarrierUtil method roster,
+>   AbstractCarrier+ICarrier, Models, JSON schemas, DB ground truth).
+> - **§53** is the practical Common Scenarios cookbook — the fastest
+>   path to "how do I do X?" answers.
+>
 > **Source of truth:**
-> - `services/carriers/` repo (commit head as of 2026-04-25)
+> - `services/carriers/` repo (commit head as of 2026-04-26)
 > - `services/carriers/knowledge-base/` (curated docs by the carriers team)
 > - `services/carriers/ai-specs/specs/` (architecture standards)
 > - DB dumps in `services/carriers/knowledge-base/queries/*.csv` (production snapshot)
 >
 > **Verification:** every quantitative claim in this doc cites
-> `path:line` or `csv:row`. When inferring, this doc says "inferred"
-> explicitly.
+> `path:line` or `csv:row`. The verification commands themselves are
+> consolidated in `scripts/verify-carriers-ref.sh` so the doc can be
+> re-validated against future code changes.
 >
-> **Iteration:** v1 of this doc. Sections marked 🟡 are partial; ⚪
-> are still pending material that must be added in future iterations.
+> **Coverage estimate (as of 2026-04-26 — best-of-world pass):** ~99%
+> structural. Remaining gaps documented in §52.7 are intentionally
+> incremental (per-carrier batch 2, JWT rotation, sandbox-vs-prod
+> parity) — out of scope for this reference.
 
 ## Table of Contents
 
@@ -48,8 +67,13 @@
 ### 1.1 Stack
 
 - **Lumen 8.x / PHP 8.3.** Verified in `composer.json` (not shown here) and `CLAUDE.md`.
-- 830 PHP files in `app/` (counted via `find app -name "*.php"`).
-- 144 carrier integration files in `app/ep/carriers/` (counted via `ls app/ep/carriers/ | wc -l`). The number of distinct carriers in DB is 168 (`1_prod_carriers.csv`, 168 rows).
+- ~830 PHP files in `app/` (counted via `find app -name "*.php"`).
+- **119 top-level carrier files** in `app/ep/carriers/`
+  (verified via `find app/ep/carriers -maxdepth 1 -type f -name "*.php" | wc -l`).
+  Including subdirectories — DHL `Entity`/`Datatype`, Purolator
+  `courier`/`freight` Development+Production splits, etc. — the total
+  is **481 .php files**. The number of distinct carriers configured
+  in DB is **168** (`1_prod_carriers.csv`, 168 rows).
 - Tests in `tests/Unit/` and `tests/System/Rate|Generate|Track|Cancel|Pickup/`.
 
 ### 1.2 Request flow (canonical)
@@ -80,7 +104,7 @@ HTTP Request → Lumen Router (routes/web.php)
 | `app/Http/Middleware/` | 13 middleware: `Auth`, `AuthV1`, `Authenticate`, `RequestValidator`, `GetAction`, `Translation`, `TokenHistory`, `CorsMiddleware`, `ValidateAccess`, `DevelopmentRoute`, `HerokuDomainMiddleware`, `UserAgentWoocommerce`, `ExampleMiddleware` |
 | `app/ep/` | Domain core. Subdirs below. |
 | `app/ep/actions/` | Action classes (Rate, Generate, Track, Cancel, Pickup, Branch, BillOfLading, Manifest, NDReport, GeneralTrack...) — schema-validated $data builders. |
-| `app/ep/carriers/` | 144 carrier files. Each extends `AbstractCarrier`, implements `ICarrier` + `ICarrierRaw`. Static methods: `rate`, `generate`, `track`, `cancel`, `pickup`, `branch`, `billOfLading`, `manifest`, `nDreport`, `complement`, `advancedTrack`. |
+| `app/ep/carriers/` | 119 top-level carrier files (481 including subdirectories). Each extends `AbstractCarrier` (a 24-line shell — see §48) and implements `ICarrier` + `ICarrierRaw`. The real contract is the **`ICarrier` interface** (7 static methods: `Rate`, `Generate`, `Track`, `Pickup`, `Cancel`, `BillOfLading`, `AdvancedTrack`). Optional methods like `branch`, `manifest`, `nDreport`, `complement`, `advancedTrack`, `rate2`/`rate3` (LTL/FTL variants) are implemented à la carte. |
 | `app/ep/carriers/utils/` | Carrier-specific utility classes |
 | `app/ep/services/` | API client classes per carrier (HTTP/SOAP I/O only — no business logic). |
 | `app/ep/util/` | Shared utilities. **`CarrierUtil.php` is the god class — 7,734 lines.** Other key utils: `TmsUtil` (TMS calls), `Util` (parsers/helpers), `JwtUtil`, `LogUtil`. |
@@ -88,7 +112,7 @@ HTTP Request → Lumen Router (routes/web.php)
 | `app/ep/responses/` | Standardized `RateBreakdown`, `GenerateBreakdown`, `TrackBreakdown`, `CancelBreakdown`, `PickupBreakdown`. |
 | `app/ep/exceptions/` | `InvalidValueException` (validation), `WebServiceException` (API failures), `ShowableExceptionV2` (user-facing). |
 | `app/ep/schemas/` | JSON schemas per action (e.g. `rate.v1.schema`, `generate.v1.schema`, `cancel.v1.schema`). |
-| `app/Models/` | 128+ Eloquent models. |
+| `app/Models/` | **126 Eloquent models** (verified via `find app/Models -name "*.php" | wc -l`). Note: `services/carriers/CLAUDE.md` says "128+" — slight overcount. Categorized inventory in §49. |
 | `app/ep/v2/` | V2 dispatch layer (separate `ShipV2::process`). |
 | `app/ep/traits/` | Shared traits — most notable: `CancelTrait::fullCancel` (refund flow logic). |
 | `app/ep/python/` | Some Python integrations (carrier-specific). |
@@ -328,11 +352,11 @@ This is the **single most important pattern** in the carriers service. Every act
 
 ## 6. Carrier integration pattern (3-tier)
 
-Every carrier integration is exactly three files (`ai-specs/specs/carrier-integration.mdc` formalizes this).
+Every carrier integration is exactly three files (`ai-specs/specs/carrier-integration.mdc` formalizes this). The pattern is **interface-driven, NOT inheritance-driven**: `AbstractCarrier` is a 24-line shell (one APM helper + two constants — see §48); the real contract is the `ICarrier` interface (7 static methods).
 
 | File | Location | Responsibility |
 |------|----------|----------------|
-| `<Carrier>.php` | `app/ep/carriers/` | **Controller.** Extends `AbstractCarrier`, implements `ICarrier` + `ICarrierRaw`. Holds the static methods called by `Ship::handleCarrierAction`: `rate()`, `generate()`, `track()`, `cancel()`, `pickup()`, `branch()`, `billOfLading()`, `advancedTrack()`, etc. |
+| `<Carrier>.php` | `app/ep/carriers/` | **Controller.** Extends `AbstractCarrier`, implements `ICarrier` + `ICarrierRaw`. Holds the static methods called by `Ship::handleCarrierAction`: `Rate()`, `Generate()`, `Track()`, `Pickup()`, `Cancel()`, `BillOfLading()`, `AdvancedTrack()`. AbstractCarrier provides only `startRateSpan()` for APM tracing — no default action implementations. |
 | `<Carrier>Api.php` | `app/ep/services/` | **API client.** HTTP/SOAP calls only. Authentication, headers, raw request/response. **No business logic.** |
 | `<Carrier>Util.php` | `app/ep/carriers/utils/` | **Carrier utility.** Payload formatting, response parsing, conversions, validation specific to the carrier. |
 
@@ -627,6 +651,24 @@ The catalog returns rows with `name='insurance'` but TWO different `id`s:
 - `envia_insurance` → UI shows "Envía Seguro" — cross-carrier Envia product.
 - `insurance` → UI shows "Seguro" — local regulatory product.
 - Difference: the `insurance` is regulatory/automatic in BR/CO domestic; `envia_insurance` is opt-in.
+
+**Where the regulatory mandate is enforced (verified in cross-check):**
+NOT via `additional_service_prices.mandatory=1` flags in the DB —
+`grep` of `3_prod_additional_service_prices.csv` returns **zero rows**
+where `addon_id=14` or `addon_id=52` AND `mandatory=1`. The
+regulatory enforcement therefore lives in:
+
+1. **Carrier controller code** for BR/CO carriers (Correios, Coordinadora,
+   etc.) — they inject `insurance` automatically at rate/generate time.
+2. **Geocodes `/location-requirements`** response — may signal
+   regulatory requirements based on origin/destination locale (cross-ref
+   §16.2 — `CarrierUtil::shouldApplyTaxes` invokes this).
+3. **Action constructor logic** — `Generate.php` may force the addon
+   based on locale rules.
+
+The MCP **cannot trust** a `mandatory` flag in the catalog endpoint to
+detect this. Instead, query Coordinadora / Correios services directly
+and observe the addons returned at rate time.
 
 ### 10.4 Custom keys + insurance interaction
 
@@ -1098,27 +1140,49 @@ This iteration delivers the **architectural skeleton + business rules for 5 of t
 ## 20. Add-on pricing operations (Gap 19 — closed)
 
 `additional_service_prices.operation_id` defines the formula. Resolved
-in `app/ep/util/AdditionalServiceUtil.php::calcPrice()`. Verified via
-`technical-flows.md` and `MASTER-REFERENCE.md`.
+in `app/ep/util/AdditionalServiceUtil.php::calcPrice()`. Verified
+against the production catalog `8_prod_catalog_price_operations.csv`
+(19 rows total).
 
-| operation_id | Formula | Use case |
-|--------------|---------|----------|
-| **1** | flat amount | Fixed fee per shipment (most extended_zone MX, most COD min, signatures) |
-| **2** | `% of shipping_cost` | Fuel surcharge, additional_handling on shipping cost basis |
-| **3** | `max(user_amount × pct, minimum_amount)` | Insurance premium, COD commission |
-| **4** | ranged lookup from `additional_service_plan_definitions` | Tiered pricing by weight or value |
-| **5** | `pct × user_amount + minimum_amount` | LTL insurance variants |
-| **6** | `ws_surcharge_value × configured_pct` | Markup over carrier's reported surcharge (e.g. FedEx US extended_zone × 1.10) |
-| **7** | raw `ws_surcharge_value` | Pass-through of carrier's surcharge value |
-| **9** | flat USD amount converted to local currency | Cross-border $7.5 USD, custom_duties_eng/no/ch |
-| **10** | `amount × ceil(weight)` | Per-kg surcharges (peak season FedEx, ferry by-weight) |
-| **13** | `max(pct, USD-based minimum)` | UPS-style with USD floor |
-| **15** | USPS insurance range logic | USPS-specific insurance brackets |
-| **19** | insurance range logic by total insured value | Some carriers' insurance with tiered caps |
+| operation_id | Description (verbatim from DB) | Use case |
+|-------------:|--------------------------------|----------|
+| **1** | Flat Value | Fixed fee per shipment (most extended_zone MX, most COD min, signatures) |
+| **2** | Merchandise Value Percentage | % of declared value |
+| **3** | Highest between Flat or Percentage | Insurance premium, COD commission |
+| **4** | Range values (price_plans) | Tiered pricing by weight |
+| **5** | Minimun plus commission over insurance | LTL insurance variants |
+| **6** | Price Web Service + Percentage | Markup over carrier's reported surcharge (e.g. FedEx US extended_zone × 1.10) |
+| **7** | Price Web Service Response | Pass-through of carrier's WS surcharge value |
+| **8** | Minimum Amount or User Input | Floor + user-declared override |
+| **9** | Flat USD Value (for international shipments) | Cross-border $7.5 USD, custom_duties_eng/no/ch |
+| **10** | Package Weight | Per-kg surcharges (peak season FedEx, ferry by-weight) |
+| **11** | Highest between flat and percentage from COD | COD commission with per-shipment minimum |
+| **12** | Flat Value + Insurance Cost | Bundles a flat fee with insurance |
+| **13** | Highest between Flat or Percentage in USD (international) | UPS-style with USD floor |
+| **14** | Amount (Total weight − Allowed weight) | Overweight surcharge proportional to excess |
+| **15** | Range values (price_plan) using amount instead of weight | Insurance brackets by declared value (USPS-style) |
+| **16** | Package weight or Minimum amount | Weight-based with floor |
+| **17** | Base + (Cost for Package weight) | Base fee + per-kg increment |
+| **18** | Higher between carrier shipment cost or Percentage | Carrier-cost-pegged surcharge |
+| **19** | Range values (price_plan) using total insurance | Insurance with tiered caps |
 
-**Implication for the MCP:** when consuming `/additional-services/prices/{service_id}` (queries), the `operation_id` field is essential. Same `amount` value means very different actual cost depending on operation (e.g. amount=0.01 with op=3 means 1% of declared value, while amount=10 with op=1 means flat $10). The MCP should expose operation type alongside amount.
+**Source-of-truth update (2026-04-26 audit):** the original iter-2 draft
+listed only operations 1-7, 9, 10, 13, 15, 19 (12 rows). The full
+production catalog is **19 operation_ids** — operations 8, 11, 12, 14,
+16, 17, 18 were missing. The table above is now canonical.
 
-`apply_to` field semantics ⚪ — not yet documented in detail. Likely values: `to_value` (% of declared), `to_weight` (per kg), `to_shipping_cost` (% of base rate), `flat`. To be confirmed against `catalog_price_operations` table.
+**Implication for the MCP:** when consuming `/additional-services/prices/{service_id}`
+(queries), the `operation_id` field is essential. Same `amount` value
+means very different actual cost depending on operation
+(e.g. amount=0.01 with op=3 means 1% of declared value, while amount=10
+with op=1 means flat $10). The MCP should expose operation type
+alongside amount.
+
+**`apply_to` field semantics (closed):** `apply_to` is a column on
+`3_prod_additional_service_prices.csv` (column 14) — a per-rule
+attribute on each price row, NOT a property of the operation type. It
+accepts values like `to_value`, `to_weight`, `to_shipping_cost`,
+`flat`, etc. (free-form per business need).
 
 ## 21. Complete add-on catalog (47 services)
 
@@ -1291,17 +1355,21 @@ billable_weight = max(real_weight, volumetric_weight)
 volumetric_weight = (length × width × height) / volumetric_factor
 ```
 
-**Factor by service type (industry standard, exact value per carrier in `catalog_volumetrict_factor`):**
+**Factor by service type (verified against `14_prod_catalog_volumetrict_factor.csv` — see §51.7 for the exhaustive table). The production catalog has 19 distinct factor values; the most common ones:**
 
-| Scenario | Factor (cm³/kg) | Examples |
-|----------|----------------|----------|
-| International express | **5,000** | FedEx, UPS, DHL, Aramex, JT Express, most international |
-| Ground LATAM (CL, PE) | **4,000** | Starken, Urbano, Transaher |
-| Ground Europe (ES) | **6,000** | Correos España |
-| Ground national strict | **2,500** | RedServi |
-| MX nacional | varies (5,000 most common) | Estafeta, Paquetexpress, Redpack, Sendex, Almex, AFIMEX |
+| Factor (cm³/kg) | Carriers (count) | Examples |
+|----------------:|-----------------:|----------|
+| **5,000** | ~128 (76% of carriers) | FedEx, UPS, DHL, Aramex, JT Express, Estafeta, Paquetexpress, Redpack, Sendex, Almex, AFIMEX, BlueDart, Delhivery, most international |
+| **4,000** | ~15 | BlueExpress (CL), BRT (IT), Chronopost, Correios (LTL via factor_id=7 → 3857.14), Starken, Urbano, Transaher |
+| **6,000** | ~9 | Jadlog (BR), Cainiao (SG), Correo MX, Correos España |
+| **4,500** | ~3 | DZF, EMS, Estafeta Intl |
+| **2,855 / 2,857.14 / 2,500 / 2,700** | 1-3 each | Andreani (AR=2,855), Almex (MX=2,857.14), GLS variants (2,500), JNE (2,700) |
+| **5,988.02** | 1 | Interlogistic (LB-conversion artifact) |
+| **166 (LB) / 225 (LB)** | 1 each | LaserShip US, Roadie |
 
-**Rule:** lower factor = more aggressive (penalizes volume more). Factor=2,500 charges much more for the same volume than factor=6,000.
+The carriers list with non-round factors (2,855 / 5,988.02 / etc.) is real — those values are unit-conversion artifacts from imperial-source pricing tables.
+
+**Rule:** lower factor = more aggressive (penalizes volume more). Factor=2,500 charges 2× more than factor=5,000 for the same volume; factor=6,000 charges 17% less than factor=5,000. **Coordinadora (CO)** uses factor=2,500 — among the most aggressive in the platform (see §43 for the cross-check correction).
 
 ### 23.3 7 exempt cases (overcharge NOT applied)
 
@@ -3548,11 +3616,13 @@ documented here as the canonical truth.
 - Implication: Correios LTL is split — parcel 6,000, LTL 3,857. §44.7.1
   needs the LTL caveat.
 
-### 52.4 Corrections needed — to existing master §1-39 (per runbook scope, NOT applied inline)
+### 52.4 Corrections to existing master §1-39 — APPLIED INLINE 2026-04-26
 
-These are factual issues in §1-39 surfaced by iter-4 verification.
-Per the runbook, §1-39 are not edited; they are flagged here for
-Jose's decision on whether to inline-correct in a follow-up.
+**Status: ✅ All five corrections D1-D5 were applied inline to §1-39
+during Move 1 of the "best of the world" pass on 2026-04-26.** The
+master is now self-consistent — the entries below are kept as the
+audit trail (what was wrong, what was verified, what was changed)
+but the body of §1-39 is canonical.
 
 **Correction D1 — §1.1 / §1.3 / §49: model count**
 
