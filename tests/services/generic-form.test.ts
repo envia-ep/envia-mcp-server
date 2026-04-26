@@ -239,6 +239,37 @@ describe('fetchGenericForm', () => {
         expect(url).not.toContain('form=address_form');
     });
 
+    it('should parse RAW ARRAY response (production shape, no `{data:[...]}` wrapper)', async () => {
+        // Verified against queries-test.envia.com on 2026-04-25: the endpoint
+        // returns `[ {fieldId,...}, ... ]` directly, NOT `{data:[...]}`. Prior
+        // code accessed `res.data?.data`, which yielded undefined for the raw
+        // array shape and triggered graceful degradation (silent no-op).
+        // This regression test asserts the production shape is parsed correctly.
+        mockFetch.mockResolvedValueOnce({
+            ok: true,
+            status: 200,
+            json: () => Promise.resolve(BR_FORM_FIELDS),
+        });
+
+        const result = await fetchGenericForm('BR', client, MOCK_CONFIG);
+
+        expect(result).toHaveLength(BR_FORM_FIELDS.length);
+        expect(result[0].fieldId).toBe('postalCode');
+    });
+
+    it('should parse RAW STRINGIFIED JSON response (string body without wrapper)', async () => {
+        // Defensive: queries may return JSON-as-string in some legacy paths.
+        mockFetch.mockResolvedValueOnce({
+            ok: true,
+            status: 200,
+            json: () => Promise.resolve(JSON.stringify(BR_FORM_FIELDS)),
+        });
+
+        const result = await fetchGenericForm('AR', client, MOCK_CONFIG);
+
+        expect(result).toHaveLength(BR_FORM_FIELDS.length);
+    });
+
     it('should cache results for the same country', async () => {
         mockFetch.mockResolvedValueOnce({
             ok: true,

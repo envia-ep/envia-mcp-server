@@ -172,7 +172,9 @@ export async function fetchGenericForm(
     // Verified against dev DB on 2026-04-25: address_info has 28 countries
     // (incl. MX, US, BR, CO, ES, AR, etc.); address_form has 0 rows.
     const url = `${config.queriesBase}/generic-form?country_code=${encodeURIComponent(cc)}&form=address_info`;
-    const res = await client.get<{ data: GenericFormField[] | string }>(url);
+    // The queries endpoint returns the field array DIRECTLY (no `{data: [...]}` wrapper).
+    // We accept both shapes for forward-compat in case the backend evolves.
+    const res = await client.get<GenericFormField[] | { data: GenericFormField[] | string }>(url);
 
     if (!res.ok) {
         console.error(`[generic-form] Failed to fetch form for ${cc}: ${res.error}`);
@@ -180,7 +182,16 @@ export async function fetchGenericForm(
     }
 
     let fields: GenericFormField[];
-    const raw = res.data?.data;
+    // Production-verified 2026-04-25: queries returns a raw JSON array.
+    // Three accepted shapes (in order of likelihood):
+    //   1. Raw array         `[ {fieldId,...}, ... ]`         (current production)
+    //   2. Wrapped array     `{ data: [ {...}, ... ] }`        (legacy)
+    //   3. Stringified JSON  `"[...]"` or `{ data: "[...]" }`  (defensive)
+    const raw: GenericFormField[] | string | undefined = Array.isArray(res.data)
+        ? res.data
+        : typeof res.data === 'string'
+        ? res.data
+        : (res.data as { data?: GenericFormField[] | string } | undefined)?.data;
 
     if (typeof raw === 'string') {
         try {
