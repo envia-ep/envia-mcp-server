@@ -57,10 +57,107 @@ For each prompt:
 
 1. Open a **new** Claude Code session (or another LLM with similar capabilities and tool access).
 2. **Use Opus 4.7 (1M context)**. Sonnet won't have the depth for the synthesis phase.
-3. Paste the prompt's content as the opening message, OR reference it: `Lee y ejecuta ai-agent/envia-mcp-server/.claude/prompts/<PROMPT_FILE>.md`.
+3. Paste the **opening message template below** (don't use a bare 2-line "execute this prompt" — the bar requires explicit framing).
 4. Let the session run end-to-end. Don't interrupt mid-iteration unless something goes wrong.
 5. The session will produce: a doc, 3+ commits, a handoff summary at the end.
 6. After each session: review the handoff summary, the commit messages, and skim the new doc.
+
+## Opening message template (copy-paste, substitute placeholders)
+
+Replace `<PROJECT>` with carriers/queries/geocodes/ecommerce/admin-monorepo/accounts and `<PROMPT_FILE>` with the corresponding `.md` file from `.claude/prompts/`.
+
+```
+Sesión de deep reference audit del proyecto <PROJECT> — bar: ser el mejor del mundo.
+
+Modelo: Opus 4.7 (1M context). Duración esperada: 2-4 horas.
+
+LECTURA OBLIGATORIA, en este orden exacto:
+
+1. ai-agent/envia-mcp-server/_docs/LESSONS.md — end-to-end. Cada lección
+   encoda una corrección que pagué antes; ignorarlas repite mistakes.
+
+2. ai-agent/envia-mcp-server/_docs/CARRIERS_DEEP_REFERENCE.md — gold
+   standard. 40 secciones, 2,142 líneas, 3 iteraciones documentadas.
+   ESTE es el bar de profundidad y estructura. Si tu output no replica
+   este nivel, no es suficiente.
+
+3. ai-agent/envia-mcp-server/.claude/prompts/<PROMPT_FILE> — runbook
+   ejecutable: scope, methodology, quality gates, honesty traps,
+   anti-patterns. Síguelo paso a paso.
+
+DISCIPLINA NO NEGOCIABLE:
+
+- Iteración 1 SIEMPRE produce output superficial. No la aceptes como
+  final bajo ninguna circunstancia. La señal de que iteraste mal es
+  que iter-2 no encontró nada que corregir — eso es prácticamente
+  imposible y revela cross-check insuficiente.
+- Cross-check pass (LESSON L-T4) es obligatorio antes del commit final.
+  Mínimo: 3 claims numéricos al azar verificados contra source por
+  cada sección sintetizada por explorer agents.
+- Cita archivo:línea (o csv:row, o knowledge-base path) para cada
+  claim cuantitativo. Cero "approximately X" o "around Y".
+- Cuando dudes entre conservador y permisivo, elige conservador.
+  Marca ⚪ pending sobre lo que no puedas verificar.
+- No push a remote (LESSON L-G3). No code changes (es audit, no
+  implementación).
+- No tomes decisiones unilaterales que requieran criterio humano.
+  Surface el dilema con opciones y espera input (LESSON L-P1).
+
+OBJETIVO HONESTO:
+
+- ~92-95% structural coverage. NO 100%. La búsqueda obsesiva del 100%
+  produce inventar; la honestidad sobre el ~5-8% restante es output
+  de valor.
+- 3 commits incrementales mostrando iteración v1 → v2 → v3.
+- Self-assessment al cierre con conteo de ⚪ pending.
+
+ESCAPE HATCHES:
+
+- Si el contexto se acerca al límite durante synthesis: commit parcial
+  con audits completos + WIP master doc, surface el estado, no apures
+  síntesis.
+- Si un explorer agent devuelve output visiblemente incompleto
+  (counts muy bajos comparados con expectativa del prompt):
+  relánzalo con scope más específico antes de sintetizar. NO aceptes
+  trabajo superficial por ahorrar tiempo.
+- Si descubres algo claramente fuera del scope del proyecto pero útil:
+  marca como pending y avisa al cierre, no expandas el audit
+  unilateralmente.
+
+HANDOFF AL CIERRE:
+
+Entrega:
+1. Path al doc producido + line count + section count.
+2. Total commits y SHAs.
+3. Top 5 hallazgos sorpresivos descubiertos durante deep-reads.
+4. Resumen de correcciones del cross-check pass (qué encontraste vs
+   qué los explorer agents reportaron originalmente).
+5. ⚪ pending list explícita (qué quedó fuera y por qué).
+6. Open questions concretas para el equipo backend (con paths o SQL).
+7. Coverage estimada honestamente (% structural).
+8. Recomendación de la siguiente sesión.
+
+AUTORIDAD:
+
+Jose Vidrio (jose.vidrio@envia.com) es el único decisor. Cualquier
+ambigüedad de scope o decisión de inclusión se surface y espera
+input. No decidas unilateralmente.
+
+Arranca.
+```
+
+### Why this opening is structured this way
+
+The bare 2-line opening (`Lee y ejecuta X. Step 0: LESSONS.md.`) is **insufficient** for a "best in world" bar because:
+
+1. **No model anchor** — risk of using wrong model.
+2. **No bar cultural anchor** — "mejor del mundo" needs to be the first thing the agent sees.
+3. **No anti-iter-1 reminder** — agents reliably produce surface-level first drafts; without an explicit anti-pattern callout in the opening, this is rationalized as "complete".
+4. **No honest-gap target** — without "92-95%, not 100%", agents invent to fill gaps.
+5. **No escape hatches** — without them, the agent makes silent decisions when reality diverges from plan.
+6. **No handoff format** — without it, handoffs vary wildly in usefulness.
+
+The template above costs ~30 seconds to read and ~10 seconds to copy-paste-substitute. The alternative is risking 2-4 hours of session output that doesn't meet the bar.
 
 ## Quality bar (universal across all 6 prompts)
 
