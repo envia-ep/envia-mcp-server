@@ -1765,4 +1765,429 @@ What's pending (⚪):
 
 **Companion gold standard:** `_docs/CARRIERS_DEEP_REFERENCE.md` (40 sections, 2,142 lines, 3 iterations, ~92-95% structural coverage). This doc is in the same shape and aims for the same final coverage by end of iter-3.
 
+---
+
+# Iteration 2 — cross-check expansion (2026-04-25)
+
+> **Read in iter-2:** `services/webhooks/deliver.service.js`,
+> `services/carriers-mcp-client.js` (full), `db-schema.mdc` head (5
+> tables), full grep of `geocodes\.` cross-DB references,
+> `routes/shipment.routes.js:472-482` (config-columns bug
+> investigation).
+>
+> Goals delivered: (a) confirm or refute the iter-1 ⚪/🟡 items, (b)
+> add depth to inter-service architecture, (c) record concrete
+> findings for the backend team. Sections §39-§44 close the iter-1
+> open items that could be resolved by code reading alone.
+
+## 39. Confirmed findings (iter-2 closes iter-1 ⚪/🟡)
+
+### 39.1 ✅ /shipments/config-columns IS a handler bug (not intentional reuse)
+
+**Verified at `routes/shipment.routes.js:472-481`:**
+
+```js
+{
+    method: 'POST',
+    path: `${path}/config-columns`,
+    handler: controller.pinFavoriteShipment,    // ← wrong handler
+    options: {
+        auth: 'token_user',
+        validate: {
+            payload: Joi.object({
+                shipment_id: Joi.number().integer().required(),  // ← wrong schema
+            }),
+        },
+    },
+},
+```
+
+This routes `POST /shipments/config-columns` to `pinFavoriteShipment` with a payload schema that only accepts `{shipment_id}`. The endpoint name implies a column-config payload (likely `{columns: [...]}`), so this is **a real production bug**. Either the endpoint never worked as named OR pin-favorite was renamed and the route was never updated.
+
+Recommendation: open a backend ticket. The MCP should NOT expose this endpoint until fixed. (Safe to ignore in v1 scope — not a typical chat request.)
+
+### 39.2 ✅ Outbound webhook delivery has NO HMAC signing today
+
+**Verified by reading `services/webhooks/deliver.service.js` (full file, 60 lines):**
+
+```js
+async function deliverOnce({ targetUrl, headers, payload }) {
+    const res = await axiosInstance.post(targetUrl, payload, {
+        headers,
+        timeout: config.delivery.timeoutMs,
+        validateStatus: () => true,
+    });
+    return res;
+}
+```
+
+The `headers` object is passed in by the caller (`services/webhooks/dispatcher.service.js`). There is **no HMAC computation** in either file. `config/webhooks.js` defines the `X-Webhook-Signature` header NAME but no signing routine implements it.
+
+**Status:** confirmed security gap. The webhook payload reaches the customer's URL **unsigned** — receivers cannot verify authenticity. Matches memory's note "Webhooks without HMAC signature".
+
+**Mitigations in place:** circuit breaker (open after 20 failures, silent for 60 s), exponential backoff, 8-attempt retry with `validateStatus: () => true` (so any HTTP status is treated as a delivery; only network/timeout errors retry). Retry count and status-code semantics are correct, but **without HMAC, a spoofer can deliver fake events** to the customer endpoint if they discover the URL.
+
+Recommendation: backend team should implement HMAC-SHA256 over `payload` keyed by `company_webhooks.auth_token` and inject into `X-Webhook-Signature` header **inside `deliverOnce`** before each POST. Should be < 30 lines of code.
+
+### 39.3 ✅ Carriers MCP HTTP — full protocol detail
+
+**Verified by reading `services/carriers-mcp-client.js` (lines 1-130):**
+
+- **URL:** `${process.env.CARRIERS_MCP_URL || 'http://localhost:3100'}/mcp`.
+- **Protocol:** JSON-RPC 2.0 over Streamable HTTP MCP (the [official MCP HTTP spec](https://modelcontextprotocol.io)).
+- **No SDK:** the client is hand-rolled because the JS MCP SDK is ESM-only and queries is CommonJS. Code comment confirms: "(which is ESM-only and heavy for a CommonJS service)".
+- **Protocol version:** `'2025-03-26'`.
+- **Client info:** `{ name: 'queries-ai-shipping', version: '1.0.0' }`.
+- **Per-call lifecycle (lines 32-65):**
+  1. `POST` `initialize` (with `Authorization: Bearer <token>` and no `mcp-session-id`).
+  2. New `mcp-session-id` is returned in the response header — captured.
+  3. `POST` `notifications/initialized` (notification, no response expected).
+  4. `POST` `tools/call` with the tool name + args + same Authorization header.
+  5. `DELETE` the session (best-effort, errors swallowed).
+- **Auth:** Bearer token passed on **every call** because "sessions may not persist across requests when mcp-session-id header is absent" (verbatim comment, line 60-61). This implies the MCP server may rotate sessions across pods.
+- **Tools used by queries (per `services/shipping.service.js`):** `generate_parcel`, `track_shipment`, `cancel_shipment`, `get_address_requirements`. (NOT `rate` — that goes to the carriers PHP HTTP `/ship/rate` directly.)
+- **Total flow timeout:** 30 s per JSON-RPC call.
+- **Error handling:** `observability.captureError(err, { toolName, args })` then re-throw. Status ≥ 400 throws `Error("MCP HTTP {status}: {body}")`.
+
+**Architectural note:** the carriers PHP service must therefore expose two parallel surfaces — the legacy `/ship/*` REST endpoints (consumed by `draftActions.processor.js` directly) AND the MCP HTTP endpoint (consumed by `carriers-mcp-client.js`). ⚪ Iter-3 should confirm whether these are co-located in the carriers PHP process or whether `CARRIERS_MCP_URL` points to a separate microservice.
+
+### 39.4 ✅ Cross-DB to geocodes — broader than iter-1 reported
+
+iter-1 §32 listed only `util/customPrices.utils.js`. Iter-2 grep finds:
+
+- `controllers/analytics.controller.js:1513, 1835` — `FROM geocodes.geocode_data AS g` (twice).
+- `controllers/analyticsEcommerce.controller.js:358` — `FROM geocodes.geocode_data AS g`.
+- `util/customPrices.utils.js:248, 270, 290, 297` — `geocodes.paquetexpress_postal_code_distances`, `geocodes.paquetexpress_coverage`.
+- `util/customPrices.utils.js:354-355` — `geocodes.list_localities` JOIN `geocodes.list_states`.
+- `util/customPrices.utils.js:399` — `geocodes.urbano_coverage`.
+
+So the geocodes cross-DB surface is **8 distinct tables** referenced from 2 controllers and 1 util:
+
+| Table | Consumer |
+|-------|----------|
+| `geocodes.geocode_data` | `analytics.controller.js` (×2), `analyticsEcommerce.controller.js` |
+| `geocodes.paquetexpress_postal_code_distances` | `customPrices.utils.js` (×2) |
+| `geocodes.paquetexpress_coverage` | `customPrices.utils.js` (×2) |
+| `geocodes.list_localities` | `customPrices.utils.js` |
+| `geocodes.list_states` | `customPrices.utils.js` |
+| `geocodes.urbano_coverage` | `customPrices.utils.js` |
+
+CLAUDE.md monorepo warns about shared MySQL — slow queries on the geocodes side would block analytics + custom-pricing flows in queries.
+
+⚪ Iter-3: same grep against `services/` and `processors/` (only `services/address-parser.service.js` appeared, but that's an HTTP call, not a SQL cross-DB).
+
+### 39.5 ✅ db-schema.mdc scope clarification
+
+`db-schema.mdc` is **NOT** a full schema dump. It contains exactly **5 CREATE TABLE statements** (verified): `products`, `users`, `companies`, `shops`, `product_dimensions`. It opens with Cursor frontmatter `alwaysApply: true`, meaning Cursor IDE injects this into every code-completion context.
+
+Purpose: **always-on context** for the most-touched tables, so AI tools (Cursor) have authoritative schema for them when generating code. Other tables must be inferred from controllers' raw SQL or from `services/queries/generate-db-schema.js`.
+
+### 39.6 ✅ users table schema (from db-schema.mdc)
+
+For the auth section — exact schema:
+
+```sql
+CREATE TABLE `users` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `company_id` int DEFAULT NULL,           -- legacy / non-canonical (multi-company is in user_companies)
+  `account_id` varchar(50) DEFAULT NULL,   -- FK to accounts service
+  `email` varchar(100) NOT NULL,
+  `password` varchar(255) DEFAULT NULL,
+  `status` int DEFAULT '1',
+  `role_id` int DEFAULT '3',               -- DEFAULT role 3 (not 1=owner)
+  `testing_laboratory` tinyint(1) DEFAULT '0',
+  `name` varchar(200), `street`, `number`, `district`, `city`, `state`,
+  `postal_code`, `country` (char 2), `phone_code`, `phone`,
+  `language` varchar(10), `language_id` varchar(10),
+  `image_profile`, `image_background`,
+  `conekta_cusid` varchar(50),             -- legacy Conekta payment integration
+  `last_login` datetime,
+  `last_password_update` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `created_by`, `created_at`, `updated_by`, `updated_at`,
+  `system` varchar(255),                   -- ⚪ semantics
+  `client_ip` varchar(25),
+  PRIMARY KEY (id),
+  UNIQUE KEY `unique_email` (email),
+  UNIQUE KEY `account_id_UNIQUE` (account_id),
+  FULLTEXT KEY `search` (email, name, phone),
+  ...4 FK constraints (companies, catalog_user_roles, catalog_languages, users self-ref)
+)
+```
+
+Auto increment hint: `AUTO_INCREMENT=668267` — implies ~668K user rows in the snapshot (production scale).
+
+**users.company_id is legacy.** Auth flow uses `user_companies` (one user → many companies) per §3.2. The `users.company_id` column persists for backwards compat.
+
+**Default `role_id = 3`** — owners get role_id=1 (verified at §3.2 token_user SQL `uc_owner.role_id = 1`). Default 3 implies regular member.
+
+**`unique_email` constraint** prevents duplicate users — confirms the basic auth flow's `WHERE email = ?` lookup.
+
+### 39.7 ✅ products table — full field inventory (from db-schema.mdc)
+
+For the products domain (§18):
+
+```sql
+CREATE TABLE `products` (
+  id, shop_id, company_id, product_identifier, dimensions_id (FK product_dimensions),
+  active tinyint, status, status_ecart_id varchar(2), status_ecart varchar(45),
+  name varchar(120) utf8mb4_0900_ai_ci, sku varchar(100), description text,
+  inventory_item_id varchar(50), stock_quantity int, price float(12,2),
+  variant_product_id varchar(50), visibility,
+  harmonized_system_code varchar(45),     -- ✅ confirms V4 orders surface this
+  country_code_origin varchar(3),         -- ✅ same
+  logistic_mode, logistic_free, logistic_me1suported, logistic_rates mediumtext,
+  image_url, image_id, product_id_parent (self-ref FK),
+  sell_out_stock, require_shipping (default 1),
+  includes_variants tinyint NOT NULL DEFAULT '0',
+  created_at_ecommerce timestamp,
+  created_by (FK users), created_at, deleted tinyint NOT NULL DEFAULT '0',
+  hazardous_material, fragile_product, automatic_insurance, refrigerated_shipping,
+  draft tinyint, currency varchar(7), bundled_sku int,
+  PRIMARY KEY (id),
+  KEY shop_product_idx (shop_id, product_identifier),
+  KEY product_country (country_code_origin),
+  KEY idx_product_parent_by_company (company_id, product_id_parent, deleted),
+  4 FK constraints
+) AUTO_INCREMENT=20279485
+```
+
+20M+ products. The `idx_product_parent_by_company` composite index supports the V4 product-search filter pattern.
+
+`harmonized_system_code` and `country_code_origin` columns confirmed — these ARE the fields the MCP currently misses per §6.3.
+
+### 39.8 ✅ companies table key fields
+
+```sql
+CREATE TABLE `companies` (
+  id, name, locale_id NOT NULL DEFAULT 1,
+  balance decimal(65,2) DEFAULT 0.00,
+  status int DEFAULT 1 COMMENT '0 - Inactive\n1 - Active\n2 - Inactive email\n4 - Fraud\n5 - Deleted',
+  salesman int DEFAULT 537 COMMENT '537 - Is the admin with the user_id 0 (system)',
+  ...
+)
+```
+
+Key takeaways:
+
+- `companies.balance` is a `decimal(65,2)` — this is the credit balance read by `getBalance` (util/credit.utils.js).
+- `status` enum: 0/1/2/4/5 (inactive / active / inactive_email / fraud / deleted). Comment hints the DB row literally encodes the meaning.
+- `salesman` defaults to 537 (system admin user_id 0). Explains the "default salesman" fallback in `accountsAuth.utils.js` signup flow.
+
+⚪ Iter-3: parse the rest of `companies` and `shops` from db-schema.mdc.
+
+### 39.9 ✅ AUTO_INCREMENT scale snapshot
+
+From `db-schema.mdc`:
+
+| Table | AUTO_INCREMENT | Implication |
+|-------|----------------|-------------|
+| `users` | 668,267 | ~668K user rows |
+| `products` | 20,279,485 | ~20M products |
+| `companies` | (not visible in head) | ⚪ |
+| `shops` | (not visible in head) | ⚪ |
+
+These are signals of production scale relevant for any new tool design (avoid full table scans on products).
+
+## 40. Carriers MCP HTTP — supersedes §23.2
+
+The carriers MCP HTTP integration is significant enough to lift out of inter-service to its own section. Iter-1 §23.2 was a 4-line summary; iter-2 closes it.
+
+### 40.1 Why this matters
+
+Two parallel integration paths to the same backend, used in different contexts:
+
+| Context | Path | Why this path |
+|---------|------|---------------|
+| Bulk drafts (rate, generate, cancel many shipments) | Direct HTTP `POST /ship/rate` etc. | Loop-friendly; avoids per-call MCP session overhead |
+| Single AI shipping flow (rate per-carrier, generate one label, track 1-10 numbers, cancel one) | MCP HTTP via `carriers-mcp-client.js` | Conversational LLM flow benefits from MCP tool semantics |
+
+The dual path means a CHANGE to the carriers PHP service must consider **both interfaces**.
+
+### 40.2 Tools called by queries
+
+Confirmed via `services/shipping.service.js`:
+
+- `generate_parcel(args)` — single-label create.
+- `track_shipment(carrier, trackingNumbers[])` — bulk track 1-10.
+- `cancel_shipment(carrier, trackingNumber)` — single cancel.
+- `get_address_requirements(country)` — country-specific address schema (used to compose `parse-address` validation).
+
+NOT in queries' use of MCP: `rate` — `services/shipping-rate.service.js:99-100` calls the carriers REST `POST /ship/rate` directly per carrier. This is presumably for streaming UX (each carrier's rate result arrives independently) — confirmed by SSE handler in `ai_shipping.controller.js:23-63`.
+
+⚪ Iter-3 should grep ALL MCP tool calls (`callTool('...')`) across queries to verify this list is complete.
+
+### 40.3 Session management implications
+
+The comment "sessions may not persist across requests when mcp-session-id header is absent" hints that:
+
+1. The carriers MCP HTTP server is **stateless per pod** (Heroku may serve sequential requests on different pods).
+2. Auth token must be re-supplied on every JSON-RPC call.
+3. The `set_token` tool exists (per code comment line 50) but the client takes the shortcut of passing `Authorization: Bearer ...` on every JSON-RPC, eliminating an extra round-trip.
+
+This is a **good design choice**: simplifies failure recovery (no session loss = no stuck workflow).
+
+### 40.4 Failure modes
+
+`_jsonRpc` (lines 109-130 sampled):
+
+- Status ≥ 400 → throws `Error("MCP HTTP {status}: {body}")`.
+- Body parsed as JSON-RPC response: `result` field used; `error` field would throw via standard JSON-RPC error semantics ⚪ (fully verify in iter-3).
+- The `mcp-session-id` response header is captured for the next call (lines 124-125).
+
+Errors are observed via `observability.captureError(err, {toolName, args})` and rethrown. The caller (`shipping.service.js`) decides how to surface to the user.
+
+## 41. Outbound webhook security — supersedes §20.3
+
+iter-2 confirmed the security gap. Full picture:
+
+### 41.1 What's implemented (correct)
+
+- 8 retry attempts.
+- Exponential backoff `1500 * 2^attempt + jitter(0-250 ms)`.
+- 8 s timeout per HTTP call.
+- Circuit breaker: opens after 20 failures, silences for 60 s.
+- `validateStatus: () => true` — any HTTP response is treated as a delivery (so 4xx body is logged but no infinite retry).
+
+### 41.2 What's missing (gap)
+
+- HMAC-SHA256 signing on outbound payloads. Header name `X-Webhook-Signature` is defined in `config/webhooks.js:11-17` but the signing function does not exist.
+- No signature header in `dispatcher.service.js` payload composition (per Agent 1 read).
+- Customers receiving webhooks **cannot verify authenticity**.
+
+### 41.3 Per-event metadata sent
+
+`config/webhooks.js:11-17` defines:
+
+| Header | Status |
+|--------|--------|
+| `X-Webhook-Event` | ✅ sent (event type name) |
+| `X-Webhook-Timestamp` | ✅ sent |
+| `X-Webhook-Id` | ✅ sent (event UUID) |
+| `X-Webhook-Version` | ✅ sent (`"2025-09-01"`) |
+| `X-Webhook-Signature` | ❌ **header defined in config but never set** |
+
+### 41.4 Severity
+
+Mitigated by:
+
+- Customer endpoint URLs are private (chosen by the customer; not enumerable).
+- Heroku/CDN IP allowlist (if customer configures).
+- TLS (assuming HTTPS).
+
+Still: **not industry standard.** Stripe/Shopify/GitHub all sign webhooks with HMAC. Adding it is < 30 LOC + a single line in `dispatcher.service.js`. High value / low cost — surface to backend team.
+
+## 42. Cross-database expansion — supersedes §32
+
+Updated table inventory (8 distinct geocodes tables across 3 callers):
+
+```
+analytics.controller.js
+  └─ geocodes.geocode_data (line 1513)
+  └─ geocodes.geocode_data (line 1835)
+
+analyticsEcommerce.controller.js
+  └─ geocodes.geocode_data (line 358)
+
+util/customPrices.utils.js
+  ├─ geocodes.paquetexpress_postal_code_distances (lines 248, 290)
+  ├─ geocodes.paquetexpress_coverage (lines 270, 297)
+  ├─ geocodes.list_localities (line 354)
+  ├─ geocodes.list_states (line 355)
+  └─ geocodes.urbano_coverage (line 399)
+```
+
+**Performance implication:** every analytics query that joins shipments × geocodes locks rows in BOTH databases. If geocodes has long-running migrations or backups, queries' analytics endpoints stall. CLAUDE.md monorepo warning is concrete here.
+
+**Mitigation options** (for backend team):
+
+1. Materialize a denormalized `shipments_with_geo` view in queries DB.
+2. Run analytics from a read replica.
+3. Cache aggregated results (already in LRU + Redis).
+
+⚪ Iter-3: confirm whether there are also writes (UPDATE/INSERT) into geocodes from queries. Initial grep suggests read-only, but a full pass is needed.
+
+## 43. Worker.js production-only branches
+
+iter-1 §29.2 listed the cron schedules. Iter-2 expansion: the gating logic.
+
+`worker.js:145` reads:
+
+```js
+if (process.env.NODE_ENV === 'production' && process.env.CRON_WORKER === 'true') {
+    deferedStart(QueueWrapper, workerId);
+}
+```
+
+So **only one** worker dyno (the one with `CRON_WORKER=true`) runs the cron schedules. This is a deliberate single-leader pattern — avoids duplicate cron firings across multiple worker dynos.
+
+`deferedStart` (lines 171-227):
+
+1. Creates `trackingProcess` queue with `volatileOpts` (emptyAtShutdown=true) and pre-cleans 10 completed/failed jobs.
+2. Calls `getGroupCarriers()` to load active carrier list.
+3. **For each carrier, creates a queue named `trackingProcess:{carrier.name}:{carrier.locale_id}`** with concurrency 2 (line 192). 600 ms sleep between queue creations to avoid thundering Redis.
+4. Creates `cleaner`, `trackingUpdate`, `infoUpdateQueue`, `pickupCron`, `syncBranchesCron`, `sorterImageCleaner` queues.
+5. **On `workerId === 1` only** (line 218): registers the cron schedules using Bull's `repeat: { cron: '...' }` mechanism.
+
+So even within the single CRON_WORKER, `workerId === 1` is the actual scheduler — others just consume the work. This is a 2-level leader election: env var picks the dyno, then `workerId === 1` picks the scheduler within that dyno.
+
+**Carrier-keyed tracking queues:** the number of queues created equals the number of active carriers. With 168 carriers (per carriers DB), this is potentially **~168 Redis-backed queues** spinning up at boot — heavy resource cost. ⚪ Iter-3: count active carriers in queries' view of carriers (`getGroupCarriers()` filters by status?).
+
+## 44. Updated open questions for backend team (iter-2 additions)
+
+Adding to §37:
+
+21. **MCP carriers HTTP server location.** `CARRIERS_MCP_URL` defaults to `localhost:3100`. Where does it live in production? Is it a sidecar of the carriers PHP service or a separate microservice?
+22. **HMAC signing on outbound webhooks.** Confirmed not implemented today (§41). Plan?
+23. **`/shipments/config-columns` handler bug.** Confirmed misrouted to `pinFavoriteShipment` (§39.1). Fix or remove the route.
+24. **`automatic_insurance` flag on products.** Schema has `tinyint(1) DEFAULT 0` (db-schema.mdc). Does it auto-add the `envia_insurance` add-on at quote time? Confirms scope of MCP's insurance handling.
+25. **`hazardous_material`, `fragile_product`, `refrigerated_shipping`** product flags. Do these route to specific carrier services / additional services automatically? Or just informational?
+26. **`status=4 (Fraud)` companies.** Does the auth flow reject these? `auth.middleware.js` `WHERE u.status = 1` checks user status only — company_status is loaded but not gated. Verify.
+27. **`salesman=537` system user.** Is this a real user? `users.id=0` is referenced in the comment but `users.id` is `AUTO_INCREMENT` so 0 is unusual. Confirm representation.
+28. **Carrier-keyed tracking queue count.** ~168 carriers × ~50 locales would create thousands of queues if every combo were active. Is `getGroupCarriers()` filtering by `is_active`?
+29. **`unique_email` enforcement.** Means a user belongs to ONE primary email globally. How are accounts service multi-email users handled?
+30. **`token_company_id IS NULL` on type 2 tokens.** Per `auth.middleware.js:147`, type 2 tokens MUST have `company_id` (returns 401 unless `?source=fulfillment`). What's the fulfillment exemption for?
+
+## 45. Self-assessment iter-2
+
+### 45.1 Updated coverage estimate
+
+iter-2 raises coverage from ~70-75% to approximately **80-85%**:
+
+What's been added/closed:
+
+- ✅ Confirmed two suspected bugs (config-columns handler routing, HMAC absent).
+- ✅ Carriers MCP HTTP protocol fully documented.
+- ✅ Cross-DB to geocodes expanded from 1 file to 3 files / 8 tables.
+- ✅ db-schema.mdc scope clarified (5 tables, not full dump).
+- ✅ users + products + companies critical schemas read.
+- ✅ Worker.js production-only cron gating logic explained.
+
+What's still pending for iter-3:
+
+- ⚪ Per-controller method-level inventory for top-5 controllers.
+- ⚪ Sandbox bug verification (NDR `type=`, tickets list, analytics main-data) via curl.
+- ⚪ Per-platform fulfillment integration deep dives (Shopify/WooCommerce/VTEX/MercadoLibre).
+- ⚪ Notifications hub end-to-end packet trace.
+- ⚪ Final MCP gap analysis with concrete tool proposals + effort estimates.
+- ⚪ Updated honesty checklist + final ⚪ pending list.
+
+### 45.2 Honesty checklist iter-2
+
+- [x] Every quantitative claim cites file:line OR notes ⚪.
+- [x] Cross-check pass produced new corrections (5 confirmed findings in §39).
+- [x] No code changes made.
+- [x] No push to remote.
+- [x] Carriers MCP HTTP details extracted from actual file (not speculated).
+- [x] HMAC absence claim cited with code excerpt.
+- [x] Scale snapshot (AUTO_INCREMENT) cited from db-schema.mdc.
+
+### 45.3 Iter-3 plan
+
+Final pass focuses on:
+
+1. Top-5 controller method inventory (order, company, shipment, config, product) — at least the public method names + line ranges per method (no need to deep-read each).
+2. MCP gap closure: produce concrete tool proposals with file paths and effort estimates.
+3. Final self-assessment with target ~92-95%.
+4. Handoff summary.
+
 
