@@ -208,6 +208,69 @@ by the team that owns this MCP.
 
 ---
 
+### L-S8. MCP-only modifications — never touch other repos
+
+**Pattern.** Easy to "fix" something cross-cutting (drift between
+MCP and geocodes, missing field in a queries response, broken
+schema) by patching both the MCP and the upstream backend in the
+same session. That conflates ownership and ships work the
+backend team didn't review.
+
+**User correction (2026-04-27, scope-fence session):**
+> "Todo lo que se modificaría es en el proyecto de MCP server
+> actual, correcto? Como regla, NO debemos modificar ningún
+> proyecto adicional, todo nuestro trabajo será en el proyecto
+> de MCP."
+
+**Rule.**
+- The only repo this MCP is allowed to write to is
+  `ai-agent/envia-mcp-server/`. Reading other repos for
+  verification is fine; writing is not.
+- If a tool would require a backend change to function
+  correctly (new endpoint, new response field, new accepted
+  payload), DO NOT implement a half version. Surface the gap
+  to Jose AND log it as backend debt in
+  `_docs/BACKEND_TEAM_BRIEF.md` under the appropriate severity.
+- Verifications that confirm backend already supports what we
+  need before coding (sandbox curl, code reading) are mandatory
+  before starting any sprint that depends on backend behavior
+  not previously verified (see L-B5).
+- Drift between MCP and a backend (e.g. exceptional-territories
+  list mismatch) is resolved by changing the MCP side to match
+  the backend, never the other way around.
+
+---
+
+### L-S9. CEO directive overrides "real user demand signal" gate
+
+**Pattern.** Decision E (2026-04-17) locked v1 scope at 72 tools
+"until we have real usage data". On 2026-04-27 the CEO directive
+re-opened scope expansion regardless of usage data, with the
+filter being "tools that make sense for an authenticated portal
+user".
+
+**User correction (2026-04-27):**
+> "Esto es algo que no quiero se convierta en un blocker… la
+> solicitud del CEO es clara, quiere que se incorporen todos los
+> tools posibles que hagan sentido, no importa si al día de hoy
+> los usuario los han requerido o no."
+
+**Rule.**
+- The "real user demand signal" prerequisite from Decision E is
+  **suspended**. Do not gate inclusion on usage data.
+- L-S2 (portal-user test) and L-S6 (no admin/dev tools) still
+  apply unchanged — those are correctness filters, not demand
+  filters.
+- L-S7 (no other-vertical wrapping) still applies unchanged.
+- L-P4 (resist scope creep) is reframed: the CEO directive IS
+  the demand signal; resist scope ONLY when a proposal fails
+  L-S2 / L-S6 / L-S7, not because "no one asked yet".
+- When proposing tools, justify against the L-S2/L-S6/L-S7
+  filters explicitly. "User demand signal" is no longer a
+  required justification.
+
+---
+
 ## 🔍 Backend verification
 
 ### L-B1. Test real API responses before implementing — never trust backend code alone
@@ -437,6 +500,37 @@ strategy when only ONE of two cron auth paths actually uses it).
   the cross-check time into the audit, don't treat it as optional.
 
 ---
+
+### L-B5. Verify backend support before any sprint that depends on it
+
+**Pattern.** Sprint plans assume the backend already returns the
+field, accepts the payload shape, or routes the request as the
+MCP wants. When that turns out to be false mid-sprint, you have
+shipped half a feature, can't merge cleanly, and have created
+backend debt without escalating it.
+
+**User correction (2026-04-27, scope-fence session):**
+> "Si hay algo que requiera respuesta backend que hoy no exista,
+> debes comentármelo y también documentarlo como deuda técnica.
+> Primero verifica y coméntamelo."
+
+**Rule.**
+- Before starting any sprint whose items depend on backend
+  fields/payloads/routing not previously verified in V1
+  production, run an explicit verification step (curl against
+  sandbox or read of the authoritative backend code path).
+- Verification results go into the next planning conversation
+  with Jose BEFORE coding starts.
+- If verification shows backend doesn't support what the sprint
+  needs:
+  - Drop the affected item from the sprint.
+  - File the gap in `_docs/BACKEND_TEAM_BRIEF.md` under
+    appropriate severity, with sandbox repro if applicable.
+  - Surface to Jose, do NOT proceed with a partial
+    implementation that would only work after backend lands its
+    own change.
+- Reading backend code (PHP/Node) for verification is allowed
+  and authoritative; per L-S8, writing to those repos is not.
 
 ---
 

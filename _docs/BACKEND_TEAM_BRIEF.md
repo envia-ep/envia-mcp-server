@@ -550,6 +550,174 @@ Per H5 — doc wrong, code right.
 
 Source: carriers §52.5 S2. Effort: 5 min. Owner: carriers.
 
+### C8. Geocodes `/location-requirements` does not auto-detect EU exceptional territories from `state_code`
+
+**Why it matters:** Verified 2026-04-27 against
+`https://geocodes.envia.com/location-requirements`. When the consumer
+sends `{country_code: 'ES', state_code: 'ES-CN', postal_code: '35001'}`
+(Canarias) the response is `{applyTaxes: true, includeBOL: false,
+isInternalEU: true}` — i.e. the route is treated as domestic-EU
+intra-Spain. Same with `state_code: 'ES-CE'` (Ceuta) and
+`state_code: 'FR-GF'` (French Guiana from FR origin).
+
+The CORRECT behaviour (`{applyTaxes: false, includeBOL: true,
+isInternalEU: false}`) is only returned when `country_code: 'IC'` is
+sent explicitly. Confirmed via test:
+```
+curl -X POST https://geocodes.envia.com/location-requirements \
+  -d '{"origin":{"country_code":"ES","state_code":"ES-MD","postal_code":"28001"},
+       "destination":{"country_code":"IC","state_code":"ES-CN","postal_code":"35001"}}'
+→ {"applyTaxes":false,"includeBOL":true,"isInternalEU":false,...}
+```
+
+**Impact:** any consumer (MCP, V1 portal, carriers PHP) that sends
+state-style codes for exceptional territories receives incorrect tax
+guidance. Shipments to Canarias / Ceuta / Melilla / French ultramar /
+Azores / Madeira may be created without the items[] array or BOL the
+carrier will require, leading to silent rate underestimation or
+generate-time rejections at customs.
+
+**Action options:**
+
+(a) **Geocodes-side fix:** in `controllers/web.js` (location-requirements
+   handler), detect state_code prefix → if matches an entry in `excStates`
+   (`ES-CN/TF/GC/CE/ML`, `FR-GF/GP/MQ/YT/RE`, `PT-20/30`, `NL-SX`), treat
+   as exceptional regardless of `country_code`. ~15 LOC.
+
+(b) **MCP-side workaround:** transform state→country before calling
+   geocodes. Risky because not every backend route accepts non-ISO
+   country codes (e.g. carriers `/ship/rate` may reject `country='GF'`
+   even if it accepts `'IC'`). Requires per-territory testing.
+
+**Recommendation:** (a). Single fix benefits all consumers.
+
+**Production-data evidence (PROD DB, queried by Jose 2026-04-27):**
+- Last ~90 days, destinations stored with country='ES' having CP
+  35xxx (Las Palmas) or 38xxx (Tenerife) or state in {GC, TF, LP}:
+  **852 shipments**.
+- Same window, country='IC': **53 shipments** (37 TF, 16 GC).
+- **5.9% of Canarias-destined shipments are correctly stored as IC;
+  94.1% are stored as ES.**
+
+**Source breakdown of the 53 IC shipments:**
+| Source | Carrier | Service | Shipments |
+|--------|---------|---------|-----------|
+| client_platform | zeleris | next_day | 43 |
+| app | zeleris | next_day | 6 |
+| client_platform | zeleris | maritimo | 3 |
+| app | zeleris | maritimo | 1 |
+- **100% are Zeleris.** No other carrier in the ecosystem uses
+  country='IC'. The portal V1 has hardcoded conditional logic:
+  `if carrier == zeleris && destination is Canarias → country = IC`.
+
+**Carriers backend Canarias awareness (verified in code 2026-04-27):**
+- `Zeleris` — REQUIRES country='IC'. `ZelerisUtil.php:174` throws
+  `InvalidValueException(1125)` if intl shipments are requested from
+  Canarias. Zeleris is the Spain↔Canarias specialist carrier.
+- `Correos Express` (`CorreosExpressUtil.php:664-691`),
+  `DHL` (`DhlRestV3Util.php:497`),
+  `UPS` (`UpsUtil.php:845`),
+  `Cainiao` (`CainiaoUtil.php:140`),
+  `CLM` (`ClmUtil.php:107-144` — `getCanariasZone(postalCode)`,
+  classification 2=Canarias, 5=Baleares),
+  `Envialia` (`EnvialiaUtil.php:199-248`)
+  — all detect Canarias internally via `postal_code` ranges /
+  classification table, NOT via country code. They accept
+  country='ES' and route correctly.
+- `CountryTimezoneUtil.php:26` confirms `'IC' => 'Atlantic/Canary'`
+  is a first-class country code in the backend.
+
+**Revised severity assessment:**
+
+The 94% ES-stored Canarias shipments are NOT necessarily mishandled
+end-to-end — the carriers themselves classify by postal_code and
+apply correct routing/rating. The customs implication may also be
+absorbed by the carriers (each handles BOL generation per its own
+rules).
+
+The customer-visible bug surfaces when:
+1. A consumer (MCP, V1 portal, integration) sends a Canarias
+   shipment to **Zeleris** with country='ES' → Zeleris API throws
+   1125 → shipment fails. Today the V1 portal compensates;
+   the MCP does NOT.
+2. A new carrier is integrated that requires country='IC' and the
+   portal's hardcoded conditional list isn't updated.
+3. The location-requirements endpoint returns the wrong tax flags
+   (`applyTaxes:true, includeBOL:false`) for any consumer that
+   chooses to act on them.
+
+**Adjacent finding (data quality, not blocking C8):** state values
+are stored inconsistently for ES Canarias — `GC`, `cn` (lowercase),
+`TF`, `LP`. Worth a normalisation sweep when geocodes lands C8.
+
+**Recommendation revised:**
+
+(a) Geocodes-side fix in `/location-requirements` to auto-detect
+    state→exceptional-territory remains correct, but is now
+    **MEDIUM severity** rather than HIGH, because each carrier
+    already has its own Canarias-aware path. The fix matters mostly
+    for consumers that act on the location-requirements flags
+    (MCP today does, when deciding whether to populate items[]).
+
+(b) **Separate proposal: centralise the "carrier requires which
+    country code for Canarias" decision** in carriers backend
+    (e.g., a `services.requires_canarias_iso` flag). Today it's
+    implicit in the V1 portal's hardcoded logic and would break if
+    a new Canarias-specialist carrier (or zeleris-equivalent in
+    Baleares) is integrated. This is a separate item — not part of
+    C8 but worth raising with the carriers team.
+
+**Effort:** C8 still 1-2 h code + tests in geocodes.
+**Severity:** **MEDIUM** (revised from HIGH after carrier-code
+verification) — bug exists and matters for any consumer trusting
+the location-requirements flags, but does not break the majority
+of Canarias shipments end-to-end.
+
+---
+
+### C9. Carriers `CancelBreakdown` does not surface daily-refund-limit refusals
+
+**Why it matters:** Verified 2026-04-27 against
+`services/carriers/app/ep/responses/CancelBreakdown.php` (lines 14, 26,
+27, 34) and `app/ep/util/CarrierUtil.php` (lines 947–960).
+
+`CancelBreakdown` returns:
+- `refundedAmount` (rounded, 2 decimals) ✅
+- `balanceReturned` ✅
+- `balanceReturnDate` ✅
+
+`CarrierUtil::checkRefundLimit` enforces a daily cap per shipment_type
+(parcel: 5, pallet: 2, FTL: 5) with whitelist for company IDs
+`[70279, 456605, 75110, 649207]`. When the cap is exceeded, the TMS
+refund call is silently skipped — the cancel succeeds but no refund is
+issued. The user gets `balanceReturned: false, refundedAmount: 0` and
+NO indication that the daily limit was the cause.
+
+**Impact:** users see "shipment cancelled" with `Refund: Pending` and
+have no way to know they hit the limit. Result: support ticket
+escalations ("¿por qué no me regresan el dinero?") that could be
+self-served if the cancel response surfaced `dailyLimitExceeded: true,
+dailyLimitReason: 'Limit of 5 parcel cancellations/day reached for
+your company'`.
+
+The MCP's `cancel-shipment.ts` already declares
+`dailyLimitExceeded: boolean, dailyLimitReason: string` in its `CancelData`
+interface and renders a warning if either is set. The fields are simply
+never populated by the backend — the MCP is defensive but the user
+never sees the warning.
+
+**Action:** in `CancelBreakdown.php`, populate two new fields when
+`CarrierUtil::checkRefundLimit` returns false:
+- `dailyLimitExceeded: bool`
+- `dailyLimitReason: string` (e.g. `"Daily refund limit of N
+  cancellations/day reached for shipment type {type}"`)
+
+**Effort:** ~30 min code + 1 unit test. **Severity:** **MEDIUM** —
+not a correctness bug but a UX gap that drives support load. Already
+plumbed in MCP, will light up automatically once backend ships.
+
+---
+
 ## Closed since this brief was drafted (resolution log)
 
 This section will accumulate as items are resolved. Format:
