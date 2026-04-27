@@ -129,9 +129,8 @@ Products / billing / DCe (4)
   - envia_check_billing_info
   - envia_get_dce_status
 
-Carriers advanced (5)
+Carriers advanced (4)
   - envia_generate_manifest
-  - envia_generate_bill_of_lading
   - envia_submit_nd_report
   - envia_generate_complement
   - envia_cancel_pickup (listed above; grouped under pickup for clarity)
@@ -152,10 +151,10 @@ Typical domestic workflow:
 Typical international workflow:
   envia_validate_address → envia_classify_hscode → envia_quote_shipment
   → envia_create_label → envia_track_package
-  (commercial invoice and bill of lading are generated automatically when
-   the route requires them; use envia_create_commercial_invoice or
-   envia_generate_bill_of_lading only when the carrier did not auto-produce
-   one and the operation needs a manual regeneration.)
+  (commercial invoice and bill of lading are generated automatically by the
+   carriers backend when the route requires them — they come back inside the
+   create_label response. Manual regeneration helpers exist as internal
+   functions but are not exposed as conversational tools.)
 
 Ecommerce workflows:
   one-step:      envia_create_label (with order_identifier) → envia_track_package

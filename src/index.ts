@@ -133,13 +133,17 @@ import {
 // NOTE(sprint-0): Webhook CRUD and Checkout Rule CRUD removed from portal agent.
 // Webhooks are a dev/admin task (1-time setup). Checkout rules have no UI in v1 or v2
 // and are B2B/integrations only. Files are kept for future use — just not registered.
+//
+// NOTE(sprint-4a): registerListCheckoutRules also removed. Even the read-only list of
+// checkout rules has no V1/V2 UI; portal users cannot see, edit, or act on these
+// rules from the portal, so a "list my checkout rules" question is not a typical
+// portal-user request (L-S2). Module export stays for potential internal use.
 import {
     registerListCompanyUsers,
     registerListCompanyShops,
     registerGetCarrierConfig,
     registerGetNotificationSettings,
     registerListApiTokens,
-    registerListCheckoutRules,
     registerListWebhooks,
 } from './tools/config/index.js';
 
@@ -188,9 +192,14 @@ import {
 //   - registerLocateCity: /locate is CO DANE resolver — an internal helper, not a
 //     user-facing tool. User never asks "locate Bogota" — the agent resolves it
 //     automatically while building addresses.
+//
+// NOTE(sprint-4a): registerGenerateBillOfLading reclassified as 🟣 INTERNAL helper.
+// The carriers backend auto-generates BOLs as a side-effect of /ship/generate for
+// FedEx intl + UPS BR routes. A typical portal user does not ask "generate a BOL
+// for tracking X" — they get the BOL back from create_label. Module export stays
+// for potential internal regeneration helpers.
 import {
     registerGenerateManifest,
-    registerGenerateBillOfLading,
     registerCancelPickup,
     registerSubmitNdReport,
     registerTrackPickup,
@@ -326,9 +335,9 @@ function createEnviaServer(): McpServer {
     registerGetCarrierConfig(server, client, config);
     registerGetNotificationSettings(server, client, config);
     registerListApiTokens(server, client, config);
-    registerListCheckoutRules(server, client, config);
     registerListWebhooks(server, client, config);
-    // Webhook CRUD + Checkout Rule CRUD removed — see header comment on config imports.
+    // Webhook CRUD + Checkout Rule CRUD (incl. list_checkout_rules) removed — see header
+    // comment on config imports.
 
     // Analytics tools
     registerGetMonthlyAnalytics(server, client, config);
@@ -360,9 +369,9 @@ function createEnviaServer(): McpServer {
     registerAiParseAddress(server, client, config);
     registerAiRate(server, client, config);
 
-    // Carriers advanced tools (track-authenticated removed; locate-city moved to internal helper).
+    // Carriers advanced tools (track-authenticated removed; locate-city + generate-bill-of-lading
+    // reclassified as internal helpers — see header comment on carriers-advanced imports).
     registerGenerateManifest(server, client, config);
-    registerGenerateBillOfLading(server, client, config);
     registerCancelPickup(server, client, config);
     registerSubmitNdReport(server, client, config);
     registerTrackPickup(server, client, config);
