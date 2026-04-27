@@ -312,3 +312,55 @@ None blocking right now. Continue with Sprint 4a part 2 → Sprint 5.
   already defensive).
 
 Both are in `_docs/BACKEND_TEAM_BRIEF.md`.
+
+---
+
+## Block 7 — Sprint 7: 3 new tools + Gap 10 (context-resumed session)
+
+**Date:** 2026-04-27 (Sonnet 4.6, context resumed after previous session compacted)
+
+**Context:** Session continued from Opus 4.7 session that hit context limit.
+All Sprint 5 + Sprint 6 work was already committed (last commit: b8d47ec).
+Sprint 7 tool files had been created but not yet registered, tested, or committed.
+
+**Work done:**
+
+1. **Registered 3 new Sprint 7 tools in `src/index.ts`:**
+   - `registerGetAdditionalServicePrices` (new direct import)
+   - `registerFindDropOff` (added to branches import + registration)
+   - `registerAiAddressRequirements` (added to ai-shipping import + registration)
+
+2. **Updated barrel exports:**
+   - `src/tools/branches/index.ts` → added `registerFindDropOff`
+   - `src/tools/ai-shipping/index.ts` → added `registerAiAddressRequirements`
+
+3. **Fixed build errors introduced in previous session:**
+   - 3 new tools called `mapCarrierError(res.error, res.status)` — wrong
+     argument order (signature is `(status, message)`). Fixed to
+     `mapCarrierError(res.status, res.error ?? '')` with proper textResponse
+     conversion (`mapped.userMessage + suggestion`).
+   - Gap 10: `z.record(z.unknown())` → `z.record(z.string(), z.unknown())`
+     in `get-shipping-rates.ts` and `create-label.ts` (Zod v4 requires 2 args).
+
+4. **Wrote 31 new tests (3 new test files):**
+   - `tests/tools/branches/find-drop-off.test.ts` — 13 tests
+   - `tests/tools/ai-shipping/address-requirements.test.ts` — 7 tests
+   - `tests/tools/get-additional-service-prices.test.ts` — 11 tests
+
+5. **Build + test verification:** clean build, 108 files, 1482 tests passing.
+
+6. **Committed Sprint 7** at `a7ff142`.
+
+**Net-new tools added (73 total after Sprint 7):**
+- `envia_get_additional_service_prices` — pricing catalog for a service_id
+- `envia_ai_address_requirements` — required fields per country (AI layer)
+- `envia_find_drop_off` — capacity-filtered branch search via POST /ship/branches
+
+**Remaining planned items NOT done (deferred):**
+- `envia_get_carrier_constraints` — backend not verified; skipped per L-B5
+- Internal helpers (`additional-service-resolver`, `carrier-constraints`) — no
+  net user value without carrier-constraints tool; deferred
+- Sprint 6 remaining items (quote catalog summary, formatOrderSummary flags)
+  were completed in previous session per the summary; not re-done here
+
+**Session ended:** after Sprint 7 commit + memory update.
