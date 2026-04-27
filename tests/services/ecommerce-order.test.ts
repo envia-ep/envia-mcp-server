@@ -525,15 +525,8 @@ describe('EcommerceOrderService', () => {
             expect(summary.hasCod).toBe(true);
         });
 
-        it('should derive hasCod from any package-level cod_active flag', () => {
-            const order = makeOrder({
-                shipment_data: {
-                    shipping_address: makeShippingAddress(),
-                    locations: [makeLocation({
-                        packages: [makePackage({ cod_active: 1 })],
-                    })],
-                },
-            });
+        it('should report hasCod=true from order-level cod amount only (package-level cod_active not in API)', () => {
+            const order = makeOrder({ order: { ...makeOrder().order, cod: 1 } });
 
             const summary = service.buildSummary(order);
 
@@ -548,28 +541,38 @@ describe('EcommerceOrderService', () => {
             expect(summary.hasCod).toBe(false);
         });
 
-        it('should expose isFraudRisk when fraud_risk is true', () => {
-            const order = makeOrder({ fraud_risk: true });
+        it('should expose isFraudRisk when order.fraud_risk is a non-zero number', () => {
+            const order = makeOrder({ order: { ...makeOrder().order, fraud_risk: 1 } });
 
             const summary = service.buildSummary(order);
 
             expect(summary.isFraudRisk).toBe(true);
         });
 
-        it('should expose isPartiallyAvailable when partial_available is 1', () => {
-            const order = makeOrder({ partial_available: 1 });
+        it('should expose isPartiallyAvailable when order.partial_available is 1', () => {
+            const order = makeOrder({ order: { ...makeOrder().order, partial_available: 1 } });
 
             const summary = service.buildSummary(order);
 
             expect(summary.isPartiallyAvailable).toBe(true);
         });
 
-        it('should pass through order_comment verbatim', () => {
-            const order = makeOrder({ order_comment: 'Leave at front desk' });
+        it('should extract the comment string from the order_comment object', () => {
+            const order = makeOrder({
+                order_comment: { comment: 'Leave at front desk', created_at: null, created_by: null },
+            });
 
             const summary = service.buildSummary(order);
 
             expect(summary.orderComment).toBe('Leave at front desk');
+        });
+
+        it('should return null orderComment when order_comment is absent', () => {
+            const order = makeOrder();
+
+            const summary = service.buildSummary(order);
+
+            expect(summary.orderComment).toBeNull();
         });
     });
 

@@ -744,6 +744,34 @@ plumbed in MCP, will light up automatically once backend ships.
 
 ---
 
+### C10. V4 orders response missing per-package COD fields
+
+**Why it matters:** The MCP types for `V4Package` (and the original
+ecommerce-order service) referenced `cod_active` and `cod_value`
+per-package fields that do NOT appear in the real `GET /v4/orders`
+response (verified 2026-04-27 via sandbox curl).
+
+Only `order.order.cod` (an integer — 0=no COD, >0=COD amount) is
+present at the order level. The per-package COD breakdown is
+unavailable through the orders API.
+
+**Impact:** The MCP `hasCod` flag was silently incorrect —
+`pkg.cod_active === 1` always evaluated to `false`, even for COD
+orders. Fixed client-side (MCP commit 2026-04-27) by reading
+`order.order.cod > 0` instead.
+
+**Action (optional):** If per-package COD breakdown is needed
+(useful for multi-location orders where only some packages are COD),
+expose `cod_active` and `cod_value` at the package level in the
+`/v4/orders` response, or provide a separate
+`GET /v4/orders/{id}/packages-cod` endpoint.
+
+**Effort:** Minor — adding fields to V4 response serializer.
+**Severity:** LOW for correctness (MCP compensates); MEDIUM for
+feature completeness (multi-package COD breakdown).
+
+---
+
 ## Closed since this brief was drafted (resolution log)
 
 This section will accumulate as items are resolved. Format:

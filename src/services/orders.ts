@@ -125,11 +125,18 @@ export function formatOrderSummary(order: OrderRecord): string {
         ? order.tags.map((t) => (typeof t === 'string' ? t : t.tag)).join(', ')
         : '';
 
+    const flags: string[] = [];
+    if ((order.order?.cod ?? 0) > 0) flags.push('💳 COD');
+    if ((order.order?.fraud_risk ?? 0) > 0) flags.push('⚠️ Risk');
+    if (order.order?.partial_available === 1) flags.push('🔀 Partial');
+    if (order.order_comment?.comment) flags.push('💬 Note');
+
     const lines = [
         `• [${order.id}] ${name} — ${shop} (${platform})`,
         `  Customer: ${customer} | Destination: ${destStr}`,
         `  General: ${general} | Payment: ${payment} | Fulfillment: ${fulfillment}`,
     ];
+    if (flags.length > 0) lines.push(`  Flags: ${flags.join(' | ')}`);
     if (tags) lines.push(`  Tags: ${tags}`);
     return lines.join('\n');
 }

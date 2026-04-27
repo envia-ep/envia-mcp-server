@@ -68,7 +68,9 @@ export function registerGetShippingRates(
                 'For CO, CL, GT, PA, HN, PE, BO: provide city and state instead (no postal code needed). ' +
                 'Colombia example: origin_city="Bogota", origin_state="DC", origin_country="CO" — ' +
                 'city names are translated to DANE codes automatically. ' +
-                'Returns available services sorted by price (cheapest first).',
+                'Returns available services sorted by price (cheapest first). ' +
+                'To add insurance, COD, or other add-ons to the quote, use envia_list_additional_services ' +
+                'first to see which services are available for your route.',
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
                 origin_postal_code: z.string().optional().describe(

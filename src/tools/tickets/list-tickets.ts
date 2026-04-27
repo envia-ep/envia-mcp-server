@@ -31,7 +31,9 @@ export function registerListTickets(
             description:
                 'List support tickets for your company. Filter by status (1=Pending, 2=Accepted, 3=Declined, ' +
                 '5=Follow-up, 6=In Review), ticket type, carrier, tracking number, or date range. ' +
-                'Returns ticket ID, type, status, carrier, and creation date.',
+                'Returns ticket ID, type, status, carrier, and creation date. ' +
+                'SANDBOX LIMITATION: the /company/tickets endpoint returns 422 in sandbox (verified bug). ' +
+                'Use a production API token to retrieve real ticket data.',
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
                 limit: z.number().int().min(1).max(100).default(20).describe('Results per page (max 100)'),

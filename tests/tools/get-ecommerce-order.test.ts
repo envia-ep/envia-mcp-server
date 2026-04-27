@@ -436,8 +436,9 @@ describe('envia_get_ecommerce_order', () => {
         expect(result.content[0].text).toContain('💳 COD');
     });
 
-    it('should render fraud-risk flag when fraud_risk is true', async () => {
-        const order = makeV4OrderResponse({ fraud_risk: true });
+    it('should render fraud-risk flag when order.fraud_risk is a non-zero number', async () => {
+        const base = makeV4OrderResponse();
+        const order = { ...base, order: { ...base.order, fraud_risk: 1 } };
         mockFetch.mockResolvedValueOnce({
             ok: true, status: 200, json: () => Promise.resolve(makeApiResponse(order)),
         });
@@ -447,8 +448,9 @@ describe('envia_get_ecommerce_order', () => {
         expect(result.content[0].text).toContain('⚠️ fraud risk');
     });
 
-    it('should render partial-availability flag when partial_available is 1', async () => {
-        const order = makeV4OrderResponse({ partial_available: 1 });
+    it('should render partial-availability flag when order.partial_available is 1', async () => {
+        const base = makeV4OrderResponse();
+        const order = { ...base, order: { ...base.order, partial_available: 1 } };
         mockFetch.mockResolvedValueOnce({
             ok: true, status: 200, json: () => Promise.resolve(makeApiResponse(order)),
         });
@@ -458,8 +460,10 @@ describe('envia_get_ecommerce_order', () => {
         expect(result.content[0].text).toContain('🔀 partially available');
     });
 
-    it('should render internal note block when order_comment is populated', async () => {
-        const order = makeV4OrderResponse({ order_comment: 'Leave at front desk' });
+    it('should render internal note block when order_comment object is populated', async () => {
+        const order = makeV4OrderResponse({
+            order_comment: { comment: 'Leave at front desk', created_at: null, created_by: null },
+        });
         mockFetch.mockResolvedValueOnce({
             ok: true, status: 200, json: () => Promise.resolve(makeApiResponse(order)),
         });

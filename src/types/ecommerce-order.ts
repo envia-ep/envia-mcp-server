@@ -27,6 +27,21 @@ export interface V4OrdersResponse {
     totals?: Record<string, unknown>;
 }
 
+/**
+ * Internal comment attached to an order by an operator.
+ *
+ * Verified 2026-04-27 via sandbox GET /v4/orders: the `order_comment` key is
+ * always present at the top level of each V4 order but `comment` is null for
+ * most orders. The field is an OBJECT, not a plain string.
+ */
+export interface V4OrderComment {
+    comment: string | null;
+    created_at: string | null;
+    created_by: number | null;
+    updated_at?: string | null;
+    updated_by?: number | null;
+}
+
 /** A single order as returned by the V4 endpoint. */
 export interface V4Order {
     id: number;
@@ -39,12 +54,11 @@ export interface V4Order {
     tags?: V4Tag[];
     is_favorite?: boolean;
 
-    // Plan V2 §5 — enrichment fields (optional, may be absent on older orders).
+    // Verified from sandbox GET /v4/orders 2026-04-27.
     fulfillment_status_id?: number;
     fulfillment_status_name?: string;
-    partial_available?: number;
-    fraud_risk?: boolean;
-    order_comment?: string | null;
+    /** Internal operator comment. `comment` field holds the text; may be null. */
+    order_comment?: V4OrderComment | null;
 }
 
 /** Ecommerce-specific order identifiers and metadata. */
@@ -60,6 +74,15 @@ export interface V4OrderDetails {
     cod: number;
     logistic_mode: string | null;
     created_at_ecommerce: string;
+
+    // Verified from sandbox GET /v4/orders 2026-04-27 — additional fields
+    // present in the real API response that were absent from the original type.
+    /** Numeric fraud risk score; 0 = no risk. */
+    fraud_risk?: number;
+    /** 1 when the order has partially-available stock for multi-location fulfilment. */
+    partial_available?: number;
+    total_price?: number;
+    shipping_rule_id?: number;
 }
 
 /** Customer information attached to the order. */
@@ -144,8 +167,8 @@ export interface V4Package {
     is_return?: boolean;
 
     // Plan V2 §5 — per-package enrichment.
-    cod_active?: number;
-    cod_value?: number;
+    // NOTE: cod_active / cod_value are NOT in the V4 response (verified sandbox 2026-04-27).
+    // Use order.order.cod for the COD flag. See BACKEND_TEAM_BRIEF C10.
     fulfillment_info?: string | null;
     assigned_package?: string | null;
 }
@@ -182,6 +205,8 @@ export interface V4PackageShipment {
 export interface V4Fulfillment {
     status: string;
     status_id: number;
+    /** Textual fulfillment detail (e.g. warehouse note). Verified from sandbox GET /v4/orders 2026-04-27. */
+    fulfillment_info?: string | null;
 }
 
 /** Line item within a package. */
