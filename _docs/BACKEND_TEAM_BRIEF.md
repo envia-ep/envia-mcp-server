@@ -772,6 +772,59 @@ feature completeness (multi-package COD breakdown).
 
 ---
 
+### C11. New endpoint required: `GET /carrier-constraints/{carrier_id}` (carriers)
+
+**Why it matters:** The MCP server (envia-mcp-server, AI agent embedded
+in the portal) needs to answer questions like *"Does FedEx Express
+support COD in Mexico?"* / *"What's the max weight for DHL international?"*
+/ *"Which additional services can I add to UPS Ground?"* without forcing
+the user to attempt a quote and parse the error.
+
+**Source:** L-B5 backend verification executed 2026-04-27 confirmed:
+
+- The data exists across `carriers`, `services`,
+  `company_service_restrictions`, and `catalog_additional_services` +
+  `additional_service_prices` tables. Plus scattered hardcoded constants
+  in `app/ep/carriers/utils/{Carrier}Util.php` classes (Phase 2).
+- **NO endpoint currently exposes any of it.** Closest existing routes
+  (`GET /carrier/{id}` and `GET /get-service/{carrier_id}` in queries)
+  return metadata only — no weight, dimension, COD, or additional-service
+  catalog data.
+- Therefore the MCP cannot ship its 4th pre-approved Sprint 7 tool
+  (`envia_get_carrier_constraints`) until this endpoint exists.
+
+**Action:** Build `GET /carrier-constraints/{carrier_id}` in the
+**carriers** service per the detailed implementation spec at
+`ai-agent/envia-mcp-server/_docs/specs/CARRIER_CONSTRAINTS_ENDPOINT_SPEC.md`.
+That document is fully self-contained for an implementer:
+- Verbatim API contract (success + 5 error responses).
+- Per-field source mapping to existing DB columns.
+- File-by-file implementation plan (route, controller, service, tests).
+- 11 unit + 7 feature test cases, named to follow existing carriers conventions.
+- Caching strategy (CacheUtil::remember, TTL 3600s, per-company keying).
+- Acceptance-criteria checklist (15 items).
+- Anti-patterns to avoid (cross-tenant probing, god-class imports,
+  weight-unit drift, premature hardcoded-constant extraction).
+
+**Phasing:** Phase 1 (this ticket) ships the DB-driven catalog. Phase 2
+(separate, deferred) extracts hardcoded carrier-class constants into
+`config/carrier_constraints.php`. Phase 1 is independently shippable
+and unblocks the MCP tool — Phase 2 enriches the response.
+
+**Effort:** **2–3 days** for Phase 1, fully tested. Phase 2 estimated
+5–7 days when scheduled (per-carrier audit is the long pole).
+
+**Severity:** **MEDIUM** — does not block existing functionality, but
+blocks the MCP's 4th pre-approved tool and any future agentic /
+self-service capability discovery work.
+
+**Owner:** carriers team. Spec was authored to minimise back-and-forth
+— the implementer should be able to read, code, test, and ship without
+follow-up clarification, modulo the 4 open questions enumerated in
+spec §12.
+
+---
+
 ## Closed since this brief was drafted (resolution log)
 
 This section will accumulate as items are resolved. Format:
