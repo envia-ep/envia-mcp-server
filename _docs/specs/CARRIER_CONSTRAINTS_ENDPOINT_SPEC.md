@@ -1,8 +1,9 @@
 # Backend Spec — `GET /carrier-constraints/{carrier_id}`
 
-**Version:** v2 — backend-reviewed 2026-04-27
+**Version:** v3 — backend round-2 reviewed 2026-04-27 (FINAL CONTRACT)
 **v1 commit:** `899d347` (initial spec)
-**v2 changes:** all 13 backend-review decisions applied. See "Diff vs v1" section below.
+**v2 commit:** `bb56391` (round-1 decisions applied)
+**v3 changes:** 10 round-2 decisions applied. See "Diff vs v2" + "Diff vs v1" sections below.
 
 > **Audience:** Backend engineer (or AI session) implementing this endpoint
 > in the **carriers** service. This document is self-contained — no further
@@ -28,9 +29,28 @@
 
 ---
 
+## Diff vs v2
+
+v3 incorporates **10 decisions from the backend round-2 review (2026-04-27)**. The most consequential is #1 — it resolves a contradiction in v2 between §2.3 (200 with empty services) and §3.7+§6 (404 for private/disabled). Implementers familiar with v2 should focus on these.
+
+| # | Decision | Spec section | Diff |
+|---|----------|--------------|------|
+| 1 | **CRITICAL** — strict 404/200/422 hierarchy: private/disabled carriers → 404; empty services → 200+`meta._note`; `service_id` mismatch → 422; `service_id` filtered by company → 200+`meta._note` | §2.3, §3.7, §6 | Changed |
+| 2 | `coverage_summary` opt-in (only when `?include=coverage_summary`) — sparse fieldset | §2.1, §2.2, §3.6 | Changed |
+| 3 | Additional services filter on company-visible services subset (closes leak) | §3.4 | Changed |
+| 4 | `service_id` filtered by company → 200 empty + `meta._note` (consistent with #1) | §2.3, §3.7 | Changed |
+| 5 | `volumetric_factor_id` shape stable: always present, `null` when unset | §2.2, §3.1 | Changed |
+| 6 | `carrier.active` removed (redundant — any carrier in 200 is active by contract per #1) | §2.2, §3.1 | Removed |
+| 7 | `company_service_restrictions` PK metadata corrected: composite `(company_id, service_id)`, no `id` | §3.3 | Fixed |
+| 8 | Cache wraps `data` only; `meta` (esp. `generated_at`) built per-request — `CacheUtil` unmodified | §4, §5, §9 | Changed |
+| 9 | Controller validates ints with `FILTER_VALIDATE_INT` — defends against `"abc"`, `"123abc"` | §4 | Changed |
+| 10 | §12 reframed as "Verified assumptions" — `catalog_shipment_types`, `catalog_rate_types`, `carriers.track_url_site`, `company_private_carriers` all confirmed by backend | §12 | Changed |
+
+---
+
 ## Diff vs v1
 
-This v2 incorporates 13 decisions from the backend code review (2026-04-27). Each is summarised here for reviewers familiar with v1; full detail in the relevant section.
+v2 incorporated 13 decisions from the backend round-1 code review (2026-04-27). Kept here for full historical traceability.
 
 | # | Decision | Spec section | Diff |
 |---|----------|--------------|------|
@@ -38,7 +58,7 @@ This v2 incorporates 13 decisions from the backend code review (2026-04-27). Eac
 | 2 | Apply `company_private_services` filter | §3.7 | Added |
 | 3 | Apply `config_disabled_carriers` and `config_disabled_services` filters | §3.7 | Added |
 | 4 | `international` becomes triple field (bool + code + scope) | §2.2, §3.2 | Changed |
-| 5 | `volumetric_factor` is actual divisor; `volumetric_factor_id` added (optional FK) | §2.2, §3.1 | Changed |
+| 5 | `volumetric_factor` is actual divisor; `volumetric_factor_id` added | §2.2, §3.1 | Changed |
 | 6 | Dual `track_url`: `envia_track_url_template` + `carrier_track_url_template` | §2.2, §3.1 | Changed |
 | 7 | Filter `additional_service_prices.active = 1` | §3.4 | Changed |
 | 8 | Correct `coverage_summary` SQL (uses `carriers.locale_id → locales.country_code`) | §3.6 | Changed |
@@ -78,7 +98,7 @@ GET /carrier-constraints/{carrier_id}?include=additional_services,coverage_summa
 |-------|----------|------|----------|-------------|
 | `carrier_id` | path | int | yes | Numeric carrier id. |
 | `service_id` | query | int | no | Filter to a single service. If omitted, returns all active services for the carrier. |
-| `include` | query | csv | no | Comma-separated optional sections. Default: `additional_services`. Allowed values: `additional_services`, `coverage_summary`. |
+| `include` | query | csv | no | Comma-separated optional sections (sparse fieldset). Default: `additional_services`. Allowed values: `additional_services`, `coverage_summary`. **Sections NOT requested are OMITTED from the response entirely** (not returned as `null`). |
 
 **Auth:** standard `auth` middleware (Bearer JWT). The middleware injects
 `userVal` (with `company_id`, `user_id`) into request attributes — used to
@@ -104,8 +124,7 @@ apply per-company filters (§3.7) and overrides.
       "allows_async_create": false,
       "include_vat": false,
       "tax_percentage_included": 0.0,
-      "private": false,
-      "active": true
+      "private": false
     },
     "pickup": {
       "supported": true,
@@ -195,11 +214,10 @@ apply per-company filters (§3.7) and overrides.
     "hardcoded_limits": {
       "_note": "Dimensions and per-piece weight limits enforced in carrier-specific PHP classes. Phase 2 will move these to a centralised config — see spec §10. Empty in Phase 1.",
       "values": []
-    },
-    "coverage_summary": {
-      "_unavailable": "Computed asynchronously — pending Phase 2",
-      "by_service": []
     }
+    // D2 v3: coverage_summary appears here ONLY when ?include=coverage_summary
+    //        was passed. When omitted, the entire field is absent from data.
+    //        See §3.6 for the placeholder shape.
   },
   "meta": {
     "carrier_id": 1,
@@ -213,23 +231,38 @@ apply per-company filters (§3.7) and overrides.
 **Notes on the example above:**
 
 - `carrier.endpoint` is **not included** — internal carrier API URLs are not exposed (D10, §6).
+- `carrier.active` is **not included** — redundant per D6 v3, since any carrier surfaced in a 200 response is accessible by contract (inaccessible carriers return 404 per D1 v3).
 - `meta.cached` is **not included** — cache hit/miss is tracked via Datadog APM span attributes (D13, §5).
-- `coverage_summary` shows the Phase 1 placeholder shape (D9, §3.6).
-- When carrier exists but has no services available for the requesting company (D11), `services` is `[]` and `meta` gains `"_note": "Carrier exists but has no services available for your company."`.
+- `coverage_summary` is **omitted** unless `?include=coverage_summary` is passed (D2 v3 sparse fieldset). When requested, the Phase 1 placeholder shape is returned (see §3.6).
+- When carrier exists but has no services available for the requesting company (D1 v3), `services` is `[]` and `meta` gains `"_note": "Carrier exists but has no services available for your company."`.
 
-### 2.3 Error responses
+### 2.3 Error responses (D1 v3 hierarchy)
 
-| HTTP | Trigger | `error` |
-|------|---------|---------|
-| 400 | `service_id` not a positive integer | `"service_id must be a positive integer"` |
-| 400 | `include` contains unknown value | `"include accepts only: additional_services, coverage_summary"` |
-| 400 | `carrier_id` not a positive integer | `"carrier_id must be a positive integer"` |
-| 401 | Missing/invalid Bearer token | (default Lumen 401) |
-| 404 | `carriers.id` does not exist in DB | `"Carrier not found"` |
-| 422 | `service_id` valid but doesn't belong to this carrier | `"service_id does not belong to this carrier"` |
-| 500 | Anything else | `"Internal error: <msg>"` |
+The HTTP status hierarchy follows a strict no-leak posture for inaccessible carriers and a permissive 200-empty for service-level filtering:
 
-**Note (D11):** There is no longer a `404 "Carrier not active"` error. A carrier with `active=0` or one that is disabled/private for the requesting company returns `HTTP 200` with `services: []` and `meta._note` set. This avoids leaking information about carrier existence to non-allowlisted companies.
+| HTTP | Trigger | `error` body | Notes |
+|------|---------|--------------|-------|
+| 400 | `carrier_id` not a positive integer (e.g. `"abc"`, `0`, `-1`) | `"carrier_id must be a positive integer"` | Validate with `FILTER_VALIDATE_INT` (D9 v3). |
+| 400 | `service_id` not a positive integer | `"service_id must be a positive integer"` | Same. |
+| 400 | `include` contains unknown value | `"include accepts only: additional_services, coverage_summary"` | |
+| 401 | Missing/invalid Bearer token | (default Lumen 401) | |
+| 404 | `carriers.id` does not exist in DB | `"Carrier not found"` | |
+| 404 | Carrier exists but is `private=1` AND requesting company is NOT in the allowlist (`company_private_carriers`) | `"Carrier not found"` | **Conservative no-leak posture** — do NOT reveal that the carrier exists. (D1 v3) |
+| 404 | Carrier is in `config_disabled_carriers` for the requesting company | `"Carrier not found"` | Same no-leak posture. (D1 v3) |
+| 422 | `service_id` valid but doesn't belong to this carrier | `"service_id does not belong to this carrier"` | The carrier ID is correct; the service ID is for a different carrier or doesn't exist at all. (D1 v3) |
+| 500 | Anything else | `"Internal error: <msg>"` | |
+
+**200 responses with empty services (D1 v3):** these are NOT errors. They occur when:
+
+- The carrier passes the §3.7 visibility checks (not private/disabled for this company), AND
+- After applying §3.7 service-level filters (`company_private_services`, `config_disabled_services`), the resulting service list is empty.
+
+In that case the response is HTTP 200 with `data.services: []`, `data.additional_services: []`, and `meta._note` set:
+
+- General empty case: `meta._note: "Carrier exists but has no services available for your company"`.
+- `service_id` provided but filtered by `config_disabled_services` for this company: `meta._note: "The requested service is not available for your company"` (D4 v3).
+
+This split between 404 (no-leak) and 200-empty (informative) is intentional: 404 means "I won't tell you whether this exists or not"; 200-empty means "yes, the carrier is real for you, but this particular query returns nothing usable".
 
 All error responses follow the existing convention in
 `app/Http/Controllers/TaxController.php:36-55`:
@@ -262,7 +295,7 @@ Model: `app/Models/Carrier.php`. Columns used:
 | `carrier.color` | `color` | Hex color. |
 | ~~`carrier.endpoint`~~ | ~~`endpoint`~~ | **D10: Omitted.** Internal carrier API URL is not exposed — security risk. |
 | `carrier.volumetric_factor` | `volumetric_factor` | **D5: actual volumetric divisor** (resolved from `catalog_volumetrict_factor.factor` via FK). Most common value: 5000. |
-| `carrier.volumetric_factor_id` | `volumetric_factor_id` | **D5: Optional FK** to `catalog_volumetrict_factor`. Include when present; omit when null. |
+| `carrier.volumetric_factor_id` | `volumetric_factor_id` | **D5 v3: Always present in response. `null` when unset in DB** (shape stable for typed consumers — never sparse). |
 | `carrier.box_weight` | `box_weight` | Default packaging weight. |
 | `carrier.pallet_weight` | `pallet_weight` | Pallet tare weight. |
 | `carrier.allows_mps` | `allows_mps` | Cast int → bool. |
@@ -270,7 +303,7 @@ Model: `app/Models/Carrier.php`. Columns used:
 | `carrier.include_vat` | `include_vat` | Cast int → bool. |
 | `carrier.tax_percentage_included` | `tax_percentage_included` | Float. |
 | `carrier.private` | `private` | Cast int → bool. |
-| `carrier.active` | (computed) | Set `true` if row exists and not filtered out by §3.7. |
+| ~~`carrier.active`~~ | (n/a) | **D6 v3: Removed.** There is no `active` column on the `carriers` table. Per the strict 404/200 hierarchy in §2.3 (D1 v3), any carrier surfaced in a 200 response is accessible by contract — the field would be redundant noise. |
 | `pickup.same_day` | `pickup_sameday` | Cast int → bool. |
 | `pickup.start_hour` | `pickup_start` | Int (24h). |
 | `pickup.end_hour` | `pickup_end` | Int (24h). |
@@ -362,9 +395,13 @@ $query = DB::table("company_service_restrictions AS csr")
     ->get();
 ```
 
-Columns: `id` (PK), `company_id` (FK), `service_id` (FK), `min_weight`
-(float, nullable), `max_weight` (float), `weight_unit` (varchar),
-`half_slab` (boolean).
+Columns: `company_id` (FK), `service_id` (FK), `min_weight` (float,
+nullable), `max_weight` (float), `weight_unit` (varchar), `half_slab`
+(boolean).
+
+**D7 v3 — PK metadata correction:** the table uses a **composite primary
+key** `(company_id, service_id)`. There is no autoincrement `id` column.
+Earlier drafts of this spec listed `id (PK)`; that was incorrect.
 
 **Application logic (per-service):** if a row exists for
 `(company_id = JWT.company_id, service_id = service.id)`, build the
@@ -414,13 +451,35 @@ ORDER BY cas.front_order_index ASC, cas.id ASC;
 without an active price row are not purchasable — they must not appear in
 the additional services catalog.
 
-For `available_for_services`, run a subquery per row:
+**D3 v3 — Filter on company-visible services subset:** The `s.carrier_id =
+:carrier_id` join above must be **further restricted to the service IDs
+that survive §3.7 filtering** (i.e. the post-`company_private_services` /
+`config_disabled_services` subset for the requesting company). Otherwise
+add-ons may leak from privately-disabled services into the response.
+
+The implementer must compute the visible-service-IDs first (per §3.7) and
+inject them as a bounded `IN (...)` clause:
+
+```sql
+SELECT DISTINCT cas.*
+FROM catalog_additional_services cas
+INNER JOIN additional_service_prices asp ON asp.additional_service_id = cas.id
+INNER JOIN services s ON s.id = asp.service_id
+WHERE s.id IN (:visible_service_ids)   -- D3 v3: company-filtered subset only
+  AND cas.active = 1
+  AND cas.visible = 1
+  AND asp.active = 1
+ORDER BY cas.front_order_index ASC, cas.id ASC;
+```
+
+For `available_for_services`, the subquery is constrained to the same
+visible subset:
 
 ```sql
 SELECT service_id
 FROM additional_service_prices
 WHERE additional_service_id = :addon_id
-  AND service_id IN (SELECT id FROM services WHERE carrier_id = :carrier_id AND active = 1);
+  AND service_id IN (:visible_service_ids);   -- D3 v3
 ```
 
 Skip this section if `?include=additional_services` is not present (it is
@@ -442,6 +501,14 @@ checks. Examples (verbatim references):
 `config/carrier_constraints.php` and populates the section.
 
 ### 3.6 Coverage summary (optional, `?include=coverage_summary`)
+
+**D2 v3 — Sparse fieldset:** The `coverage_summary` block is **omitted from
+the response entirely** when `?include=coverage_summary` is not in the
+query string. It is NOT returned as `null`, NOT as an empty placeholder —
+the field key is simply absent from `data`. Consumers should check field
+presence (`isset` / `?.`) before reading.
+
+When the section IS requested, return the placeholder shape (D9 v3 below).
 
 Source: `service_coverage` table. Model:
 `app/Models/ServiceCoverage.php:9-12`. Columns: `service_id`,
@@ -502,7 +569,7 @@ A non-internal user requesting a `private=1` carrier that has no
 Alternatively, if the company is in the disabled list via
 `config_disabled_carriers`, also return `HTTP 404`.
 
-**Implementation pattern for services with no company access (D2, D3, D11):**
+**Implementation pattern for services with no company access (D1 v3, D11):**
 
 If the carrier exists but all its services are filtered out (via
 `company_private_services` or `config_disabled_services`), return:
@@ -523,6 +590,38 @@ If the carrier exists but all its services are filtered out (via
 
 Do **NOT** return a 404. The MCP tool handles the empty-services case
 gracefully with the `_note` field.
+
+**D4 v3 — `service_id` filtered by company:** When the caller provides
+`?service_id=N` and:
+
+- N exists in the `services` table AND `services.carrier_id` matches the
+  path `carrier_id` (so it's NOT a 422 mismatch), AND
+- N is filtered out for this company (via `company_private_services` or
+  `config_disabled_services`),
+
+…return `HTTP 200` with `services: []` and a more specific note:
+
+```json
+"meta": {
+  ...,
+  "_note": "The requested service is not available for your company."
+}
+```
+
+Rationale: 200-empty is consistent with "availability real for this
+company" semantics. Returning 422 here would leak that the service exists
+globally — the conservative posture is to treat company-level
+unavailability as "as if it did not exist for you", same as the carrier-level
+404 case in §2.3.
+
+**Decision tree for `?service_id=N`:**
+
+| Condition | HTTP | Body |
+|---|---|---|
+| N is not a positive integer | 400 | `"service_id must be a positive integer"` |
+| N is a positive integer but does NOT exist in `services` OR exists but `services.carrier_id` ≠ path carrier | 422 | `"service_id does not belong to this carrier"` |
+| N belongs to the carrier but is filtered out by `company_private_services` or `config_disabled_services` for this company | 200 | `services: []` + `meta._note` (specific message above) |
+| N belongs to the carrier and is visible to this company | 200 | normal response with `services: [matching service]` |
 
 ---
 
@@ -570,20 +669,35 @@ class CarrierConstraintsController extends Controller
     public function show(Request $request, $carrierId)
     {
         try {
-            $carrierId = (int) $carrierId;
-            if ($carrierId <= 0) {
+            // D9 v3: validate with FILTER_VALIDATE_INT — defends against
+            // strings like "abc" (which (int) would silently coerce to 0)
+            // and "123abc" (coerced to 123). FILTER_VALIDATE_INT returns
+            // false on any non-pure-integer input.
+            $validatedCarrierId = filter_var(
+                $carrierId,
+                FILTER_VALIDATE_INT,
+                ['options' => ['min_range' => 1]],
+            );
+            if ($validatedCarrierId === false) {
                 throw new \InvalidArgumentException('carrier_id must be a positive integer');
             }
+            $carrierId = $validatedCarrierId;
 
             $userVal = $request->attributes->get('userVal');
             $companyId = $userVal->company_id ?? null;
 
-            $serviceId = $request->query('service_id');
-            if ($serviceId !== null) {
-                $serviceId = (int) $serviceId;
-                if ($serviceId <= 0) {
+            $serviceIdRaw = $request->query('service_id');
+            $serviceId = null;
+            if ($serviceIdRaw !== null) {
+                $validatedServiceId = filter_var(
+                    $serviceIdRaw,
+                    FILTER_VALIDATE_INT,
+                    ['options' => ['min_range' => 1]],
+                );
+                if ($validatedServiceId === false) {
                     throw new \InvalidArgumentException('service_id must be a positive integer');
                 }
+                $serviceId = $validatedServiceId;
             }
 
             $includeRaw = $request->query('include', 'additional_services');
@@ -659,11 +773,18 @@ class CarrierConstraintsService
         // Cache key includes companyId so per-company filters/overrides do not bleed.
         $cacheKey = "carrier-constraints:{$carrierId}:{$companyId}:" . ($serviceId ?? 'all') . ':' . implode(',', $include);
 
-        return CacheUtil::remember($cacheKey, self::CACHE_TTL_SECONDS, function () use ($carrierId, $companyId, $serviceId, $include) {
+        // D8 v3 — cache wraps `data` ONLY. `meta` (especially generated_at,
+        // and the conditional _note) is built per-request, AFTER the cache
+        // lookup, so timestamps reflect response time and notes can adapt
+        // to the live filter state. CacheUtil is unmodified.
+        $data = CacheUtil::remember($cacheKey, self::CACHE_TTL_SECONDS, function () use ($carrierId, $companyId, $serviceId, $include) {
             $carrier = $this->loadCarrier($carrierId, $companyId);
             $services = $this->loadServices($carrierId, $serviceId, $companyId);
 
-            if ($serviceId !== null && $services->isEmpty()) {
+            // D1 v3 — service_id mismatch (does not belong to carrier) → 422
+            // The "filtered out by company" path returns empty services here
+            // (200 + meta._note built outside the closure).
+            if ($serviceId !== null && $this->serviceIdBelongsToOtherCarrier($serviceId, $carrierId)) {
                 throw new \App\Exceptions\ValidationException('service_id does not belong to this carrier');
             }
 
@@ -671,47 +792,52 @@ class CarrierConstraintsService
                 ? $this->loadCompanyOverrides($companyId, $services->pluck('id')->all())
                 : collect();
 
+            $visibleServiceIds = $services->pluck('id')->all();
+
+            // D3 v3 — additional services filtered against company-visible subset
             $additionalServices = in_array('additional_services', $include, true)
-                ? $this->loadAdditionalServices($carrierId)
+                ? $this->loadAdditionalServices($carrierId, $visibleServiceIds)
                 : null;
 
-            $coverageSummary = in_array('coverage_summary', $include, true)
-                ? $this->loadCoverageSummary($carrierId)
-                : null;
-
-            $shapedServices = $services->map(fn($s) => $this->shapeService($s, $overrides->get($s->id)))->values()->all();
-
-            $note = null;
-            if (count($shapedServices) === 0 && $serviceId === null) {
-                $note = 'Carrier exists but has no services available for your company.';
-            }
-
-            $meta = [
-                'carrier_id' => $carrierId,
-                'company_id' => $companyId,
-                'service_filter' => $serviceId,
-                'generated_at' => gmdate('Y-m-d\TH:i:s\Z'),
-            ];
-            if ($note !== null) {
-                $meta['_note'] = $note;
-            }
-
-            return [
-                'data' => [
-                    'carrier' => $this->shapeCarrier($carrier),
-                    'pickup' => $this->shapePickup($carrier),
-                    'tracking' => $this->shapeTracking($carrier),
-                    'services' => $shapedServices,
-                    'additional_services' => $additionalServices,
-                    'hardcoded_limits' => [
-                        '_note' => 'Phase 1 placeholder. See _docs/specs/CARRIER_CONSTRAINTS_ENDPOINT_SPEC.md §10.',
-                        'values' => [],
-                    ],
-                    'coverage_summary' => $coverageSummary,
+            // D2 v3 — coverage_summary key is omitted entirely when not requested
+            $shapedData = [
+                'carrier' => $this->shapeCarrier($carrier),
+                'pickup' => $this->shapePickup($carrier),
+                'tracking' => $this->shapeTracking($carrier),
+                'services' => $services->map(fn($s) => $this->shapeService($s, $overrides->get($s->id)))->values()->all(),
+                'additional_services' => $additionalServices,
+                'hardcoded_limits' => [
+                    '_note' => 'Phase 1 placeholder. See _docs/specs/CARRIER_CONSTRAINTS_ENDPOINT_SPEC.md §10.',
+                    'values' => [],
                 ],
-                'meta' => $meta,
             ];
+            if (in_array('coverage_summary', $include, true)) {
+                $shapedData['coverage_summary'] = $this->loadCoverageSummary($carrierId);
+            }
+
+            return $shapedData;
         });
+
+        // D8 v3 — meta is built outside CacheUtil. generated_at is always now()
+        // and _note adapts to the (cached) services array.
+        $meta = [
+            'carrier_id' => $carrierId,
+            'company_id' => $companyId,
+            'service_filter' => $serviceId,
+            'generated_at' => gmdate('Y-m-d\TH:i:s\Z'),
+        ];
+        $serviceCount = count($data['services'] ?? []);
+        if ($serviceCount === 0) {
+            // D1/D4 v3 — distinguish "no services at all" vs "specific service filtered for company"
+            $meta['_note'] = $serviceId !== null
+                ? 'The requested service is not available for your company.'
+                : 'Carrier exists but has no services available for your company.';
+        }
+
+        return [
+            'data' => $data,
+            'meta' => $meta,
+        ];
     }
 
     // ...loadCarrier, loadServices, loadCompanyOverrides, loadAdditionalServices,
@@ -727,7 +853,9 @@ class CarrierConstraintsService
 - `loadCompanyOverrides(int $companyId, array $serviceIds): Collection` — query per §3.3, key the result by `service_id`.
 - `loadAdditionalServices(int $carrierId): array` — SQL per §3.4 (includes `AND asp.active = 1`). Batch the `available_for_services` subquery (no N+1).
 - `loadCoverageSummary(int $carrierId): array` — Phase 1: return `['_unavailable' => 'Computed asynchronously — pending Phase 2', 'by_service' => []]` always.
-- `shapeCarrier(Carrier $c): array` — pure transformation. Cast int→bool. **Exclude `endpoint` field (D10).** Include `volumetric_factor_id` only when not null (D5).
+- `loadAdditionalServices(int $carrierId, array $visibleServiceIds): array` — D3 v3: SQL joins are bounded by `s.id IN (:visibleServiceIds)`, NOT just `s.carrier_id = :carrierId`. If `$visibleServiceIds` is empty the function returns `[]` immediately.
+- `serviceIdBelongsToOtherCarrier(int $serviceId, int $carrierId): bool` — D1 v3 helper: returns true if `$serviceId` exists in `services` but with a different `carrier_id` (or doesn't exist at all). Used by the controller layer to distinguish 422 (mismatch) from 200-empty (filtered for company).
+- `shapeCarrier(Carrier $c): array` — pure transformation. Cast int→bool. **Exclude `endpoint` field (D10).** **Exclude `active` field (D6 v3).** Include `volumetric_factor_id` always — set to `null` when DB column is null (D5 v3).
 - `shapePickup(Carrier $c): array` — cast and assemble.
 - `shapeTracking(Carrier $c): array` — include `envia_track_url_template` (from `track_url`) and `carrier_track_url_template` (from `track_url_site`). **No `track_url_template` key** (D6).
 - `shapeService(ServiceModel $s, ?object $override): array` — assemble per §3.2. Include all three international fields (D4). Apply override block.
@@ -771,21 +899,32 @@ public function testGetConstraintsDoesNotIncludeCachedInMeta()
 ```php
 public function testShowReturns401WithoutBearerToken()
 public function testShowReturns404WhenCarrierMissing()
-public function testShowReturns400WhenCarrierIdNotPositiveInteger()
-public function testShowReturns400WhenServiceIdNotPositiveInteger()        // D12
-public function testShowReturns400WhenIncludeValueUnknown()                // D12
-public function testShowReturns422WhenServiceIdMismatchCarrier()           // D12
+public function testShowReturns404WhenCarrierIsPrivateAndCompanyNotAllowlisted()  // D1 v3
+public function testShowReturns404WhenCarrierIsInConfigDisabledCarriers()        // D1 v3
+public function testShowReturns400WhenCarrierIdNotPositiveInteger()              // D9 v3 (FILTER_VALIDATE_INT)
+public function testShowReturns400WhenCarrierIdIsNonNumericString()              // D9 v3 ("abc" → 400, NOT 0)
+public function testShowReturns400WhenCarrierIdIsAlphanumericString()            // D9 v3 ("123abc" → 400)
+public function testShowReturns400WhenServiceIdNotPositiveInteger()
+public function testShowReturns400WhenIncludeValueUnknown()
+public function testShowReturns422WhenServiceIdBelongsToOtherCarrier()           // D1 v3 mismatch path
 public function testShowReturns200WithExpectedShapeForFedex()
 public function testShowAppliesCompanyOverrideFromJwt()
-public function testShowReturns200WithEmptyServicesAndMetaNoteForDisabledCarrier() // D11
+public function testShowReturns200WithEmptyServicesAndGenericNoteForDisabledServices()  // D1 v3 carrier-level
+public function testShowReturns200WithEmptyServicesAndSpecificNoteForFilteredServiceId() // D4 v3 service-level
+public function testShowOmitsCoverageSummaryWhenNotInInclude()                   // D2 v3
+public function testShowIncludesCoverageSummaryPlaceholderWhenRequested()        // D2 v3 + D9 v3
+public function testShowMetaGeneratedAtReflectsCurrentTimeNotCacheFillTime()     // D8 v3
 ```
 
 For the `200 with expected shape` assertion, use `assertJsonStructure`
 with the full shape from §2.2. Verify:
 - `carrier.endpoint` is absent (D10)
+- `carrier.active` is absent (D6 v3)
 - `meta.cached` is absent (D13)
+- `data.coverage_summary` is absent unless `?include=coverage_summary` was passed (D2 v3)
 - `tracking.envia_track_url_template` and `tracking.carrier_track_url_template` are both present (D6)
 - `services[0].international_code` and `services[0].international_scope` are present (D4)
+- `carrier.volumetric_factor_id` is present and either a number or `null` (D5 v3 — never absent)
 
 **Auth bootstrap pattern** — match `tests/System/Util/RateTest.php`.
 
@@ -818,6 +957,19 @@ Use the existing `CacheUtil::remember()` pattern (see `app/ep/util/CacheUtil.php
 
 **Important:** the cache key includes `company_id` so per-company
 filters and overrides do not leak across tenants. **Do NOT cache without it.**
+
+**D8 v3 — Cache scope:** `CacheUtil::remember()` wraps **`data` only**.
+`meta` (especially `meta.generated_at` and the conditional `meta._note`)
+is constructed in the controller AFTER the cache lookup, so:
+
+- `generated_at` always reflects the actual response time, never the
+  time the data was originally cached.
+- `_note` adapts to the live filter state (e.g. when an admin disables
+  the last service for a company mid-cache-window, the next call still
+  returns the cached `data` but the `_note` is freshly evaluated).
+
+**`CacheUtil` itself is not modified.** This decision (v3) avoids touching
+a cross-cutting utility used by 30+ controllers in the carriers service.
 
 **D13 — Cache observability:** cache hit/miss is **not** included in the
 response body. The `meta.cached` field from v1 is removed. Instead, track
@@ -873,8 +1025,11 @@ up automatically by the framework instrumentation.
    `hardcoded_limits.values: []`. Phase 2 is a separate ticket.
 8. **Do not include `carrier.endpoint` in the response.** D10 decision — security.
 9. **Do not include `meta.cached` in the response.** D13 decision — use Datadog APM.
-10. **Do not return `"Carrier not active"` as a 404 error.** D11 decision — use
-    200 + empty services + `meta._note` instead.
+10. **Do not include `carrier.active` in the response.** D6 v3 decision — redundant per the strict 404/200 hierarchy in §2.3.
+11. **Do not return `"Carrier not active"` as a 404 error.** Replaced in v3 by the strict hierarchy: private/disabled → 404; empty services → 200 + `meta._note`.
+12. **Do not include `coverage_summary` when not requested.** D2 v3 — the field is absent (not `null`) when `?include=coverage_summary` was not passed.
+13. **Do not modify `CacheUtil` or other shared utilities** to surface metadata in the response. D8 v3 — cache `data` only and build `meta` per-request.
+14. **Do not use `(int) $carrierId` for path-param validation.** D9 v3 — `(int) "abc"` silently coerces to `0` and `(int) "123abc"` to `123`. Always use `FILTER_VALIDATE_INT` with `min_range: 1`.
 
 ---
 
@@ -882,26 +1037,45 @@ up automatically by the framework instrumentation.
 
 Mark each `[ ]` → `[x]` as done. Do not ship until all are checked.
 
+**Happy path:**
 - [ ] `GET /carrier-constraints/1` returns HTTP 200 with the shape in §2.2.
+- [ ] Response contains `tracking.envia_track_url_template` AND `tracking.carrier_track_url_template` (D6).
+- [ ] Response contains `services[0].international` (bool), `services[0].international_code` (int), `services[0].international_scope` (string) — all three (D4).
+- [ ] Response contains `carrier.volumetric_factor_id` always — value is either `number` or `null`, never absent (D5 v3).
+- [ ] Response does **NOT** contain `carrier.endpoint` (D10).
+- [ ] Response does **NOT** contain `carrier.active` (D6 v3).
+- [ ] Response does **NOT** contain `meta.cached` (D13).
+- [ ] Response does **NOT** contain `data.coverage_summary` unless `?include=coverage_summary` is passed (D2 v3).
+
+**Error paths (D1 v3 hierarchy + D9 v3 input validation):**
 - [ ] `GET /carrier-constraints/99999` returns HTTP 404, `error: "Carrier not found"`.
-- [ ] `GET /carrier-constraints/abc` returns HTTP 400, `error: "carrier_id must be a positive integer"`.
-- [ ] `GET /carrier-constraints/1?service_id=999999` returns HTTP 422 when 999999 is not a fedex service.
-- [ ] `GET /carrier-constraints/1?service_id=0` returns HTTP 400, `error: "service_id must be a positive integer"`.
-- [ ] `GET /carrier-constraints/1?include=bad_value` returns HTTP 400, `error: "include accepts only: additional_services, coverage_summary"`.
+- [ ] `GET /carrier-constraints/abc` returns HTTP 400 (`FILTER_VALIDATE_INT` rejects).
+- [ ] `GET /carrier-constraints/123abc` returns HTTP 400 (D9 v3 — would have been silently coerced to 123 with `(int)`).
+- [ ] `GET /carrier-constraints/1?service_id=0` returns HTTP 400.
+- [ ] `GET /carrier-constraints/1?include=bad_value` returns HTTP 400.
 - [ ] `GET /carrier-constraints/1` without Bearer token returns HTTP 401.
-- [ ] `GET /carrier-constraints/{private_carrier_id}` from a non-allowlisted company returns HTTP 404.
-- [ ] `GET /carrier-constraints/1` for a company whose services are all disabled returns HTTP 200 with `services: []` and `meta._note` set.
-- [ ] `GET /carrier-constraints/1` for a company with rows in `company_service_restrictions` shows `limits.company_override.applied: true` for affected services.
-- [ ] `GET /carrier-constraints/1` for a company with no overrides shows `limits.company_override.applied: false` for all services.
-- [ ] `GET /carrier-constraints/1` response does **not** contain `carrier.endpoint` field.
-- [ ] `GET /carrier-constraints/1` response does **not** contain `meta.cached` field.
-- [ ] `GET /carrier-constraints/1` response contains `tracking.envia_track_url_template` and `tracking.carrier_track_url_template` (both required).
-- [ ] `GET /carrier-constraints/1` response contains `services[0].international_code` (int) and `services[0].international_scope` (string).
-- [ ] Second call within 1 hour confirms cache via Redis: `EXISTS carrier-constraints:1:{company_id}:all:additional_services` returns 1.
-- [ ] All inactive services (`active=0`) are excluded from `services[]`.
-- [ ] `?include=coverage_summary` returns the Phase 1 placeholder shape (`_unavailable` + `by_service: []`).
+- [ ] `GET /carrier-constraints/{private_carrier_id}` from a non-allowlisted company returns HTTP 404 (no leak).
+- [ ] `GET /carrier-constraints/{config_disabled_carrier_id}` returns HTTP 404 (no leak).
+- [ ] `GET /carrier-constraints/1?service_id=999999` returns HTTP 422 when service exists for a different carrier or doesn't exist.
+
+**200 + empty services semantics (D1, D4 v3):**
+- [ ] Carrier accessible but all services filtered for company → HTTP 200 + `services: []` + `meta._note: "Carrier exists but has no services available for your company."` (D1 v3).
+- [ ] `?service_id=N` where N belongs to carrier but is filtered for company → HTTP 200 + `services: []` + `meta._note: "The requested service is not available for your company."` (D4 v3).
+
+**Company override:**
+- [ ] Company with rows in `company_service_restrictions` shows `limits.company_override.applied: true` on affected services.
+- [ ] Company with no overrides shows `limits.company_override.applied: false` on all services.
+
+**Cache (D8 v3):**
+- [ ] Two calls 5+ seconds apart return the same `data` (cached) but DIFFERENT `meta.generated_at` values — proves cache wraps `data` only.
+- [ ] Cache state confirmed via Redis: `EXISTS carrier-constraints:1:{company_id}:all:additional_services` returns 1 after the first call.
+
+**Type discipline:**
 - [ ] All boolean columns cast to JSON `true`/`false`, never `0`/`1` or `"0"`/`"1"`.
 - [ ] All weight values returned as numbers (not strings).
+- [ ] `carrier.volumetric_factor_id` is JSON `number` or JSON `null`, never JSON `"null"` string.
+
+**Tests + ops:**
 - [ ] Unit tests in `tests/Unit/CarrierConstraintsServiceTest.php` pass.
 - [ ] Feature tests in `tests/Feature/CarrierConstraintsControllerTest.php` pass.
 - [ ] `phpunit` green on the whole carriers test suite (no regressions).
@@ -938,13 +1112,21 @@ Before coding, the engineer needs:
 
 ---
 
-## 12. Open questions for the implementer to resolve
+## 12. Verified assumptions (D10 v3 — no open questions remain)
 
-1. Does `catalog_shipment_types` exist as a table? If not, return `shipment_type.label` as `null`.
-2. Does `catalog_rate_types` exist? Same fallback rule.
-3. Is there an existing pattern in `CarrierUtil` for the "internal company allowlist" used to gate `private=1` carriers? If yes, reuse.
-4. Does the carriers service expose a "preview" or "feature flag" gate for new endpoints?
-5. Does the `carriers` table have a `track_url_site` column (D6), or is it stored elsewhere? Verify before mapping `carrier_track_url_template`.
+In v1/v2 this section listed open questions for the implementer. The
+backend round-2 review (2026-04-27) **verified all four** against
+production schema and code. Restated here as confirmed assumptions:
+
+| # | Assumption | Verified | Source |
+|---|---|---|---|
+| 1 | `catalog_shipment_types` exists as a real table with a `name` column | ✓ | Backend round-2 review |
+| 2 | `catalog_rate_types` exists as a real table with a `name` column | ✓ | Backend round-2 review |
+| 3 | `carriers.track_url_site` exists as a column (used for `carrier_track_url_template`, D6) | ✓ | Backend round-2 review |
+| 4 | `company_private_carriers` table exists and is the canonical allowlist for `private=1` carriers | ✓ | Backend round-2 review |
+
+The implementer can take the SQL in §3.1, §3.2, §3.3, §3.4 at face value.
+No verification round-trips required.
 
 ---
 
@@ -961,12 +1143,14 @@ Before coding, the engineer needs:
 
 ## 14. Spec metadata
 
-- **Author:** Claude Opus 4.7 (1M context), session 2026-04-27.
-- **v2 author:** Claude Sonnet 4.6, 2026-04-27 (13 backend-review decisions applied).
+- **Author (v1):** Claude Opus 4.7 (1M context), session 2026-04-27.
+- **v2 author:** Claude Sonnet 4.6, 2026-04-27 (13 round-1 backend-review decisions applied).
+- **v3 author:** Claude Opus 4.7 (1M context), 2026-04-27 (10 round-2 decisions applied).
 - **Reviewer:** Jose Vidrio (CTO).
-- **Backend reviewer:** equipo backend, 2026-04-27.
-- **Status:** READY FOR IMPLEMENTATION (v2 — all open questions resolved).
+- **Backend round-1 reviewer:** equipo backend, 2026-04-27.
+- **Backend round-2 reviewer:** equipo backend, 2026-04-27.
+- **Status:** READY FOR IMPLEMENTATION (v3 — final contract, all open questions resolved).
 - **Backend brief reference:** `_docs/BACKEND_TEAM_BRIEF.md` item C11.
 - **Consumer:** `envia-mcp-server` `envia_get_carrier_constraints` tool
-  (4th tool of Sprint 7's pre-approved set). MCP code aligned to v2 contract
-  as of commit following `9d5bfa8`.
+  (4th tool of Sprint 7's pre-approved set). MCP code aligned to v3 contract
+  in this same commit.

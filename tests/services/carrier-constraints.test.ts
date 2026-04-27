@@ -46,7 +46,7 @@ function makeConstraintsResponse(overrides: Partial<CarrierConstraintsResponse> 
                 color: '#4D148C',
                 // D10: endpoint intentionally absent
                 volumetric_factor: 5000,
-                volumetric_factor_id: 12, // D5: optional FK present in this fixture
+                volumetric_factor_id: 12, // D5 v3: always present, null when unset (here: number)
                 box_weight: 0.5,
                 pallet_weight: 30,
                 allows_mps: true,
@@ -54,7 +54,7 @@ function makeConstraintsResponse(overrides: Partial<CarrierConstraintsResponse> 
                 include_vat: false,
                 tax_percentage_included: 0.0,
                 private: false,
-                active: true,
+                // D6 v3: `active` removed — any carrier in 200 is active by contract
             },
             pickup: {
                 supported: true,
@@ -193,7 +193,7 @@ function makeConstraintsResponse(overrides: Partial<CarrierConstraintsResponse> 
                 _note: 'Phase 1 placeholder.',
                 values: [],
             },
-            coverage_summary: null,
+            // D2 v3: coverage_summary is omitted from default fixture (sparse fieldset)
         },
         meta: {
             carrier_id: 1,

@@ -1,14 +1,14 @@
 /**
  * TypeScript interfaces for the carrier-constraints endpoint response.
  *
- * Mirrors the contract in _docs/specs/CARRIER_CONSTRAINTS_ENDPOINT_SPEC.md §2.2 (v2)
- * verbatim. Every field's optional/required status matches the v2 spec.
+ * Mirrors the contract in _docs/specs/CARRIER_CONSTRAINTS_ENDPOINT_SPEC.md §2.2 (v3)
+ * verbatim. Every field's optional/required status matches the v3 spec.
  *
  * Backend ticket: C11 (endpoint not yet available — see BACKEND_TEAM_BRIEF.md).
  * Once C11 ships no changes here are required; only the env-var pointing to
  * the carriers service needs to be live.
  *
- * v2 changes (2026-04-27 backend review):
+ * v2 changes (2026-04-27 backend round-1 review):
  *   D4.  `international` is now a triple field (bool + code + scope).
  *   D5.  `volumetric_factor_id` added as optional FK to CarrierMeta.
  *   D6.  Tracking split into envia_track_url_template + carrier_track_url_template.
@@ -16,6 +16,13 @@
  *   D10. `endpoint` removed from CarrierMeta (security — internal URL not exposed).
  *   D11. ResponseMeta gains optional `_note` field for empty-services semantics.
  *   D13. `cached` removed from ResponseMeta (observability via Datadog APM instead).
+ *
+ * v3 changes (2026-04-27 backend round-2 review):
+ *   D1.  Strict 404/200/422 hierarchy — private/disabled → 404; empty services → 200+note;
+ *        service_id mismatch → 422; service_id filtered-by-company → 200+note.
+ *   D2.  `coverage_summary` is optional (only present when ?include=coverage_summary).
+ *   D5.  `volumetric_factor_id` is now `number | null` (required, nullable) — always present.
+ *   D6.  `carrier.active` removed — redundant (any carrier in a 200 is active by contract).
  */
 
 // ---------------------------------------------------------------------------
@@ -29,6 +36,10 @@
  * D10: `endpoint` (internal carrier API URL) is intentionally NOT included.
  * Exposing it would leak internal infrastructure to MCP consumers — see §6
  * of the spec for the security rationale.
+ *
+ * D6 (v3): `active` is NOT included. There is no `active` column on the `carriers`
+ * table; and per the strict 404/200 hierarchy (D1 v3), any carrier surfaced in a
+ * 200 response is accessible by contract — the field is redundant noise.
  */
 export interface CarrierMeta {
     id: number;
@@ -43,11 +54,11 @@ export interface CarrierMeta {
      */
     volumetric_factor: number;
     /**
-     * FK to `catalog_volumetrict_factor`. Optional — present only when the
-     * carrier has a specific entry in the volumetric factor catalog.
-     * D5: added as optional alongside `volumetric_factor`.
+     * FK to `catalog_volumetrict_factor`. Always present in the response; `null` when
+     * not set in the DB.
+     * D5 v3: changed from optional to required nullable (number | null). Always present.
      */
-    volumetric_factor_id?: number;
+    volumetric_factor_id: number | null;
     box_weight: number;
     pallet_weight: number;
     allows_mps: boolean;
@@ -55,7 +66,6 @@ export interface CarrierMeta {
     include_vat: boolean;
     tax_percentage_included: number;
     private: boolean;
-    active: boolean;
 }
 
 /**
@@ -291,6 +301,10 @@ export interface ResponseMeta {
 /**
  * Full response shape for GET /carrier-constraints/{carrier_id}.
  * §2.2
+ *
+ * D2 v3: `coverage_summary` is OPTIONAL (sparse fieldset). It is only present
+ * in the response when the caller passes `?include=coverage_summary`. When
+ * absent, the field is missing from the response entirely (not `null`).
  */
 export interface CarrierConstraintsResponse {
     status: 'success';
@@ -301,7 +315,8 @@ export interface CarrierConstraintsResponse {
         services: ServiceConstraint[];
         additional_services: AdditionalServiceRef[] | null;
         hardcoded_limits: HardcodedLimits;
-        coverage_summary: CoverageSummary | null;
+        /** Present only when ?include=coverage_summary was requested. */
+        coverage_summary?: CoverageSummary;
     };
     meta: ResponseMeta;
 }

@@ -16,7 +16,7 @@
  * once the backend deploys.
  *
  * Data source: GET ${shippingBase}/carrier-constraints/{carrier_id}
- * Spec: _docs/specs/CARRIER_CONSTRAINTS_ENDPOINT_SPEC.md (v2)
+ * Spec: _docs/specs/CARRIER_CONSTRAINTS_ENDPOINT_SPEC.md (v3)
  */
 
 import { z } from 'zod';
@@ -171,10 +171,13 @@ function formatAdditionalServices(addons: AdditionalServiceRef[] | null): string
  * D9: when `_unavailable` is set (Phase 1 placeholder), render a clear
  * "pending Phase 2" message instead of an empty or confusing section.
  *
- * @param coverage - Coverage summary object (may be null)
+ * D2 v3: `coverage` is now optional — only present when the caller passed
+ * `?include=coverage_summary`. When absent the section is omitted entirely.
+ *
+ * @param coverage - Coverage summary object (may be undefined)
  * @returns Formatted markdown section, or empty string if not present
  */
-function formatCoverageSummary(coverage: CoverageSummary | null): string {
+function formatCoverageSummary(coverage: CoverageSummary | undefined): string {
     if (!coverage) {
         return '';
     }

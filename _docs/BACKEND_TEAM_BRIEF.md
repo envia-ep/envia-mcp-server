@@ -844,6 +844,30 @@ closed decisions:
   12.   Strict 400 (malformed input) vs 422 (business mismatch) distinction.
   13.   `meta.cached` removed; cache observability via Datadog APM span attributes.
 
+**[2026-04-27 UPDATE — Spec v3 published (FINAL CONTRACT). 10 round-2 decisions closed.]**
+A second backend review session on 2026-04-27 produced 10 additional
+refinements that have been incorporated into spec v3. The most consequential
+is #1 — it resolves a contradiction in v2 between §2.3 (200 with empty
+services) and §3.7+§6 (404 for private/disabled). v3 is the final contract;
+implementers can read it end-to-end with no further verification. MCP code
+aligned to v3 in the same commit. Summary of the 10 closed decisions:
+  1.   CRITICAL — strict 404/200/422 hierarchy: private/disabled → 404 (no leak);
+       empty services → 200 + `meta._note`; `service_id` mismatch → 422;
+       `service_id` filtered for company → 200 + specific `meta._note`.
+  2.   `coverage_summary` opt-in (only when `?include=coverage_summary`) — sparse fieldset.
+  3.   Additional services SQL filtered against company-visible service IDs (closes leak).
+  4.   `service_id` filtered for company → 200 empty (consistent with #1).
+  5.   `volumetric_factor_id` shape stable: always present, `null` when unset.
+  6.   `carrier.active` removed (redundant — any carrier in 200 is active by contract).
+  7.   `company_service_restrictions` PK metadata corrected: composite (company_id, service_id).
+  8.   Cache wraps `data` only; `meta` (esp. `generated_at`, `_note`) built per-request.
+       `CacheUtil` is unmodified.
+  9.   Controller validates ints with `FILTER_VALIDATE_INT` — defends against `"abc"`/`"123abc"`.
+  10.  §12 reframed as "Verified assumptions" — `catalog_shipment_types`, `catalog_rate_types`,
+       `carriers.track_url_site`, `company_private_carriers` all confirmed by backend.
+
+The spec now has zero open questions. Backend team can proceed end-to-end.
+
 ---
 
 ## Closed since this brief was drafted (resolution log)

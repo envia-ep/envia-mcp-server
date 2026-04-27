@@ -59,7 +59,7 @@ function makeConstraintsResponse(
                 color: '#4D148C',
                 // D10: endpoint intentionally absent
                 volumetric_factor: 5000,
-                volumetric_factor_id: 12, // D5
+                volumetric_factor_id: 12, // D5 v3: always present, null when unset
                 box_weight: 0.5,
                 pallet_weight: 30,
                 allows_mps: true,
@@ -67,7 +67,7 @@ function makeConstraintsResponse(
                 include_vat: false,
                 tax_percentage_included: 0.0,
                 private: false,
-                active: true,
+                // D6 v3: `active` removed — any carrier in 200 is active by contract
             },
             pickup: {
                 supported: true,
@@ -206,7 +206,7 @@ function makeConstraintsResponse(
                 _note: 'Phase 1 placeholder.',
                 values: [],
             },
-            coverage_summary: null,
+            // D2 v3: coverage_summary is omitted from default fixture (sparse fieldset)
         },
         meta: {
             carrier_id: 1,
@@ -571,5 +571,47 @@ describe('envia_get_carrier_constraints', () => {
 
         // volumetric_factor_id: 12 should appear as "catalog id: 12"
         expect(text).toContain('catalog id: 12');
+    });
+
+    // -------------------------------------------------------------------------
+    // 27. D5 v3: volumetric_factor_id is null in the response (shape stable)
+    // -------------------------------------------------------------------------
+    it('should not render catalog id when volumetric_factor_id is null', async () => {
+        const fixture = makeConstraintsResponse();
+        fixture.data.carrier.volumetric_factor_id = null;
+        mockFetch.mockResolvedValueOnce(makeApiResponse(fixture));
+
+        const result = await handler({ carrier_id: 1 });
+        const text = result.content[0].text;
+
+        expect(text).not.toContain('catalog id:');
+    });
+
+    // -------------------------------------------------------------------------
+    // 28. D2 v3: coverage_summary section omitted when field is absent
+    // -------------------------------------------------------------------------
+    it('should not render coverage section when coverage_summary is absent from response', async () => {
+        // Default fixture omits coverage_summary entirely (sparse fieldset)
+        const result = await handler({ carrier_id: 1 });
+        const text = result.content[0].text;
+
+        expect(text).not.toContain('Coverage Summary');
+        expect(text).not.toContain('pending Phase 2');
+    });
+
+    // -------------------------------------------------------------------------
+    // 29. D4 v3: meta._note for service_id filtered by company
+    // -------------------------------------------------------------------------
+    it('should render specific note when requested service_id is filtered for company', async () => {
+        const fixture = makeConstraintsResponse();
+        fixture.data.services = [];
+        fixture.meta._note = 'The requested service is not available for your company.';
+        mockFetch.mockResolvedValueOnce(makeApiResponse(fixture));
+
+        const result = await handler({ carrier_id: 1, service_id: 23 });
+        const text = result.content[0].text;
+
+        expect(text).toContain('Note:');
+        expect(text).toContain('not available for your company');
     });
 });
