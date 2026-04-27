@@ -214,4 +214,47 @@ describe('envia_list_shipments', () => {
         expect(text).toContain('Juan, Monterrey, NL, MX');
         expect(text).toContain('Maria, CDMX, DF, MX');
     });
+
+    // -------------------------------------------------------------------------
+    // 11. Backend-shape verification (2026-04-27): /shipments returns
+    //     `name` (slug), `carrier_description` + `service_description` for
+    //     display, and FLAT sender_*/consignee_* fields. The fallback chain
+    //     must surface the description fields when carrier_name/service_name
+    //     are absent — and rebuild the address summary from sender_/consignee_.
+    // -------------------------------------------------------------------------
+    it('should fall back to carrier_description and service_description when carrier_name and service_name are absent', async () => {
+        const realShape = makeShipment({
+            tracking_number: 'REAL001',
+            carrier_name: undefined,
+            service_name: undefined,
+            name: 'paquetexpress',
+            carrier_description: 'Paquetexpress',
+            service: 'ground_do',
+            service_description: 'Paquetexpress Domicilio - ocurre',
+            origin: undefined,
+            destination: undefined,
+            sender_name: 'Sender Co',
+            sender_city: 'Guadalajara',
+            sender_state: 'JAL',
+            sender_country: 'MX',
+            consignee_name: 'Consignee Inc',
+            consignee_city: 'Mexico City',
+            consignee_state: 'DF',
+            consignee_country: 'MX',
+        });
+        mockFetch.mockResolvedValueOnce({
+            ok: true,
+            status: 200,
+            json: () => Promise.resolve(makeListResponse([realShape])),
+        });
+
+        const result = await handler({ api_key: MOCK_CONFIG.apiKey, limit: 20, page: 1 });
+        const text = result.content[0].text;
+
+        expect(text).toContain('Paquetexpress');
+        expect(text).toContain('Paquetexpress Domicilio - ocurre');
+        expect(text).toContain('Sender Co, Guadalajara, JAL, MX');
+        expect(text).toContain('Consignee Inc, Mexico City, DF, MX');
+        expect(text).not.toContain('?  / ?');
+    });
 });

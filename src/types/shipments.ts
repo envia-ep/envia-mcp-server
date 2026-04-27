@@ -19,7 +19,18 @@ export interface ShipmentAddress {
     postal_code?: string;
 }
 
-/** A single shipment record from GET /shipments. */
+/**
+ * A single shipment record from GET /shipments.
+ *
+ * NOTE on naming (verified against live sandbox 2026-04-27):
+ * The backend uses `name` for the carrier slug and `service` for the service
+ * slug, plus `carrier_description` / `service_description` for display.
+ * Earlier versions of this type assumed `carrier_name` / `service_name` —
+ * that pair is correct on /shipments/cod and /get-shipments-ndr but NOT on
+ * /shipments. Both pairs are kept optional so consumers can fall through:
+ *   carrier_name ?? carrier_description ?? name
+ *   service_name ?? service_description ?? service
+ */
 export interface ShipmentRecord {
     id: number;
     tracking_number: string;
@@ -27,11 +38,48 @@ export interface ShipmentRecord {
     status_id: number;
     status?: string;
     carrier_id?: number;
+    /** Carrier display name on /shipments/cod, /get-shipments-ndr. Absent on /shipments. */
     carrier_name?: string;
+    /** Carrier display name on /shipments. Absent on /shipments/cod. */
+    carrier_description?: string;
+    /** Carrier slug on /shipments (e.g. "paquetexpress"). Absent on /shipments/cod. */
+    name?: string;
+    /** Service display name on /shipments/cod, /get-shipments-ndr. Absent on /shipments. */
     service_name?: string;
+    /** Service display name on /shipments (e.g. "Paquetexpress Domicilio - ocurre"). */
     service_description?: string;
+    /** Service slug on /shipments (e.g. "ground_do"). */
+    service?: string;
+    /**
+     * Nested origin object — present on some endpoints (legacy / typed
+     * derivations) but NOT on /shipments. /shipments uses the flat
+     * `sender_*` family below.
+     */
     origin?: ShipmentAddress;
+    /** Nested destination — same caveat as origin. */
     destination?: ShipmentAddress;
+    /** Flat sender fields — used by /shipments (verified 2026-04-27). */
+    sender_name?: string;
+    sender_email?: string;
+    sender_phone?: string;
+    sender_street?: string;
+    sender_number?: string;
+    sender_district?: string;
+    sender_city?: string;
+    sender_state?: string;
+    sender_country?: string;
+    sender_postalcode?: string;
+    /** Flat consignee fields — used by /shipments (verified 2026-04-27). */
+    consignee_name?: string;
+    consignee_email?: string;
+    consignee_phone?: string;
+    consignee_street?: string;
+    consignee_number?: string;
+    consignee_district?: string;
+    consignee_city?: string;
+    consignee_state?: string;
+    consignee_country?: string;
+    consignee_postalcode?: string;
     total?: number;
     currency?: string;
     insurance_cost?: number;
@@ -45,6 +93,89 @@ export interface ShipmentRecord {
     last_event?: { location?: string; datetime?: string; description?: string };
     ticket?: { id?: number; type_id?: number; status_id?: number };
     created_by?: { name?: string; email?: string };
+}
+
+/**
+ * Detail record from GET /guide/{tracking}.
+ *
+ * Verified against live sandbox 2026-04-27. The endpoint wraps a SINGLE
+ * record inside a one-element array (`data: [record]`) and uses flat
+ * `sender_*` / `consignee_*` fields rather than nested origin/destination
+ * objects. Carrier display is `name` (slug only — no carrier_description on
+ * this endpoint). Postal code fields are `sender_postalcode` /
+ * `consignee_postalcode` (no underscore between "postal" and "code").
+ */
+export interface ShipmentDetailRecord {
+    id: number;
+    tracking_number: string;
+    folio?: string | null;
+    status_id: number;
+    status?: string;
+    carrier_id?: number;
+    /** Carrier slug. /guide/{tracking} does NOT return a carrier_description. */
+    name?: string;
+    /** Service slug. */
+    service?: string;
+    service_id?: number;
+
+    sender_name?: string;
+    sender_company_name?: string;
+    sender_email?: string;
+    sender_phone?: string;
+    sender_street?: string;
+    sender_number?: string;
+    sender_district?: string;
+    sender_city?: string;
+    sender_state?: string;
+    sender_country?: string;
+    sender_postalcode?: string;
+    sender_identification_number?: string | null;
+    sender_references?: string | null;
+
+    consignee_name?: string;
+    consignee_company_name?: string;
+    consignee_email?: string;
+    consignee_phone?: string;
+    consignee_street?: string;
+    consignee_number?: string;
+    consignee_district?: string;
+    consignee_city?: string;
+    consignee_state?: string;
+    consignee_country?: string;
+    consignee_postalcode?: string;
+    consignee_identification_number?: string | null;
+    consignee_references?: string | null;
+
+    total?: number;
+    currency?: string;
+    insurance_cost?: number;
+    additional_services_cost?: number;
+    grand_total?: number;
+
+    created_at?: string;
+    shipped_at?: string | null;
+    delivered_at?: string | null;
+    balance_returned?: number;
+    balance_returned_at?: string | null;
+
+    label_file?: string | null;
+    evidence_file?: string | null;
+    bol_file?: string | null;
+
+    created_by_name?: string;
+    created_by_email?: string;
+
+    shipment_type?: string;
+    shipment_type_id?: number;
+    shipment_weight?: number;
+    package_type?: string;
+    international?: number;
+}
+
+/** Response wrapper for GET /guide/{tracking}. Always wraps the record in a one-element array. */
+export interface ShipmentDetailResponse {
+    data: ShipmentDetailRecord[];
+    total_rows?: number;
 }
 
 /** Package info within a shipment. */
@@ -114,12 +245,29 @@ export interface ShipmentStatusStats {
     percentageReturned?: number;
 }
 
-/** Surcharge (overweight) shipment record. */
+/**
+ * Surcharge (overweight) shipment record.
+ *
+ * Sandbox returned `{data: [], total: 0}` at audit time (2026-04-27) so the
+ * exact carrier/service field naming on this endpoint could not be confirmed
+ * live. Both naming conventions are kept optional so consumers can fall
+ * through (carrier_name ?? carrier_description ?? name).
+ */
 export interface SurchargeRecord {
     shipment_id: number;
     tracking_number: string;
-    service_name?: string;
+    /** Carrier display on /shipments/cod, /get-shipments-ndr style endpoints. */
     carrier_name?: string;
+    /** Carrier display on /shipments style endpoints. */
+    carrier_description?: string;
+    /** Carrier slug on /shipments style endpoints. */
+    name?: string;
+    /** Service display on /shipments/cod, /get-shipments-ndr style endpoints. */
+    service_name?: string;
+    /** Service display on /shipments style endpoints. */
+    service_description?: string;
+    /** Service slug on /shipments style endpoints. */
+    service?: string;
     declared_weight?: number;
     revised_weight?: number;
     overweight?: number;

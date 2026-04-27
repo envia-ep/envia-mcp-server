@@ -2,7 +2,13 @@
  * Tool: envia_get_shipment_detail
  *
  * Retrieves complete details for a single shipment by tracking number.
- * Includes addresses, packages, costs, events, files, and ticket info.
+ * Includes addresses, costs, dates, files, and creator info.
+ *
+ * Backend: GET /guide/{tracking_number} on the queries service. The endpoint
+ * wraps a SINGLE record inside a one-element array (`data: [record]`) and
+ * uses flat sender and consignee fields rather than nested origin/destination
+ * objects (verified against live sandbox 2026-04-27 — see
+ * src/types/shipments.ts ShipmentDetailRecord).
  */
 
 import { z } from 'zod';
@@ -13,8 +19,8 @@ import type { EnviaConfig } from '../../config.js';
 import { requiredApiKeySchema } from '../../utils/schemas.js';
 import { textResponse } from '../../utils/mcp-response.js';
 import { mapCarrierError } from '../../utils/error-mapper.js';
-import { queryShipmentsApi, formatAddressSummary, formatCurrency } from '../../services/shipments.js';
-import type { ShipmentRecord } from '../../types/shipments.js';
+import { queryShipmentsApi, formatCurrency } from '../../services/shipments.js';
+import type { ShipmentDetailResponse } from '../../types/shipments.js';
 
 /**
  * Register the envia_get_shipment_detail tool on the MCP server.
@@ -29,7 +35,7 @@ export function registerGetShipmentDetail(
         {
             description:
                 'Get complete details for a single shipment by tracking number. ' +
-                'Returns addresses, packages, costs, tracking events, label URL, and ticket info.',
+                'Returns sender/consignee addresses, costs, dates, label URL, and creator info.',
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
                 tracking_number: z.string().min(1).describe('The tracking number of the shipment to retrieve'),
@@ -39,7 +45,7 @@ export function registerGetShipmentDetail(
             const activeClient = resolveClient(client, args.api_key, config);
             const tracking = encodeURIComponent(args.tracking_number.trim());
 
-            const res = await queryShipmentsApi<{ data: ShipmentRecord }>(
+            const res = await queryShipmentsApi<ShipmentDetailResponse>(
                 activeClient, config, `/guide/${tracking}`, {},
             );
 
@@ -50,7 +56,8 @@ export function registerGetShipmentDetail(
                 );
             }
 
-            const s = res.data?.data;
+            // Backend wraps the record in a one-element array. Take [0].
+            const s = res.data?.data?.[0];
             if (!s) {
                 return textResponse(
                     `No shipment found for tracking number "${args.tracking_number}". Verify the number is correct.`,
@@ -62,29 +69,29 @@ export function registerGetShipmentDetail(
                 '═'.repeat(50),
                 '',
                 `Status:    ${s.status ?? 'Unknown'} (ID: ${s.status_id})`,
-                `Carrier:   ${s.carrier_name ?? '—'} / ${s.service_name ?? '—'}`,
+                `Carrier:   ${s.name ?? '—'} / ${s.service ?? '—'}`,
                 `Folio:     ${s.folio ?? '—'}`,
                 '',
                 '— Origin —',
-                `  Name:    ${s.origin?.name ?? '—'}`,
-                `  Address: ${s.origin?.street ?? '—'} ${s.origin?.number ?? ''}`.trim(),
-                `  City:    ${s.origin?.city ?? '—'}, ${s.origin?.state ?? '—'} ${s.origin?.postal_code ?? ''}`.trim(),
-                `  Country: ${s.origin?.country ?? '—'}`,
-                `  Phone:   ${s.origin?.phone ?? '—'}`,
-                `  Email:   ${s.origin?.email ?? '—'}`,
+                `  Name:    ${s.sender_name ?? '—'}`,
+                `  Address: ${`${s.sender_street ?? '—'} ${s.sender_number ?? ''}`.trim()}`,
+                `  City:    ${`${s.sender_city ?? '—'}, ${s.sender_state ?? '—'} ${s.sender_postalcode ?? ''}`.trim()}`,
+                `  Country: ${s.sender_country ?? '—'}`,
+                `  Phone:   ${s.sender_phone ?? '—'}`,
+                `  Email:   ${s.sender_email ?? '—'}`,
                 '',
                 '— Destination —',
-                `  Name:    ${s.destination?.name ?? '—'}`,
-                `  Address: ${s.destination?.street ?? '—'} ${s.destination?.number ?? ''}`.trim(),
-                `  City:    ${s.destination?.city ?? '—'}, ${s.destination?.state ?? '—'} ${s.destination?.postal_code ?? ''}`.trim(),
-                `  Country: ${s.destination?.country ?? '—'}`,
-                `  Phone:   ${s.destination?.phone ?? '—'}`,
-                `  Email:   ${s.destination?.email ?? '—'}`,
+                `  Name:    ${s.consignee_name ?? '—'}`,
+                `  Address: ${`${s.consignee_street ?? '—'} ${s.consignee_number ?? ''}`.trim()}`,
+                `  City:    ${`${s.consignee_city ?? '—'}, ${s.consignee_state ?? '—'} ${s.consignee_postalcode ?? ''}`.trim()}`,
+                `  Country: ${s.consignee_country ?? '—'}`,
+                `  Phone:   ${s.consignee_phone ?? '—'}`,
+                `  Email:   ${s.consignee_email ?? '—'}`,
                 '',
                 '— Costs —',
-                `  Shipping:   ${formatCurrency(s.total, s.currency)}`,
-                `  Insurance:  ${formatCurrency(s.insurance_cost, s.currency)}`,
-                `  Additional: ${formatCurrency(s.additional_services_cost, s.currency)}`,
+                `  Shipping:    ${formatCurrency(s.total, s.currency)}`,
+                `  Insurance:   ${formatCurrency(s.insurance_cost, s.currency)}`,
+                `  Additional:  ${formatCurrency(s.additional_services_cost, s.currency)}`,
                 `  Grand Total: ${formatCurrency(s.grand_total, s.currency)}`,
                 '',
                 '— Dates —',
@@ -93,35 +100,12 @@ export function registerGetShipmentDetail(
                 `  Delivered: ${s.delivered_at ?? '—'}`,
             ];
 
-            if (s.packages && s.packages.length > 0) {
-                lines.push('', '— Packages —');
-                for (const pkg of s.packages) {
-                    const dims = pkg.dimensions
-                        ? `${pkg.dimensions.length}x${pkg.dimensions.width}x${pkg.dimensions.height} cm`
-                        : '—';
-                    lines.push(
-                        `  • ${pkg.tracking_number ?? '—'} | ${pkg.content ?? '—'} | ${pkg.weight ?? '?'} kg | ${dims}`,
-                    );
-                }
-            }
-
-            if (s.last_event) {
-                lines.push('', '— Last Event —');
-                lines.push(`  ${s.last_event.description ?? '—'}`);
-                if (s.last_event.location) lines.push(`  Location: ${s.last_event.location}`);
-                if (s.last_event.datetime) lines.push(`  Date: ${s.last_event.datetime}`);
-            }
-
             if (s.label_file) {
                 lines.push('', `Label: ${s.label_file}`);
             }
 
-            if (s.ticket?.id) {
-                lines.push('', `Ticket: #${s.ticket.id} (type: ${s.ticket.type_id ?? '—'}, status: ${s.ticket.status_id ?? '—'})`);
-            }
-
-            if (s.created_by?.name) {
-                lines.push('', `Created by: ${s.created_by.name} (${s.created_by.email ?? '—'})`);
+            if (s.created_by_name) {
+                lines.push('', `Created by: ${s.created_by_name} (${s.created_by_email ?? '—'})`);
             }
 
             lines.push('', 'Use envia_track_package to get full tracking event history.');

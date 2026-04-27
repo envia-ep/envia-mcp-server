@@ -95,11 +95,32 @@ export function registerListShipments(
             ];
 
             for (const s of shipments) {
+                // /shipments uses `name` + `service_description` + `service`, not carrier_name + service_name
+                // (verified 2026-04-27). Other endpoints (e.g. /shipments/cod) use carrier_name + service_name.
+                // Fallback chain covers both shapes without breaking either.
+                const carrierLabel = s.carrier_name ?? s.carrier_description ?? s.name ?? '?';
+                const serviceLabel = s.service_name ?? s.service_description ?? s.service ?? '?';
+
+                // /shipments returns flat sender_*/consignee_* fields rather than nested
+                // origin/destination. Build address-summary inputs from whichever form is present.
+                const senderAddr = s.origin ?? {
+                    name: s.sender_name,
+                    city: s.sender_city,
+                    state: s.sender_state,
+                    country: s.sender_country,
+                };
+                const consigneeAddr = s.destination ?? {
+                    name: s.consignee_name,
+                    city: s.consignee_city,
+                    state: s.consignee_state,
+                    country: s.consignee_country,
+                };
+
                 lines.push(
-                    `• ${s.tracking_number} — ${s.status ?? 'Unknown'} (${s.carrier_name ?? '?'} / ${s.service_name ?? '?'})`,
+                    `• ${s.tracking_number} — ${s.status ?? 'Unknown'} (${carrierLabel} / ${serviceLabel})`,
                 );
                 lines.push(
-                    `  From: ${formatAddressSummary(s.origin)}  →  To: ${formatAddressSummary(s.destination)}`,
+                    `  From: ${formatAddressSummary(senderAddr)}  →  To: ${formatAddressSummary(consigneeAddr)}`,
                 );
                 lines.push(
                     `  Cost: ${formatCurrency(s.grand_total ?? s.total, s.currency)}  |  Created: ${s.created_at ?? '—'}`,

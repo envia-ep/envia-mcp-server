@@ -77,8 +77,14 @@ export function registerGetShipmentsSurcharges(
             ];
 
             for (const r of records) {
+                // Defensive fallback chain: shape on this endpoint was not verifiable in
+                // sandbox (no rows). Cover both /shipments-style (carrier_description / name,
+                // service_description / service) and /shipments-cod-style (carrier_name,
+                // service_name) without breaking either.
+                const carrierLabel = r.carrier_name ?? r.carrier_description ?? r.name ?? '?';
+                const serviceLabel = r.service_name ?? r.service_description ?? r.service ?? '?';
                 lines.push(
-                    `• ${r.tracking_number} — ${r.carrier_name ?? '?'} / ${r.service_name ?? '?'}`,
+                    `• ${r.tracking_number} — ${carrierLabel} / ${serviceLabel}`,
                 );
                 lines.push(
                     `  Declared: ${r.declared_weight ?? '?'} kg  →  Revised: ${r.revised_weight ?? '?'} kg  ` +
