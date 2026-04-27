@@ -31,6 +31,7 @@ import 'dotenv/config';
 import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, normalize, resolve } from 'node:path';
+import { randomUUID } from 'node:crypto';
 
 import type { Request, Response, NextFunction } from 'express';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -40,6 +41,8 @@ import { createMcpExpressApp } from '@modelcontextprotocol/sdk/server/express.js
 
 import { loadConfig } from './config.js';
 import { EnviaApiClient } from './utils/api-client.js';
+import { childLogger, getLogger } from './utils/logger.js';
+import { decorateServerWithLogging } from './utils/server-logger.js';
 
 // Tools
 import { registerValidateAddress } from './tools/validate-address.js';
@@ -240,8 +243,15 @@ const MIME: Record<string, string> = {
 
 /**
  * Build a fully-configured McpServer with all Envia tools and resources.
+ *
+ * The optional `logContext` is used to attach a correlation ID (HTTP)
+ * or a session ID (stdio) to every `tool_call_*` event the server
+ * emits. All registered tools inherit this context automatically via
+ * `decorateServerWithLogging`. Pass an empty object when context is
+ * not yet known — the decorator still runs and produces useful events
+ * with just the tool name + duration.
  */
-function createEnviaServer(): McpServer {
+function createEnviaServer(logContext: { correlationId?: string; sessionId?: string } = {}): McpServer {
     const config = loadConfig();
     const client = new EnviaApiClient(config);
 
@@ -256,6 +266,9 @@ function createEnviaServer(): McpServer {
             },
         },
     );
+
+    // Decorate BEFORE any register*() call so every tool gets logged.
+    decorateServerWithLogging(server, logContext);
 
     registerValidateAddress(server, client, config);
     registerListCarriers(server, client, config);
@@ -407,14 +420,20 @@ if (TRANSPORT === 'stdio') {
  *
  * Creates a single server instance connected to a StdioServerTransport.
  * Used by CLI-based MCP hosts (Claude Desktop, Cursor, etc.).
+ *
+ * Generates one process-wide sessionId so all tool-call events from
+ * this stdio session can be grouped in log aggregators.
  */
 async function startStdioMode(): Promise<void> {
-    const server = createEnviaServer();
+    const sessionId = randomUUID();
+    const log = childLogger({ sessionId, transport: 'stdio' });
+
+    const server = createEnviaServer({ sessionId });
     const transport = new StdioServerTransport();
 
     await server.connect(transport);
 
-    console.error('Envia MCP server running in stdio mode');
+    log.info({ event: 'mcp_ready', version: pkg.version }, 'Envia MCP server running in stdio mode');
 }
 
 // ---------------------------------------------------------------------------
@@ -447,13 +466,28 @@ function startHttpMode(): void {
     });
 
     app.post('/mcp', async (req: Request, res: Response) => {
+        // Honour an upstream-provided correlation ID (portal embedding,
+        // load balancer, etc.) so traces stitch across services. Fall
+        // back to a fresh UUID per request when absent.
+        const incoming = req.header('x-correlation-id') ?? req.header('x-request-id');
+        const correlationId = incoming && incoming.trim().length > 0 ? incoming.trim() : randomUUID();
+        res.setHeader('x-correlation-id', correlationId);
+
+        const reqLog = childLogger({ correlationId, transport: 'http' });
+        const startedAt = Date.now();
+        reqLog.debug({ event: 'mcp_request_received' }, 'POST /mcp received');
+
         try {
-            const server = createEnviaServer();
+            const server = createEnviaServer({ correlationId });
             const transport = new StreamableHTTPServerTransport({
                 sessionIdGenerator: undefined,
             });
 
             res.on('close', () => {
+                reqLog.debug(
+                    { event: 'mcp_request_closed', duration_ms: Date.now() - startedAt },
+                    'POST /mcp closed',
+                );
                 transport.close().catch(() => {});
             });
 
@@ -461,6 +495,14 @@ function startHttpMode(): void {
             await transport.handleRequest(req, res, req.body);
         } catch (error: unknown) {
             const message = error instanceof Error ? error.message : 'Internal server error';
+            reqLog.error(
+                {
+                    event: 'mcp_request_error',
+                    error_message: message,
+                    duration_ms: Date.now() - startedAt,
+                },
+                'POST /mcp failed',
+            );
             if (!res.headersSent) {
                 res.status(500).json({
                     jsonrpc: '2.0',
@@ -483,8 +525,18 @@ function startHttpMode(): void {
     app.get('/*path', serveChatFile);
 
     app.listen(PORT, HOST, () => {
-        console.error(`Envia MCP server listening on http://${HOST}:${PORT}/mcp`);
-        console.error(`  Chat UI: http://${HOST}:${PORT}/`);
+        getLogger().info(
+            {
+                event: 'mcp_listening',
+                transport: 'http',
+                host: HOST,
+                port: PORT,
+                version: pkg.version,
+                mcp_url: `http://${HOST}:${PORT}/mcp`,
+                chat_url: `http://${HOST}:${PORT}/`,
+            },
+            'Envia MCP server listening',
+        );
     });
 }
 
