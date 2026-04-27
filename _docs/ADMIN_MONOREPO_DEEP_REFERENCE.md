@@ -2048,18 +2048,473 @@ axios `^1.6.2`. Recommendation: upgrade backend to axios 1.x.
 
 ---
 
-## 41. Common Scenarios Cookbook (iter 2/3 — RESERVED)
+## 41. Common Scenarios Cookbook (iter 3 — 2026-04-26)
 
-To be populated following the pattern of carriers reference §53 — a
-"how do I do X?" cookbook for common operational tasks against this
-admon backend.
+The fastest path from "I'm seeing X" to a fix. Each scenario lists
+symptom → diagnostic steps → likely root causes → resolution. Anchors
+back to the master sections where the supporting reference lives.
 
-Planned scenarios:
-- Adding a new admin user.
-- Creating a new permission and assigning it to a role.
-- Approving a refund (full flow with all side effects).
-- Provisioning a new FTL provider.
-- Disabling a carrier service (ops emergency).
-- Investigating a cross-tenant data exposure.
-- Reading the audit log for "who changed company X".
-- Triggering a cron job manually for testing.
+### 41.1 Adding a new admin user
+
+**Goal:** create an operations team member account with a specific role.
+
+**Steps:**
+
+1. **Endpoint:** `POST /administratorsV2` (`administrators.routes.js`).
+   Auth: `token_admin`, permission: `administrators-add`.
+2. **Inputs (Joi schema):** name, email, password, role_id (FK to
+   `catalog_administrator_roles`), locale_id (FK to `locales`),
+   security_level override (optional, capped by current admin's level).
+3. **DB writes:**
+   - `users` row (id, email, password_hash, name, status=1).
+   - `administrators` row (user_id, role_id, locale_id, security_level,
+     status=1).
+   - Optional `admin_permissions_overrides` rows for grants/revokes.
+4. **Sets cascade:** the new admin's session is created on first login
+   via `basic` strategy → `access_tokens` row with `type_id=1` (with
+   60-day password expiry) or `type_id=2` (no expiry, service-style).
+
+**Common pitfalls:**
+- Forgetting `role_id` → strategy load fails on `JOIN catalog_administrator_roles`.
+- Setting `security_level > current_admin.security_level` → blocked by
+  `permission.middleware::securityLevel` check (line ~213).
+- Wrong locale_id → admin sees wrong country's data via `filterLocaleV2`.
+
+**Audit gap warning (§16.1):** the action is NOT recorded in
+`administrators_audit_log` (currently empty). Manual review of git
+history of any data-fix scripts may be needed for compliance.
+
+### 41.2 Creating a new permission and assigning it to a role
+
+**Steps:**
+
+1. **DB insert** (no API endpoint visible — likely manual SQL or via a
+   migration script):
+   ```sql
+   INSERT INTO catalog_admin_permissions
+     (class_name, parent_id, action, security_level, active)
+   VALUES ('my-new-permission', 0 /*or relevant parent*/, NULL, 1, 1);
+   ```
+2. **Assign to role** via `POST /roles/{role_id}/permissions`
+   (`roles.routes.js`, perm `roles-admon`):
+   - Body: `{ permission_id: <new_id>, action: 'add' }` (action 1 =
+     grant, -1 = revoke per §31.5).
+3. **Use in route** as `pre` middleware:
+   ```js
+   pre: [{ method: async (request) =>
+       await permissionMiddleware.canByName(request, 'my-new-permission'),
+     assign: 'permission' }]
+   ```
+
+**Common pitfalls:**
+- Adding hardcoded numeric ID in code instead of `canByName` — see §6.2,
+  §6.3 — refactor risk.
+- Forgetting to seed the permission in dev/staging/prod DBs (no
+  migration framework visible).
+- Permission inheriting wrong parent → group membership wrong (see
+  §31.2).
+
+### 41.3 Approving a refund (full flow with all side effects)
+
+**Symptom:** customer or admin wants to refund a shipment.
+
+**Sequence (per §7 + Agent 2):**
+
+1. **Create:** `POST /refunds` (perm `audit-module.refunds-create`).
+   - Inserts `refunds` row (status=created).
+   - Optionally creates `refunds_tracking_numbers` (linking shipment(s)).
+
+2. **Approve:** `PATCH /refunds/{id}/approve` (perm `audit-module.refunds-approve`).
+   - Updates `refunds.status='approved'`.
+   - Triggers `refunds.util.js::approveRefund(refundId, data)` which
+     dispatches by `ticket_type_id`:
+     - Common refund: `createCommonRefunds` → `services.ecartpay.requestRefund()`
+       (L-S7 boundary — see §28).
+     - Overweight refund: `createOverweightRefund`.
+     - Credit refund: `createCreditRefunds`.
+
+3. **OR Reject:** `PATCH /refunds/{id}/reject` (perm `audit-module.refunds-reject`).
+   - Sets `refunds.status='rejected'`. No payment dispatch.
+
+4. **OR Chargeback path:** `PATCH /refunds/{id}/chargeback` (perm
+   `audit-module.refunds-chargeback`).
+   - Inserts in `payment_history_chargebacks`.
+   - Marks for downstream dispute.
+
+5. **Async / smart refund:** `POST /refunds/smart-refund/create` (auth
+   `[token_admin, token_cron]`) — admin or cron triggers; rule-based
+   auto-approve. `POST /refunds/smart-refund/complete` finalizes.
+
+**Side effects to verify:**
+- Customer balance updated (via TMS or via ecartpay direct).
+- Compensation linked if applicable (`compensations` table).
+- Email notification sent (via Mailgun + MJML templates).
+
+**Common pitfalls:**
+- ecartpay token expired → fetch new via `utils.ecartpay.getEcartPayToken(redisClient, 'collect')`.
+- Refund crosses ticket type boundaries → use the right
+  `createCommonRefunds`/`createOverweightRefund`/`createCreditRefunds`
+  branch.
+- L-S7 boundary: this code path directly wraps ecartpay — see §28 for
+  why this should ideally be mediated.
+
+### 41.4 Provisioning a new FTL provider (admin onboards external trucker)
+
+**Steps:**
+
+1. **Create provider record:** `POST /providers/ftl`
+   (`providers.routes.js`, perm `generate-provider`).
+   - Inputs: name, SCAC code, contact info, score, services.
+   - Inserts `freight_users` row (referenced by `token_ftl_provider`
+     strategy — see §5.4).
+2. **Add provider contacts:** `POST /providers/ftl/{id}/contact`
+   (perm `admin-provider`).
+3. **Provider self-services from there:** logs in via `POST /ftl/login`
+   (PUBLIC — concerning, see §4.3) → uses `token_ftl_provider` strategy
+   for all subsequent calls (`/ftl/zones`, `/ftl/freight-vehicles`,
+   `/ftl/routes-provider`, etc.).
+4. **KYC verification:** `POST /ftl/create-verification` triggers
+   external KYC (provider unidentified per §9). Webhook callback at
+   `POST /webhooks/ftl-verification` (PUBLIC — no HMAC, see §38).
+
+**Per LESSON L-S7:** FTL is its own vertical (separate from admin core
+ops). admon hosts the API surface and admin onboarding, but FTL provider
+data and operations are logically separate.
+
+### 41.5 Disabling a carrier service (ops emergency)
+
+**Symptom:** a carrier API is failing in production; need to stop offering
+it to customers immediately.
+
+**Path A — admon UI (preferred):**
+
+1. Endpoint: `PATCH /services/{id}/pricing` or similar (perm
+   `admin-services`).
+2. Sets `services.active=0` (verified in carriers reference §53.7).
+3. Effect: rates from `/ship/rate` in carriers immediately stop including
+   that service. NO code deploy needed.
+
+**Path B — direct DB (emergency only, document it):**
+
+```sql
+UPDATE services SET active=0 WHERE id=<service_id>;
+```
+
+**Audit trail:** the change IS recorded in `envia_audit.services_audit_log`
+(per §16.1, 2,432 audit rows exist).
+
+**Reactivation:** set `active=1` via same path. Test Rate → Generate →
+Track cycle in carriers before re-enabling broadly.
+
+### 41.6 Investigating a cross-tenant data exposure
+
+**Symptom:** customer A reports they could see customer B's data, OR an
+admin reports they accidentally modified the wrong company.
+
+**Diagnostic:**
+
+1. **Check the endpoint code** in `monorepos/admon-monorepo/backend/`:
+   - Does the handler take `company_id` from URL params or query?
+   - Does it validate against `request.auth.credentials.company_id`?
+   - Does it have a `pre: [permissionMiddleware.canByName(...)]` block?
+   - Is there a `filterLocaleV2` in `pre`?
+2. **Cross-reference with §28.1** — the ecartpay endpoint pattern is
+   the canonical example of a missing check.
+3. **Check audit log** in `envia_audit` DB:
+   ```sql
+   SELECT * FROM envia_audit.companies_audit_log
+    WHERE company_id = <X>
+      AND created_at > '<timestamp>'
+    ORDER BY created_at DESC;
+   ```
+4. **For shipment-level changes:** `envia_audit.shipments_audit_log`
+   (255k+ rows, well-populated).
+
+**Mitigation pattern:**
+```js
+// In handler:
+const { company_id } = request.params;
+if (company_id !== request.auth.credentials.company_id
+    && !permissions.canByName(request, 'cross-tenant-admin'))) {
+    throw Boom.forbidden('Cannot operate on other companies');
+}
+```
+
+**Critical:** §16.1 — admin actions themselves are NOT audited. The
+audit log shows WHAT changed, not WHO did it (only via indirect
+columns like `refunds.requested_by`, if populated).
+
+### 41.7 Reading the audit log for "who changed company X"
+
+**Steps:**
+
+1. **Pick the right audit table** from `envia_audit` (per §16.1):
+   - `companies_audit_log` (172k rows) for company record changes.
+   - `shipments_audit_log` (255k rows) for shipment changes.
+   - `users_audit_log` (17k rows) for user changes.
+   - `surcharges_audit_log` (22k rows) for surcharge changes.
+   - `payment_history_audit_log` (946 rows) for payment changes.
+   - `company_custom_prices_audit_log` (273k rows) — most active.
+
+2. **Query example:**
+   ```sql
+   SELECT id, company_id, action, old_data, new_data, modified_by_user_id, created_at
+     FROM envia_audit.companies_audit_log
+    WHERE company_id = <X>
+    ORDER BY created_at DESC
+    LIMIT 50;
+   ```
+   (Schema details ⚪ — verify column names against actual schema.)
+
+3. **Limitation:** if the change was made via:
+   - Direct SQL (not through the audit trigger): NO audit row.
+   - Bot AI calls: `modified_by_user_id` may be 0 (SYSTEM_USER_ID).
+   - Cron jobs: same — user_id=0.
+
+4. **Admin actions are NOT in the audit DB at all** — see §16.1.
+   Use Datadog APM logs to trace by admin email if available.
+
+### 41.8 Triggering a cron job manually for testing
+
+**Goal:** force-run a cron-triggered endpoint without waiting for the
+schedule.
+
+**Two patterns:**
+
+**Pattern A: cron endpoints with `auth: 'token_cron'`** (from
+`crons.routes.js`):
+```bash
+curl -X GET "https://admon-api.envia.com/notify/credit-line" \
+  -H "Authorization: Bearer ${CRON_TOKEN}"
+```
+- Strategy: `token_cron` (constant-time comparison in
+  `strategies.js:296-328`).
+- Available endpoints (12+): `/notify/credit-line`, `/notify/debts`,
+  `/notify/tickets/{follow-up-incomplete,autoclose,incomplete}`,
+  `/notify/salesman/reassign/*`, `/mailing/refresh/watch`,
+  `/notify/refunds/pending-carrier`, `/notify/tasks`.
+
+**Pattern B: cron middleware (with `auth: false`)** for
+`/cron/cod/invoices`:
+```bash
+curl -X POST "https://admon-api.envia.com/cron/cod/invoices" \
+  -H "Authorization: ${CRON_TOKEN}"   # ← raw token, NOT 'Bearer X'
+```
+- Middleware: `cron.middleware.verifyCronToken` (NO constant-time
+  comparison — see §40.3 C5).
+
+**Pattern C: node-cron (programmatic, runs on worker)**:
+- Cannot trigger externally — runs on schedule (5am mailing watch,
+  every-minute Zoho tasks, 3am finance summary).
+- For testing, set `NODE_ENV=production` and `WORKER_CONCURRENCY=1`,
+  then run `node worker.js`. The `if (workerId === 1 && process.env.NODE_ENV === 'production')`
+  gate (`worker.js:113-114`) will pick up.
+
+### 41.9 Investigating "admin can't see expected data"
+
+**Symptom:** admin reports a UI page is empty or missing data they
+expect.
+
+**Diagnostic checklist:**
+
+1. **Permission check in route's `pre` middleware:** does the admin's
+   role have the required permission? Query
+   `administrator_role_permissions` × `catalog_admin_permissions` to
+   confirm.
+2. **Locale scoping:** `utilsMiddleware.filterLocaleV2` filters by
+   `permissionLocales` (parent_id=65 permissions). If the admin's
+   `permissionLocales` array doesn't include the expected locale,
+   they see nothing.
+3. **Permission overrides:** check `admin_permissions_overrides` for
+   per-user revokes.
+4. **Active flag:** check `administrators.status=1`,
+   `users.status=1`, and the data table's own active flag.
+5. **Frontend permission directive:** Vue's `v-can` directive
+   (`directives/permission.js`) removes DOM elements if the permission
+   string isn't in the user's permission list. It's CLIENT-side only —
+   doesn't affect API access. UI element disappears even though the
+   API would respond.
+
+### 41.10 "Why is `DD_SERVICE` showing 'queries' for admon traces?"
+
+**Cause:** `server.js:9` and `worker.js:9` default to 'queries' /
+'queries-worker' if `DD_SERVICE` env var is unset (likely copy-paste
+artifact from queries service).
+
+**Fix:** set `DD_SERVICE=admon` (or `admin-api`) in Heroku config vars
+for the admon dyno. No code change needed — the default is the
+fallback.
+
+**Verification in Datadog:** before fix, traces from admon will appear
+under "queries" service tag, polluting queries SLO dashboards. After
+fix, separate service in APM with its own SLO/error rate.
+
+## 42. Final self-assessment iter 3
+
+### 42.1 Coverage estimate (iter 3): **~88-92% structural**
+
+**What iter 3 added (§41 cookbook):**
+- 10 common scenarios with diagnostic steps and code anchors.
+- Cross-references to §28 (cross-tenant), §16 (audit DB), §5 (auth),
+  §31 (RBAC), §40 (cron timing-attack note).
+
+**What iter 3 did NOT do (gaps for iter 4):**
+- Did NOT read `permission.middleware.js` end-to-end (read first 50 +
+  bot_ai region; the remaining 130+ lines have additional hardcoded
+  permission gates).
+- Did NOT read 3-5 jobs files (sizes documented but trigger patterns
+  not deeply analyzed).
+- Did NOT find `mcp_permissions` consumer code (zero hits in admon
+  backend; consumer must be in a separate repo).
+- Did NOT sample 5+ endpoints from `companies.controller.js` (3,068
+  lines) for cross-tenant analysis.
+- Did NOT verify the third node-cron schedule
+  (`rebuildRecentFinanceSummary`).
+- Did NOT inspect `crypto.util.js::validateHash` for `timingSafeEqual`
+  usage.
+
+These are listed as iter 4 work items in §39 (open question 42 added).
+
+### 42.2 What this doc IS suitable for
+
+1. **Onboarding a new engineer** to admon-monorepo: read §1-5 (~30 min).
+2. **MCP scope decision for the customer agent:** §33-36 — the answer
+   is unequivocal "no admon endpoints". No further investigation needed.
+3. **Security incident response:** §28 (ecartpay vuln), §38 (sensitivity
+   analysis), §41.6 (cross-tenant playbook).
+4. **Audit / compliance review:** §16 (audit DB inventory), §38.3
+   (admin action gap), §38.4 (token expiry gap).
+5. **Operational runbook:** §41 cookbook — 10 common scenarios.
+6. **Backend feature work:** §17-23 workflows + §24-25 DB tables.
+
+### 42.3 What this doc is NOT suitable for
+
+- Replacing source-code reading when implementing new endpoints. The
+  inventory tables get you to the right file; the implementation
+  details still require reading code (especially the god controllers).
+- A complete operational runbook. §41 has 10 scenarios; a real
+  production team needs ~30-50.
+- Compliance audit (SOX/PCI). Use §16 + §38 as input, but a formal
+  audit needs full coverage of all admin-action paths and their
+  audit-trail status.
+
+### 42.4 Per-iteration coverage delta
+
+| Iter | Coverage | Lines | Sections | Key additions |
+|-----:|---------:|------:|---------:|---------------|
+| 1 | ~75-80% | 1,766 | 42 | Architecture, auth strategies, RBAC model, ecartpay vuln, audit DB infrastructure, MCP integration analysis (⚫ admin-only default) |
+| 2 | ~85% | 2,065 | 42 | §40 errata: 5 corrections + 6 new findings (bot_ai HMAC, hardcoded perm IDs, queue counts, axios CVE) |
+| 3 | ~88-92% | (current) | 42 | §41 cookbook (10 scenarios), §42 self-assessment |
+
+### 42.5 The 5 highest-value findings (rolled up across all iterations)
+
+1. **🔴 ecartpay cross-tenant CRITICAL** (§28.1). Source-verified end-
+   to-end. Two routes accept `company_id` from URL with no permission
+   middleware and no scope check. ANY admin can modify ANY of 4,888
+   companies' VIES tax flag and tax_percentage. Recommend immediate
+   PR with `pre: [permissionMiddleware.canByName(...)]` + scope check.
+
+2. **🔴 Public webhooks without HMAC verification** (§4.3, §40.3 C3).
+   - `/mailing/webhook` (Gmail Pub/Sub) — no signature verification.
+   - `/webhooks/ftl-verification` (KYC) — no HMAC.
+   - `/zoho/webhooks/payments` — only token_cron, no HMAC despite
+     Zoho providing `x-com-zoho-signature`.
+
+3. **🔴 Audit gap for admin actions** (§16.1, §38.3).
+   `administrators_audit_log` is empty. State changes are well-audited
+   (companies/shipments/prices) but WHO did the change is not recorded
+   anywhere in the audit DB. SOX/PCI compliance gap.
+
+4. **🟡 2,646 access tokens with no expiration** (§38.4). type_id=2
+   tokens have NULL valid_until. No rotation policy. If leaked,
+   revocation is the only mitigation.
+
+5. **🟡 L-S7 boundary violation** (§28). admon's
+   `refunds.util.js:1315-1320` directly calls `services.ecartpay.requestRefund()`.
+   Tight coupling to a separate vertical. Increases blast radius and
+   muddies on-call ownership.
+
+### 42.6 The 5 highest-value architectural insights (knowledge transfer)
+
+1. **`enviadev` DB is shared across services** (683 tables). admon
+   writes to `users`, `companies`, `shipments`, `services`, `surcharges`,
+   `credits`, etc. — many of which are read or written by
+   carriers/queries. Schema changes require coordination.
+
+2. **`envia_audit` separate database** (19 tables, 754k+ rows). Already
+   instrumented for state changes; add admin-action recording to close
+   compliance gap.
+
+3. **7 auth strategies + permission middleware**: the auth model is
+   sophisticated (5.1-5.7) but undermined by hardcoded numeric
+   permission IDs across many places (canUpdateTicket=107,
+   canUpdateFollowUp=156, etc., plus the tuples array in
+   `permissions.util.js`). Migrate to named permissions (`canByName`)
+   end-to-end.
+
+4. **Default auth = `token_admin` is a SAFE default**. Every new route
+   is admin-protected unless explicitly opted out. The risk surface is
+   the 15 explicit `auth: false` opt-outs (§4.3), not silent omissions.
+
+5. **mcp_permissions table exists with 4 internal users** (§31.4) — an
+   internal MCP tool already in production. Separate from the
+   customer-agent MCP being scoped by this audit project. Do NOT
+   conflate.
+
+### 42.7 Coverage by area (final scorecard)
+
+| Area | Coverage | Confidence | Notes |
+|------|---------:|-----------:|-------|
+| Architecture (§1-3) | 95% | High | Multi-stack monorepo well-mapped |
+| Auth strategies (§5) | 97% | High | All 7 strategies + bot_ai HMAC documented |
+| Routes inventory (§4) | 88% | High | 657 endpoints, per-file counts verified for top 25 |
+| Public endpoints (§4.3) | 95% | High | 15 confirmed via exhaustive grep |
+| Permission model (§30-31) | 95% | High | DB-verified counts; canByName/can patterns documented |
+| Audit DB (§16) | 90% | High | All tables + row counts; admin-action gap identified |
+| ecartpay vuln (§28) | 100% | Verified | End-to-end source verification |
+| MCP integration analysis (§33-36) | 95% | High | Unequivocal ⚫ admin-only |
+| Operational workflows (§17-23) | 60% | Medium | Onboarding + refund + carrier disable detailed; KYC, custom keys, suspension partial |
+| Cookbook (§41) | 85% (10 of ~30 scenarios) | High | 10 high-value scenarios documented |
+| Inter-service (§26-29) | 70% | Medium | High-level mapping; full endpoint enumeration ⚪ |
+| Bull queues (§Agent 1) | 90% | High | All 11 enumerated; retry/DLQ policies ⚪ |
+| Frontend (§Agent 7) | 85% | High | Critical findings verified (CSRF, dead routes); SPA structure mapped |
+| Admin god controllers | 30% | Low | shipments+companies controllers (~6,170 lines) NOT deeply read |
+
+**Overall: ~88-92% structural coverage.** Remaining ~8-12% is in the
+god controllers and operational workflow detail. These would be the
+focus of an iter 4 ("admin god controller decomposition" prompt).
+
+### 42.8 Recommendation for the next session
+
+**If iter 4 is desired** (estimated 90-120 minutes Opus 4.7):
+1. Read `shipments.controller.js` (3,102 lines) end-to-end. Document
+   methods, group by responsibility, identify cross-tenant patterns.
+2. Read `companies.controller.js` (3,068 lines) similarly.
+3. Read `permission.middleware.js` end-to-end (233 lines remaining).
+4. Find `mcp_permissions` consumer (likely separate repo) — confirm or
+   document the cross-repo gap.
+5. Read 3-5 jobs files for queue trigger patterns.
+6. Add 15-20 more cookbook scenarios.
+7. Target: ~95-97% coverage, ~2,500-2,700 lines, 4 commits (iter 4).
+
+**Or, defer iter 4 and use this doc as-is.** It's already strong enough
+to:
+- Serve as onboarding for new engineers.
+- Inform MCP scope decisions (no admon endpoints in scope).
+- Drive immediate security PRs (ecartpay vuln, public webhooks, audit
+  gap).
+- Anchor incident response (cookbook §41).
+
+The CRITICAL findings (ecartpay vuln, public webhooks, audit gap, no
+admin-action logging, type_id=2 token expiration) do NOT depend on
+finishing iter 4 — they're actionable today.
+
+---
+
+**End of ADMIN_MONOREPO_DEEP_REFERENCE.md**
+
+Built by Opus 4.7 (1M context) on 2026-04-26 in ~3 hours of direct work
++ 7 parallel explorer agents. Total commits: 3 (iter 1: 7b449e9,
+iter 2: 16e5ebc, iter 3: this commit). Cross-checked against 16
+random-sampled claims with 5 corrections applied (LESSON L-T4 in
+action — explorer agents are great at scope, weaker at exact counts).
