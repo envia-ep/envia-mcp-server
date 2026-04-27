@@ -59,6 +59,7 @@ import { registerClassifyHscode } from './tools/classify-hscode.js';
 import { registerGetEcommerceOrder } from './tools/get-ecommerce-order.js';
 import { registerListAdditionalServices } from './tools/list-additional-services.js';
 import { registerGetAdditionalServicePrices } from './tools/get-additional-service-prices.js';
+import { registerGetCarrierConstraints } from './tools/get-carrier-constraints.js';
 
 // Shipment query tools
 import {
@@ -286,6 +287,7 @@ function createEnviaServer(logContext: { correlationId?: string; sessionId?: str
     registerGetEcommerceOrder(server, client, config);
     registerListAdditionalServices(server, client, config);
     registerGetAdditionalServicePrices(server, client, config);
+    registerGetCarrierConstraints(server, client, config);
 
     // Shipment query tools
     registerListShipments(server, client, config);

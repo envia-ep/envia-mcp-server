@@ -40,14 +40,16 @@ the Envia portal's authenticated session. The HTTP transport is for
 server-to-server calls from the portal backend; the stdio transport is
 the standard path for IDE integrations.
 
-Available tools (72) — grouped by domain:
+Available tools (73) — grouped by domain:
 
-Core shipping (7)
+Core shipping (8)
   - envia_quote_shipment
   - envia_create_label
   - envia_validate_address
   - envia_list_carriers
   - envia_list_additional_services
+  - envia_get_additional_service_prices
+  - envia_get_carrier_constraints
   - envia_classify_hscode
   - envia_create_commercial_invoice
 
