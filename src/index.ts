@@ -58,6 +58,7 @@ import { registerClassifyHscode } from './tools/classify-hscode.js';
 // automatically inside create_label for intl shipments. Kept as internal helper.
 import { registerGetEcommerceOrder } from './tools/get-ecommerce-order.js';
 import { registerListAdditionalServices } from './tools/list-additional-services.js';
+import { registerGetAdditionalServicePrices } from './tools/get-additional-service-prices.js';
 
 // Shipment query tools
 import {
@@ -130,6 +131,7 @@ import {
     registerSearchBranches,
     registerGetBranchesCatalog,
     registerSearchBranchesBulk,
+    registerFindDropOff,
 } from './tools/branches/index.js';
 
 // Config tools
@@ -181,10 +183,11 @@ import {
     registerGetBalanceInfo,
 } from './tools/account/index.js';
 
-// AI Shipping tools — NLP + multi-carrier rate comparison
+// AI Shipping tools — NLP + multi-carrier rate comparison + address requirements
 import {
     registerAiParseAddress,
     registerAiRate,
+    registerAiAddressRequirements,
 } from './tools/ai-shipping/index.js';
 
 // Carriers advanced tools
@@ -282,6 +285,7 @@ function createEnviaServer(logContext: { correlationId?: string; sessionId?: str
     // registerCreateCommercialInvoice — moved to internal helper (auto-generated in create_label for intl).
     registerGetEcommerceOrder(server, client, config);
     registerListAdditionalServices(server, client, config);
+    registerGetAdditionalServicePrices(server, client, config);
 
     // Shipment query tools
     registerListShipments(server, client, config);
@@ -341,6 +345,7 @@ function createEnviaServer(logContext: { correlationId?: string; sessionId?: str
     registerSearchBranches(server, client, config);
     registerGetBranchesCatalog(server, client, config);
     registerSearchBranchesBulk(server, client, config);
+    registerFindDropOff(server, client, config);
 
     // Config tools (read-only for portal agent; CRUD kept as internal helpers only).
     registerListCompanyUsers(server, client, config);
@@ -381,6 +386,7 @@ function createEnviaServer(logContext: { correlationId?: string; sessionId?: str
     // AI Shipping tools
     registerAiParseAddress(server, client, config);
     registerAiRate(server, client, config);
+    registerAiAddressRequirements(server, client, config);
 
     // Carriers advanced tools (track-authenticated removed; locate-city + generate-bill-of-lading
     // reclassified as internal helpers — see header comment on carriers-advanced imports).

@@ -91,7 +91,9 @@ export interface PackageItem {
  */
 export interface AdditionalServiceEntry {
     service: string;
-    data?: { amount?: number };
+    /** Per-service payload. `amount` is the most common field; some services
+     *  (ETD, hazmat, LTL appointment) accept additional keys. */
+    data?: { amount?: number; [key: string]: unknown };
 }
 
 /** Insurance-type service identifiers. Only one may be selected per package. */

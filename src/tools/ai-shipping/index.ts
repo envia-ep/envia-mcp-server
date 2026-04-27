@@ -8,3 +8,4 @@
 
 export { registerAiParseAddress } from './parse-address.js';
 export { registerAiRate } from './rate.js';
+export { registerAiAddressRequirements } from './address-requirements.js';

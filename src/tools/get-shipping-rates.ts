@@ -135,6 +135,10 @@ export function registerGetShippingRates(
                     amount: z.number().min(0).optional().describe(
                         'Monetary amount when the service requires it (e.g. insurance value, COD amount).',
                     ),
+                    data: z.record(z.string(), z.unknown()).optional().describe(
+                        'Advanced: arbitrary data payload for multi-field services (ETD, hazmat, LTL appointment). ' +
+                        'Takes precedence over amount when both are provided.',
+                    ),
                 })).optional().describe(
                     'Optional additional services for the shipment. ' +
                     'Use list_additional_services to discover available services for a route. ' +

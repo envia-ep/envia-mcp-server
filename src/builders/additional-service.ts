@@ -13,7 +13,11 @@ import type { AdditionalServiceEntry, InsuranceServiceType } from '../types/carr
 /** Raw input shape from tool schemas for individual additional service entries. */
 interface RawAdditionalServiceInput {
     service: string;
+    /** Shorthand monetary amount (e.g. COD value, declared value for insurance). */
     amount?: number;
+    /** Arbitrary data payload — sent verbatim; overrides `amount` shorthand when provided.
+     *  Used for services with multi-field requirements (ETD, hazmat, LTL appointment). */
+    data?: Record<string, unknown>;
 }
 
 /**
@@ -47,7 +51,14 @@ export function buildAdditionalServices(
             seen.add(name);
 
             const entry: AdditionalServiceEntry = { service: name };
-            if (raw.amount != null && raw.amount > 0) {
+            if (raw.data) {
+                // Arbitrary data payload (Gap 10). Merge amount shorthand only when not already present.
+                const merged: { amount?: number; [key: string]: unknown } = { ...raw.data };
+                if (raw.amount != null && raw.amount > 0 && merged.amount == null) {
+                    merged.amount = raw.amount;
+                }
+                entry.data = merged;
+            } else if (raw.amount != null && raw.amount > 0) {
                 entry.data = { amount: raw.amount };
             }
             services.push(entry);

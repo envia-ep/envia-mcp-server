@@ -7,3 +7,4 @@
 export { registerSearchBranches } from './search-branches.js';
 export { registerGetBranchesCatalog } from './get-branches-catalog.js';
 export { registerSearchBranchesBulk } from './search-branches-bulk.js';
+export { registerFindDropOff } from './find-drop-off.js';
