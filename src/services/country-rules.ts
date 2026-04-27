@@ -161,6 +161,38 @@ export function detectSpanishDocumentType(id: string): 'DNI' | 'NIE' | 'NIF' | '
 }
 
 /**
+ * Normalise a Mexican state code from legacy DB variants to their ISO/INEGI codes.
+ *
+ * Mirrors `Util::setStateCodeMx` from
+ * `services/geocodes/libraries/util.js` (verified 2026-04-27 against
+ * both `libraries/util.js:252-289` and `controllers/web.js:251-285` — the
+ * two source copies are identical). Applied before sending `state_code` to
+ * any geocodes or carriers endpoint that consumes it.
+ *
+ * Pass-through: any code not listed (e.g. `NL`, `JAL`, `OAX`) is returned
+ * unchanged — those are already canonical.
+ *
+ * @param stateCode Raw MX state code from user input or DB.
+ * @returns Normalised ISO state code.
+ */
+export function applyMxStateRemap(stateCode: string): string {
+    switch (stateCode.trim().toUpperCase()) {
+        case 'BN': return 'BC';   // Baja California (legacy INEGI)
+        case 'CP': return 'CS';   // Chiapas
+        case 'DF': return 'CX';   // Ciudad de México (pre-2016 name)
+        case 'CA': return 'CO';   // Colima
+        case 'DU': return 'DG';   // Durango
+        case 'GJ': return 'GT';   // Guanajuato
+        case 'HI': return 'HG';   // Hidalgo
+        case 'MX': return 'EM';   // Estado de México
+        case 'MC': return 'MI';   // Michoacán
+        case 'MR': return 'MO';   // Morelos
+        case 'QE': return 'QT';   // Querétaro
+        default:   return stateCode;
+    }
+}
+
+/**
  * Retrieve aggregated shipping metadata for a country.
  *
  * Consults the module-level constants and returns a single object with all

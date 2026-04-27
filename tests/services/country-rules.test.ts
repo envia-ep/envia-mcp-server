@@ -9,6 +9,8 @@ import {
     detectBrazilianDocumentType,
     detectSpanishDocumentType,
     getCountryMeta,
+    applyMxStateRemap,
+    EXCEPTIONAL_TERRITORIES,
 } from '../../src/services/country-rules.js';
 
 describe('transformPostalCode', () => {
@@ -124,6 +126,123 @@ describe('detectSpanishDocumentType', () => {
     });
 });
 
+describe('applyMxStateRemap', () => {
+    // --- the 11 legacy → ISO remappings (verified from geocodes source 2026-04-27) ---
+
+    it('should remap BN → BC (Baja California)', () => {
+        expect(applyMxStateRemap('BN')).toBe('BC');
+    });
+
+    it('should remap CP → CS (Chiapas)', () => {
+        expect(applyMxStateRemap('CP')).toBe('CS');
+    });
+
+    it('should remap DF → CX (Ciudad de México)', () => {
+        expect(applyMxStateRemap('DF')).toBe('CX');
+    });
+
+    it('should remap CA → CO (Colima)', () => {
+        expect(applyMxStateRemap('CA')).toBe('CO');
+    });
+
+    it('should remap DU → DG (Durango)', () => {
+        expect(applyMxStateRemap('DU')).toBe('DG');
+    });
+
+    it('should remap GJ → GT (Guanajuato)', () => {
+        expect(applyMxStateRemap('GJ')).toBe('GT');
+    });
+
+    it('should remap HI → HG (Hidalgo)', () => {
+        expect(applyMxStateRemap('HI')).toBe('HG');
+    });
+
+    it('should remap MX → EM (Estado de México)', () => {
+        expect(applyMxStateRemap('MX')).toBe('EM');
+    });
+
+    it('should remap MC → MI (Michoacán)', () => {
+        expect(applyMxStateRemap('MC')).toBe('MI');
+    });
+
+    it('should remap MR → MO (Morelos)', () => {
+        expect(applyMxStateRemap('MR')).toBe('MO');
+    });
+
+    it('should remap QE → QT (Querétaro)', () => {
+        expect(applyMxStateRemap('QE')).toBe('QT');
+    });
+
+    // --- pass-through: canonical codes must not be mutated ---
+
+    it('should return NL unchanged (already canonical)', () => {
+        expect(applyMxStateRemap('NL')).toBe('NL');
+    });
+
+    it('should return JAL unchanged (already canonical)', () => {
+        expect(applyMxStateRemap('JAL')).toBe('JAL');
+    });
+
+    it('should return OAX unchanged (already canonical)', () => {
+        expect(applyMxStateRemap('OAX')).toBe('OAX');
+    });
+
+    it('should return CX unchanged (already the target — no double-remap)', () => {
+        expect(applyMxStateRemap('CX')).toBe('CX');
+    });
+
+    it('should be case-insensitive (lowercase input)', () => {
+        expect(applyMxStateRemap('bn')).toBe('BC');
+        expect(applyMxStateRemap('qe')).toBe('QT');
+    });
+
+    it('should trim whitespace before matching', () => {
+        expect(applyMxStateRemap(' DF ')).toBe('CX');
+    });
+});
+
+describe('EXCEPTIONAL_TERRITORIES', () => {
+    // Verify the territories aligned with geocodes source 2026-04-27
+
+    it('should include ES-CN (Canary Islands HASC)', () => {
+        expect(EXCEPTIONAL_TERRITORIES.has('ES-CN')).toBe(true);
+    });
+
+    it('should include ES-CE (Ceuta)', () => {
+        expect(EXCEPTIONAL_TERRITORIES.has('ES-CE')).toBe(true);
+    });
+
+    it('should include ES-ML (Melilla)', () => {
+        expect(EXCEPTIONAL_TERRITORIES.has('ES-ML')).toBe(true);
+    });
+
+    it('should NOT include ES-35 or ES-38 (postal-prefix variants, not HASC codes)', () => {
+        expect(EXCEPTIONAL_TERRITORIES.has('ES-35')).toBe(false);
+        expect(EXCEPTIONAL_TERRITORIES.has('ES-38')).toBe(false);
+    });
+
+    it('should NOT include FR-MC (Monaco is its own country, not a French territory)', () => {
+        expect(EXCEPTIONAL_TERRITORIES.has('FR-MC')).toBe(false);
+    });
+
+    it('should include FR-GF (French Guiana) and other French ultramar territories', () => {
+        expect(EXCEPTIONAL_TERRITORIES.has('FR-GF')).toBe(true);
+        expect(EXCEPTIONAL_TERRITORIES.has('FR-GP')).toBe(true);
+        expect(EXCEPTIONAL_TERRITORIES.has('FR-MQ')).toBe(true);
+        expect(EXCEPTIONAL_TERRITORIES.has('FR-YT')).toBe(true);
+        expect(EXCEPTIONAL_TERRITORIES.has('FR-RE')).toBe(true);
+    });
+
+    it('should include PT-20 (Azores) and PT-30 (Madeira)', () => {
+        expect(EXCEPTIONAL_TERRITORIES.has('PT-20')).toBe(true);
+        expect(EXCEPTIONAL_TERRITORIES.has('PT-30')).toBe(true);
+    });
+
+    it('should include NL-SX (Sint Maarten)', () => {
+        expect(EXCEPTIONAL_TERRITORIES.has('NL-SX')).toBe(true);
+    });
+});
+
 describe('getCountryMeta', () => {
     it('should return separate number true for MX', () => {
         expect(getCountryMeta('MX').requiresSeparateNumber).toBe(true);
@@ -151,5 +270,25 @@ describe('getCountryMeta', () => {
 
     it('should return empty identification for US', () => {
         expect(getCountryMeta('US').identificationRequiredFor).toEqual([]);
+    });
+
+    it('should apply no transforms for IT (sanity — no special rules for Italy)', () => {
+        const meta = getCountryMeta('IT');
+
+        expect(meta.requiresSeparateNumber).toBe(false);
+        expect(meta.treatedAsInternationalDomestic).toBe(false);
+        expect(meta.defaultDeclaredValue).toBeUndefined();
+        expect(meta.identificationRequiredFor).toEqual([]);
+    });
+
+    it('should have no MX remap for CO state codes (CO uses DANE resolver, not state remap)', () => {
+        // Confirm that CO-specific state codes like "ANT" are NOT touched by
+        // applyMxStateRemap (which only activates for country=MX callers).
+        // This is documented in resolveDaneCode tests; this assertion guards
+        // that getCountryMeta does not imply any remap for CO.
+        const meta = getCountryMeta('CO');
+
+        expect(meta.requiresSeparateNumber).toBe(false);
+        expect(meta.identificationRequiredFor).toContain('origin');
     });
 });

@@ -62,6 +62,33 @@ describe('normaliseLocationPair', () => {
 
         expect(out.country_code).toBe('IC');
     });
+
+    // --- MX state remap integration ---
+
+    it('should remap legacy MX state code DF → CX before sending to geocodes', () => {
+        const out = normaliseLocationPair({ country_code: 'MX', state_code: 'DF' });
+
+        expect(out.state_code).toBe('CX');
+        expect(out.country_code).toBe('MX');
+    });
+
+    it('should remap legacy MX state code BN → BC', () => {
+        const out = normaliseLocationPair({ country_code: 'MX', state_code: 'BN' });
+
+        expect(out.state_code).toBe('BC');
+    });
+
+    it('should NOT remap state codes for non-MX countries (GJ stays GJ for GT country)', () => {
+        const out = normaliseLocationPair({ country_code: 'GT', state_code: 'GJ' });
+
+        expect(out.state_code).toBe('GJ');
+    });
+
+    it('should leave canonical MX state codes unchanged (NL stays NL)', () => {
+        const out = normaliseLocationPair({ country_code: 'MX', state_code: 'NL' });
+
+        expect(out.state_code).toBe('NL');
+    });
 });
 
 describe('applyCanaryIslandsOverride', () => {

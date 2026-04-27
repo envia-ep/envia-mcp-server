@@ -21,6 +21,7 @@
  */
 
 import type { EnviaApiClient, ApiResponse } from '../utils/api-client.js';
+import { applyMxStateRemap } from './country-rules.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -83,8 +84,8 @@ export async function getAddressRequirements(
 }
 
 /** Uppercase country + state codes; trim postal when present; apply the
- * Canary Islands country override before the geocodes call (see
- * `applyCanaryIslandsOverride` for full rationale).
+ * MX state remap and the Canary Islands country override before the
+ * geocodes call (see `applyCanaryIslandsOverride` for full rationale).
  */
 function normaliseLocationPair(
     pair: { country_code: string; state_code: string; postal_code?: string },
@@ -95,6 +96,9 @@ function normaliseLocationPair(
     };
     if (pair.postal_code !== undefined && pair.postal_code !== '') {
         out.postal_code = pair.postal_code.trim();
+    }
+    if (out.country_code === 'MX') {
+        out.state_code = applyMxStateRemap(out.state_code);
     }
     out.country_code = applyCanaryIslandsOverride(out.country_code, out.postal_code);
     return out;
