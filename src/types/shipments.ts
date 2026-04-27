@@ -228,9 +228,19 @@ export interface CodCountersResponse {
     };
 }
 
-/** Shipment status statistics. */
+/**
+ * Shipment status statistics returned by GET /shipments/packages-information-by-status.
+ *
+ * Verified live 2026-04-27: the endpoint returns a FLAT object at the top
+ * level — NOT wrapped in a `data` envelope. The MCP tool reads `res.data`
+ * directly. Extra fields (`dateFromMiddleware`, `dateTo`,
+ * `packagesPendingPickUp`, `packagesActiveAndDeliveryFilter`) are returned
+ * but the formatter does not surface them today; they are typed so future
+ * additions can rely on them without a type change.
+ */
 export interface ShipmentStatusStats {
     packagesPendingShip?: number;
+    packagesPendingPickUp?: number;
     packagesPickup?: number;
     percentagePickup?: number;
     packagesShipped?: number;
@@ -239,10 +249,15 @@ export interface ShipmentStatusStats {
     percentageOutForDelivery?: number;
     packagesDeliveryFilter?: number;
     percentagePackagesDeliveryFilter?: number;
+    packagesActiveAndDeliveryFilter?: number;
     packagesIssue?: number;
     percentageIssue?: number;
     packagesReturned?: number;
     percentageReturned?: number;
+    /** Echo of the (normalised) start of the queried date range. */
+    dateFromMiddleware?: string;
+    /** Echo of the end of the queried date range. */
+    dateTo?: string;
 }
 
 /**
@@ -305,7 +320,17 @@ export interface NdrListResponse {
     total_rto_delivered?: number;
 }
 
-/** Invoice record. */
+/**
+ * Invoice record from GET /shipments/invoices.
+ *
+ * Verified live 2026-04-27. Notes:
+ *   - Backend returns the count of shipments under `total_shipments`, not
+ *     `shipments_amount` as earlier drafts assumed. `shipments_amount` is
+ *     kept here as a deprecated alias for back-compat with old fixtures.
+ *   - The list is wrapped in `{ recordsTotal, recordsFiltered, data }` —
+ *     NOT `{ data, total }` like other list endpoints. Consumers should
+ *     read `recordsTotal` for the absolute count.
+ */
 export interface InvoiceRecord {
     id: number;
     month?: string;
@@ -313,7 +338,25 @@ export interface InvoiceRecord {
     total?: number;
     invoice_id?: string;
     invoice_url?: string;
+    /** Real backend field — count of shipments billed in this invoice. */
+    total_shipments?: number;
+    /** @deprecated Live API returns `total_shipments`. Kept only for back-compat. */
     shipments_amount?: number;
+    /** Currency-amount sum of the invoice's shipping line. */
+    invoice_type_amount?: number;
+    /** Tax intermediation total (Brazil-specific accounting field). */
+    tax_intermediacio_total?: number;
     invoiced_by?: string;
     status?: string;
+}
+
+/**
+ * Response wrapper for GET /shipments/invoices. Uses DataTables-style fields
+ * (`recordsTotal`, `recordsFiltered`) rather than the `{ data, total }`
+ * convention used by most other list endpoints in queries.
+ */
+export interface InvoiceListResponse {
+    data: InvoiceRecord[];
+    recordsTotal?: number;
+    recordsFiltered?: number;
 }

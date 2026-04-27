@@ -15,7 +15,7 @@ import { requiredApiKeySchema } from '../../utils/schemas.js';
 import { textResponse } from '../../utils/mcp-response.js';
 import { mapCarrierError } from '../../utils/error-mapper.js';
 import { queryShipmentsApi, formatCurrency } from '../../services/shipments.js';
-import type { InvoiceRecord } from '../../types/shipments.js';
+import type { InvoiceListResponse } from '../../types/shipments.js';
 
 /**
  * Register the envia_get_shipment_invoices tool on the MCP server.
@@ -52,7 +52,7 @@ export function registerGetShipmentInvoices(
             if (args.year !== undefined) params.year = args.year;
             if (args.invoiced !== undefined) params.invoiced = args.invoiced;
 
-            const res = await queryShipmentsApi<{ data: InvoiceRecord[]; total?: number }>(
+            const res = await queryShipmentsApi<InvoiceListResponse>(
                 activeClient, config, '/shipments/invoices', params,
             );
 
@@ -68,15 +68,24 @@ export function registerGetShipmentInvoices(
                 return textResponse('No invoices found matching the specified filters.');
             }
 
+            // Backend uses DataTables-style fields (recordsTotal, recordsFiltered)
+            // rather than the { data, total } convention. Read recordsTotal for the
+            // absolute count, with recordsFiltered + records.length as fallbacks.
+            const totalCount = res.data?.recordsTotal ?? res.data?.recordsFiltered ?? records.length;
+
             const lines: string[] = [
-                `Found ${res.data.total ?? records.length} invoice(s) (page ${args.page}):`,
+                `Found ${totalCount} invoice(s) (page ${args.page}):`,
                 '',
             ];
 
             for (const inv of records) {
                 const period = inv.month && inv.year ? `${inv.month}/${inv.year}` : '—';
+                // Field is `total_shipments` on the live API. The deprecated
+                // `shipments_amount` alias is kept only as a defensive fallback
+                // for any older mock or fixture that might still surface.
+                const shipmentsCount = inv.total_shipments ?? inv.shipments_amount ?? '—';
                 lines.push(`• Invoice #${inv.invoice_id ?? inv.id} — ${period}`);
-                lines.push(`  Total: ${formatCurrency(inv.total)}  |  Shipments: ${inv.shipments_amount ?? '—'}`);
+                lines.push(`  Total: ${formatCurrency(inv.total)}  |  Shipments: ${shipmentsCount}`);
                 lines.push(`  Status: ${inv.status ?? '—'}  |  Invoiced by: ${inv.invoiced_by ?? '—'}`);
                 if (inv.invoice_url) lines.push(`  PDF: ${inv.invoice_url}`);
                 lines.push('');

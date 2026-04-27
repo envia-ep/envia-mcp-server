@@ -49,7 +49,12 @@ export function registerGetShipmentsStatus(
             };
             if (args.carrier_name) params.carrier_name = args.carrier_name;
 
-            const res = await queryShipmentsApi<{ data: ShipmentStatusStats }>(
+            // Backend returns the stats as a FLAT object at the top level —
+            // there is NO `data` wrapper on this endpoint (verified live
+            // 2026-04-27). Earlier versions of this tool unwrapped a non-existent
+            // `res.data.data` which always yielded undefined, masking real data
+            // behind a generic "no statistics" message.
+            const res = await queryShipmentsApi<ShipmentStatusStats>(
                 activeClient, config, '/shipments/packages-information-by-status', params,
             );
 
@@ -60,8 +65,8 @@ export function registerGetShipmentsStatus(
                 );
             }
 
-            const stats = res.data?.data;
-            if (!stats) {
+            const stats = res.data;
+            if (!stats || Object.keys(stats).length === 0) {
                 return textResponse('No status statistics available for the specified date range.');
             }
 
