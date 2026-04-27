@@ -155,21 +155,126 @@ spot-check):**
 
 **Commit:** pending (this block).
 
-## Block 5 — Sprint 5 step 2+ (NEXT)
+## Block 5 — Sprint 5 step 2 — EXCEPTIONAL_TERRITORIES drift fix (2026-04-27 ~02:25 UTC) ✅
 
-**Plan:**
-- Drift fix `EXCEPTIONAL_TERRITORIES` in `src/services/country-rules.ts`
-  to match geocodes excStates exactly (remove `FR-MC`, `ES-35`,
-  `ES-38`; add `ES-CE`, `ES-ML`).
-- Add MX state remap (BN→BC, DF→CDMX, etc. — 11 cases per geocodes
-  `Util::setStateCodeMx`).
-- Wire generic-form validation into `update-order-address`,
-  `create-client`, `update-client` (matches what `create-address` /
-  `update-address` already do).
-- Tests per country.
+**Done:**
+- Aligned `src/services/country-rules.ts:EXCEPTIONAL_TERRITORIES`
+  with the geocodes source-of-truth list at
+  `services/geocodes/controllers/web.js:1762-1776`.
+- Removed: `ES-35`, `ES-38` (ad-hoc HASC variants not in geocodes —
+  Canarias is detected via the new country override `IC` instead),
+  `FR-MC` (Monaco is its own ISO country, not a French territory).
+- Added: `ES-CE` (Ceuta), `ES-ML` (Melilla).
+- Updated `tests/services/tax-rules.test.ts`:
+  - 3 tests rewritten to use HASC codes (`ES-CN/TF/GC`) instead of
+    postal-prefix codes.
+  - 2 new tests for Ceuta/Melilla.
+  - 1 regression-guard test asserts that postal-prefix `'35'` no
+    longer triggers the exception path (proves the drift fix).
+  - 1 case-insensitive test updated to use HASC code.
+- Tax-rules.ts continues to be a local replication of geocodes logic
+  (LESSONS L-S5 candidate for deletion). Drift fix is interim — the
+  preferred long-term move is to delete tax-rules.ts entirely and
+  always call `getAddressRequirements` helper. Logged for a future
+  sprint.
 
-**Status:** Decide between continuing in this Opus session OR handoff
-to Sonnet via prompt — depends on remaining context budget.
+**Verification:**
+- `npm run build` — clean
+- `npx vitest run` — 1419/1419 passing (was 1416 + 3 new)
+
+**Commit:** pending (this block).
+
+## Block 6 — Handoff (NEXT SESSION should pick up here)
+
+**Remaining Sprint 5 chunks** (autonomous-mode permissions still in
+effect — see top of this file):
+
+1. **Step 3 — MX state remap.** `services/geocodes/libraries/util.js`
+   `Util::setStateCodeMx` (lines 252-289) defines 11 remappings:
+   - BN → BC (Baja California)
+   - BS → BCS (Baja California Sur)
+   - CC → CL (Colima)
+   - CX → CMX (Mexico City — inconsistent with internal DF)
+   - DF → CDMX (Mexico City — deprecated 2016 form)
+   - CP → CS (Chiapas)
+   - MO → MR (Morelos)
+   - NL → NL (Nuevo León — no-op, listed in source for completeness)
+   - QE → QT (Querétaro)
+   - TM → TL (Tlaxcala)
+   - ZA → ZS (Zacatecas)
+   These are normalisation rules: legacy DB codes → ISO codes. The
+   MCP should apply this remap before sending `state_code` to any
+   geocodes/carriers endpoint that consumes `state_code`. Consult
+   the geocodes source for the canonical mapping; it's also
+   duplicated at `controllers/web.js` lines 251-285 (queryLocality).
+
+2. **Step 4 — generic-form wiring.** Three tools currently skip the
+   validation that `create_address` / `update_address` already
+   perform:
+   - `src/tools/orders/update-order-address.ts`
+   - `src/tools/clients/create-client.ts`
+   - `src/tools/clients/update-client.ts`
+   Pattern to follow: copy from `src/tools/addresses/create-address.ts`
+   the call to `validateAddressForCountry()` (in
+   `src/services/generic-form.ts`) before the API call. If validation
+   fails, return the error via `textResponse(formatGenericFormError(...))`.
+
+3. **Step 5 — country-specific tests.** Add tests under
+   `tests/services/country-rules.test.ts` and
+   `tests/services/geocodes-helpers.test.ts` for: BR (CEP transform
+   + CPF/CNPJ detection), CO (DANE resolver), MX (state remap once
+   implemented), ES (Canarias override + new HASC codes), IT (no
+   transforms required, just confirm no false positives), FR (phone
+   normalisation), AR (postal stripping).
+
+**Sprint 6** — Response enrichment. Each item REQUIRES a sandbox curl
+verification per L-B5 BEFORE coding. Most likely targets:
+- `envia_list_orders` + `envia_get_ecommerce_order`: 11 V4 fields
+  (fulfillment_status_id, cod_active/value per package, HS codes,
+  country_code_origin, fulfillment_info, fraud_risk, partial_available,
+  order_comment, assigned_package, return_reason). Verify by curling
+  `GET /v4/orders/{shop_id}/{order_id}` against sandbox with the
+  token in the .env, see what's actually in the response.
+- Sandbox-limitation notes in `envia_get_shipments_ndr`,
+  `envia_track_pickup`, `envia_list_tickets` tool descriptions.
+- `envia_quote_shipment` surfaces additional-services catalog summary.
+
+**Sprint 7** — 4 new tools + helpers. Pre-approved by Jose:
+`envia_ai_address_requirements`, `envia_find_drop_off`,
+`envia_get_carrier_constraints`, `envia_get_additional_service_prices`.
+Plus internal helpers: `additional-service-resolver` (multi-field
+support per Gap 10 — backend already accepts arbitrary `data`,
+verified via code read of AdditionalServiceUtil.php:717),
+`carrier-constraints` (composes data from existing endpoints).
+
+**Handoff prompt:** see `.claude/prompts/SPRINT_5_CONTINUATION_PROMPT.md`
+(written next).
+
+## Final state of this session
+
+**Commits (chronological):**
+- `2d02355` — docs: scope-fence session 2026-04-27 — lessons + backend debt
+- `53ae225` — feat(sprint-4a): retire list_checkout_rules + reclassify generate_bill_of_lading INTERNAL
+- `af71e0b` — feat(sprint-4a): observability layer — pino + correlation IDs + structured tool-call events
+- `9020dfc` — feat(sprint-5): apply Canarias country override in getAddressRequirements (γ)
+- pending — feat(sprint-5): align EXCEPTIONAL_TERRITORIES with geocodes source-of-truth
+
+**Snapshot:**
+- 70 user-facing MCP tools (was 72, retired 2 in Sprint 4a part 1).
+- 1419 tests, 105 test files (was 1382 → +37 across Sprint 4a part 2,
+  Canarias γ, drift fix tests).
+- Build clean, lint clean, all sprints' work commit-clean.
+- 0 pushes (per Jose's permission B = NO).
+
+**Backend debt accumulated:** C8 (geocodes auto-detect — MEDIUM,
+mitigated MCP-side) + C9 (cancel daily-limit field — MEDIUM,
+defensive code already in MCP) — both in BACKEND_TEAM_BRIEF.md.
+
+**Decisions for Jose to confirm on return:**
+None blocking — autonomous mode handled everything within scope.
+The Canarias deeper question of "should `shipments` table store
+post-override IC consistently" is logged in C8 as item (c) but
+that's a backend team conversation, not MCP.
 
 ## Roadmap remaining (after Sprint 4a part 2)
 

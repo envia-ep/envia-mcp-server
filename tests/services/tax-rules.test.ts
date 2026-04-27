@@ -30,16 +30,36 @@ describe('shouldApplyTaxes', () => {
         expect(shouldApplyTaxes('PR', '00', 'PR', '01')).toBe(true);
     });
 
-    it('should return false for ES mainland→Canarias (state 35)', () => {
-        expect(shouldApplyTaxes('ES', 'M', 'ES', '35')).toBe(false);
+    it('should return false for ES mainland→Canarias (state CN, HASC)', () => {
+        // Aligned 2026-04-27 with geocodes excStates source-of-truth.
+        // Postal-code-prefix variants (state="35" / "38") are no longer
+        // recognised here — Canarias is detected via the country
+        // override `IC` in geocodes-helpers, not via state membership.
+        expect(shouldApplyTaxes('ES', 'M', 'ES', 'CN')).toBe(false);
     });
 
-    it('should return false for ES mainland→Canarias (state 38)', () => {
-        expect(shouldApplyTaxes('ES', 'B', 'ES', '38')).toBe(false);
+    it('should return false for ES mainland→Canarias (state TF, Tenerife)', () => {
+        expect(shouldApplyTaxes('ES', 'B', 'ES', 'TF')).toBe(false);
     });
 
-    it('should return false for ES Canarias→mainland', () => {
-        expect(shouldApplyTaxes('ES', '35', 'ES', 'M')).toBe(false);
+    it('should return false for ES Canarias (Gran Canaria HASC)→mainland', () => {
+        expect(shouldApplyTaxes('ES', 'GC', 'ES', 'M')).toBe(false);
+    });
+
+    it('should return false for ES mainland→Ceuta (ES-CE, exceptional territory)', () => {
+        expect(shouldApplyTaxes('ES', 'M', 'ES', 'CE')).toBe(false);
+    });
+
+    it('should return false for ES mainland→Melilla (ES-ML, exceptional territory)', () => {
+        expect(shouldApplyTaxes('ES', 'M', 'ES', 'ML')).toBe(false);
+    });
+
+    it('should return true for ES with state="35" — postal-prefix not a state code in geocodes', () => {
+        // Defensive: this asserts the 2026-04-27 drift fix removed the
+        // ad-hoc ES-35 / ES-38 entries that did not exist in geocodes
+        // excStates. Canarias detection is now via country override
+        // (applyCanaryIslandsOverride), not via state membership.
+        expect(shouldApplyTaxes('ES', 'M', 'ES', '35')).toBe(true);
     });
 
     it('should return false for FR→French Guiana (state GF)', () => {
@@ -77,7 +97,7 @@ describe('shouldApplyTaxes', () => {
     it('should handle case-insensitive input', () => {
         expect(shouldApplyTaxes('mx', 'nl', 'mx', 'jal')).toBe(true);
         expect(shouldApplyTaxes('us', 'ca', 'pr', '00')).toBe(true);
-        expect(shouldApplyTaxes('es', 'm', 'es', '35')).toBe(false);
+        expect(shouldApplyTaxes('es', 'm', 'es', 'cn')).toBe(false);
     });
 });
 

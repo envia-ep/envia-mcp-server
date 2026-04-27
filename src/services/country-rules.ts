@@ -15,13 +15,27 @@ export const EU_COUNTRIES: ReadonlySet<string> = new Set([
     'PL', 'PT', 'RO', 'SK', 'SI', 'ES', 'SE',
 ]);
 
-/** Overseas or exceptional territories that may have distinct customs rules. */
+/**
+ * Overseas or exceptional territories that may have distinct customs rules.
+ *
+ * Aligned 2026-04-27 with the source-of-truth list in geocodes
+ * (`services/geocodes/controllers/web.js:1762-1776`). Drift removed:
+ * - `ES-35`, `ES-38` were ad-hoc HASC variants not present in geocodes
+ *   (Canarias is uniquely identified there by `ES-CN/TF/GC` + the
+ *   Canary Islands country override `IC` for postal-code-based detection).
+ * - `FR-MC` was incorrect — Monaco is its own country (ISO `MC`), not
+ *   a French territory. Geocodes never listed it.
+ *
+ * Drift added (previously missing):
+ * - `ES-CE` (Ceuta), `ES-ML` (Melilla) — listed in geocodes excStates
+ *   alongside the other Spanish territories outside the EU customs zone.
+ */
 export const EXCEPTIONAL_TERRITORIES: ReadonlySet<string> = new Set([
     'FR-GF', 'FR-GP', 'FR-MQ', 'FR-YT', 'FR-RE',
     'PT-20', 'PT-30',
-    'ES-CN', 'ES-TF', 'ES-GC', 'ES-35', 'ES-38',
+    'ES-CN', 'ES-TF', 'ES-GC',
+    'ES-CE', 'ES-ML',
     'NL-SX',
-    'FR-MC',
 ]);
 
 /** Countries where the exterior/interior number is a separate field. */
