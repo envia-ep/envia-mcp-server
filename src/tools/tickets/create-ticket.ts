@@ -1,7 +1,14 @@
 /**
  * Tool: envia_create_ticket
  *
- * Creates a new support ticket. A ticket can optionally be linked to a shipment.
+ * Creates a new support ticket. When the ticket relates to a specific shipment
+ * the caller should pass `tracking_number` (the user-visible "guía") — the tool
+ * resolves it to the internal `shipment_id` via GET /guide/{tracking} before
+ * calling POST /company/tickets so the ticket is properly linked. Without that
+ * linkage the backend stores the ticket with `shipment_id = NULL`, the
+ * duplicate-prevention rule does not fire, and reverse lookups by tracking
+ * number return nothing.
+ *
  * Handles 409 Conflict when an active ticket already exists for the same
  * shipment + type combination.
  */
@@ -15,7 +22,9 @@ import { requiredApiKeySchema } from '../../utils/schemas.js';
 import { textResponse } from '../../utils/mcp-response.js';
 import { mapCarrierError } from '../../utils/error-mapper.js';
 import { mutateTicketApi } from '../../services/tickets.js';
+import { queryShipmentsApi } from '../../services/shipments.js';
 import type { CreateTicketResponse } from '../../types/tickets.js';
+import type { ShipmentDetailResponse } from '../../types/shipments.js';
 
 /**
  * Register the envia_create_ticket tool on the MCP server.
@@ -30,14 +39,27 @@ export function registerCreateTicket(
         {
             description:
                 'Create a new support ticket. Requires type_id (use envia_get_ticket_types to see options). ' +
-                'Optionally link to a shipment_id. Common types: 3=Overweight, 5=Damaged, 6=Wrong delivery, ' +
-                '7=Refund, 8=Delay, 13=Theft, 14=Redirection.',
+                'IMPORTANT: when the ticket relates to a specific shipment (the user mentions a tracking number ' +
+                'or "guía"), ALWAYS pass `tracking_number` so the ticket is properly linked. The tool resolves ' +
+                'tracking_number to the internal shipment_id automatically. Tickets created without a tracking ' +
+                'number become orphan and cannot be found by tracking-number search later. ' +
+                'Common types: 3=Overweight, 5=Damaged, 6=Wrong delivery, 7=Refund, 8=Delay, 13=Theft, ' +
+                '14=Redirection, 25=Delivery attempt.',
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
                 type_id: z.number().int().min(1)
                     .describe('Ticket type ID (required). Use envia_get_ticket_types to see all available types'),
+                tracking_number: z.string().min(1).optional()
+                    .describe(
+                        'Tracking number ("guía") of the shipment to link this ticket to. ' +
+                        'PREFERRED over shipment_id — pass this whenever the user references a shipment. ' +
+                        'The tool resolves it to the internal shipment_id automatically.',
+                    ),
                 shipment_id: z.number().int().min(1).optional()
-                    .describe('Shipment ID to link this ticket to'),
+                    .describe(
+                        'Internal numeric shipment ID. Use ONLY if you already have the resolved ID; ' +
+                        'otherwise pass tracking_number and the tool will resolve it.',
+                    ),
                 carrier_id: z.number().int().min(1).optional()
                     .describe('Carrier ID associated with the issue'),
                 credit_id: z.number().int().min(1).optional()
@@ -53,10 +75,32 @@ export function registerCreateTicket(
         async (args) => {
             const activeClient = resolveClient(client, args.api_key, config);
 
+            // Resolve tracking_number → shipment_id when the caller provided
+            // tracking_number but not shipment_id. If both are present,
+            // shipment_id wins (explicit caller intent).
+            let resolvedShipmentId = args.shipment_id;
+
+            if (args.tracking_number && args.shipment_id === undefined) {
+                const tracking = encodeURIComponent(args.tracking_number.trim());
+                const lookup = await queryShipmentsApi<ShipmentDetailResponse>(
+                    activeClient, config, `/guide/${tracking}`, {},
+                );
+
+                const shipmentRecord = lookup.data?.data?.[0];
+                if (!lookup.ok || !shipmentRecord?.id) {
+                    return textResponse(
+                        `Cannot create ticket: tracking number "${args.tracking_number}" was not found for your company. ` +
+                        `Verify the tracking number is correct and that the shipment belongs to the authenticated company.`,
+                    );
+                }
+
+                resolvedShipmentId = shipmentRecord.id;
+            }
+
             const body: Record<string, unknown> = {
                 type_id: args.type_id,
             };
-            if (args.shipment_id !== undefined) body.shipment_id = args.shipment_id;
+            if (resolvedShipmentId !== undefined) body.shipment_id = resolvedShipmentId;
             if (args.carrier_id !== undefined) body.carrier_id = args.carrier_id;
             if (args.credit_id !== undefined) body.credit_id = args.credit_id;
             if (args.warehouse_package_id !== undefined) body.warehouse_package_id = args.warehouse_package_id;
@@ -82,9 +126,15 @@ export function registerCreateTicket(
             }
 
             const ticketId = res.data?.id;
+            const linkLine = resolvedShipmentId !== undefined
+                ? `  Linked to shipment_id: ${resolvedShipmentId}` +
+                    (args.tracking_number ? ` (tracking ${args.tracking_number})` : '')
+                : '  Not linked to any shipment.';
+
             const lines: string[] = [
                 `Ticket created successfully.`,
                 `  Ticket ID: ${ticketId}`,
+                linkLine,
                 '',
                 'Use envia_get_ticket_detail to view full details, or envia_add_ticket_comment to add more information.',
             ];
