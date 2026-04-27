@@ -1,12 +1,21 @@
 /**
  * TypeScript interfaces for the carrier-constraints endpoint response.
  *
- * Mirrors the contract in _docs/specs/CARRIER_CONSTRAINTS_ENDPOINT_SPEC.md §2.2
- * verbatim. Every field's optional/required status matches the spec.
+ * Mirrors the contract in _docs/specs/CARRIER_CONSTRAINTS_ENDPOINT_SPEC.md §2.2 (v2)
+ * verbatim. Every field's optional/required status matches the v2 spec.
  *
  * Backend ticket: C11 (endpoint not yet available — see BACKEND_TEAM_BRIEF.md).
  * Once C11 ships no changes here are required; only the env-var pointing to
  * the carriers service needs to be live.
+ *
+ * v2 changes (2026-04-27 backend review):
+ *   D4.  `international` is now a triple field (bool + code + scope).
+ *   D5.  `volumetric_factor_id` added as optional FK to CarrierMeta.
+ *   D6.  Tracking split into envia_track_url_template + carrier_track_url_template.
+ *   D9.  CoverageSummary `_unavailable` field already existed; JSDoc updated.
+ *   D10. `endpoint` removed from CarrierMeta (security — internal URL not exposed).
+ *   D11. ResponseMeta gains optional `_note` field for empty-services semantics.
+ *   D13. `cached` removed from ResponseMeta (observability via Datadog APM instead).
  */
 
 // ---------------------------------------------------------------------------
@@ -16,6 +25,10 @@
 /**
  * Carrier-level metadata sourced from the `carriers` table.
  * §2.2 → data.carrier
+ *
+ * D10: `endpoint` (internal carrier API URL) is intentionally NOT included.
+ * Exposing it would leak internal infrastructure to MCP consumers — see §6
+ * of the spec for the security rationale.
  */
 export interface CarrierMeta {
     id: number;
@@ -23,9 +36,18 @@ export interface CarrierMeta {
     display_name: string;
     controller: string;
     color: string;
-    endpoint: string;
-    track_url: string;
+    /**
+     * Default volumetric divisor resolved from `catalog_volumetrict_factor.factor`
+     * via FK in the `carriers` table. Most common value: 5000.
+     * D5: actual divisor (not a multiplier). Source: backend `carriers.volumetric_factor` column.
+     */
     volumetric_factor: number;
+    /**
+     * FK to `catalog_volumetrict_factor`. Optional — present only when the
+     * carrier has a specific entry in the volumetric factor catalog.
+     * D5: added as optional alongside `volumetric_factor`.
+     */
+    volumetric_factor_id?: number;
     box_weight: number;
     pallet_weight: number;
     allows_mps: boolean;
@@ -53,9 +75,16 @@ export interface Pickup {
 /**
  * Tracking configuration for the carrier.
  * §2.2 → data.tracking
+ *
+ * D6: Two separate URL templates are now exposed:
+ *   - `envia_track_url_template` — the Envia-hosted tracking page URL (from `carriers.track_url`).
+ *   - `carrier_track_url_template` — the carrier's own tracking page URL (from `carriers.track_url_site`).
+ * Both are required. Use `envia_track_url_template` for customer-facing links in the portal.
+ * Use `carrier_track_url_template` to deep-link directly into the carrier's tracking system.
  */
 export interface Tracking {
-    track_url_template: string;
+    envia_track_url_template: string;
+    carrier_track_url_template: string;
     pattern: string | null;
     track_limit: number;
     tracking_delay_minutes: number;
@@ -141,6 +170,18 @@ export interface OperationalLimits {
 /**
  * A single carrier service with all its constraints.
  * §2.2 → data.services[]
+ *
+ * D4: The `international` field is now a triple:
+ *   - `international` (bool): true when international_code > 0.
+ *   - `international_code` (0|1|2|3): the raw integer from `services.international`.
+ *   - `international_scope` ('national'|'international'|'import'|'thirdparty'):
+ *       human-readable label derived from the code.
+ *
+ * Mapping (source: CarrierUtil.php:406 + Service.php:84):
+ *   0 → 'national'      (domestic / nacional)
+ *   1 → 'international' (international export)
+ *   2 → 'import'        (import — Service.php: is_import = international == 2)
+ *   3 → 'thirdparty'    (third-party international)
  */
 export interface ServiceConstraint {
     id: number;
@@ -148,7 +189,12 @@ export interface ServiceConstraint {
     name: string;
     description: string | null;
     delivery_estimate: string | null;
+    /** True when international_code > 0. */
     international: boolean;
+    /** Raw integer from `services.international` column. See JSDoc for mapping. */
+    international_code: 0 | 1 | 2 | 3;
+    /** Human-readable scope derived from international_code. See JSDoc for mapping. */
+    international_scope: 'national' | 'international' | 'import' | 'thirdparty';
     limits: ServiceLimits;
     cash_on_delivery: CashOnDelivery;
     options: ServiceOptions;
@@ -190,10 +236,25 @@ export interface HardcodedLimits {
 /**
  * Coverage summary by service and country.
  * §2.2 → data.coverage_summary
- * Only populated when ?include=coverage_summary is requested.
+ *
+ * D9 — Phase 1 behaviour: when `?include=coverage_summary` is requested,
+ * the backend returns the placeholder shape below. The MCP must NOT treat
+ * this as an error — return it as-is and render a "pending Phase 2" message.
+ *
+ * Phase 1 placeholder shape (from the backend):
+ * ```json
+ * {
+ *   "_unavailable": "Computed asynchronously — pending Phase 2",
+ *   "by_service": []
+ * }
+ * ```
+ *
+ * Phase 2 will populate `by_service` with actual postal-code counts per country.
+ * Only populated when `?include=coverage_summary` is set.
  */
 export interface CoverageSummary {
     _note?: string;
+    /** Present in Phase 1 when coverage data is not yet computed. */
     _unavailable?: string;
     by_service: Array<{
         service_id: number;
@@ -207,13 +268,24 @@ export interface CoverageSummary {
 /**
  * Response metadata included at the top level of every response.
  * §2.2 → meta
+ *
+ * D11: `_note` added — present when carrier exists but has no services
+ * available for the requesting company (200 + empty services[]).
+ *
+ * D13: `cached` removed. Cache hit/miss is tracked via Datadog APM span
+ * attributes, not via the response body. Verify cache state directly:
+ *   `EXISTS carrier-constraints:{carrier_id}:{company_id}:all:additional_services`
  */
 export interface ResponseMeta {
     carrier_id: number;
     company_id: number | null;
     service_filter: number | null;
-    cached: boolean;
     generated_at: string;
+    /**
+     * Present when the carrier exists but has no active services available for
+     * the requesting company (200 + empty services[]). D11.
+     */
+    _note?: string;
 }
 
 /**

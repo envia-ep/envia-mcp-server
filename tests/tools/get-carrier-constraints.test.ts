@@ -3,6 +3,12 @@
  *
  * All HTTP calls are mocked via vi.stubGlobal('fetch', ...).
  * Tests are fully offline and deterministic.
+ *
+ * v2 changes (2026-04-27):
+ *   - Fixtures updated to v2 contract: D4 triple international, D5 volumetric_factor_id,
+ *     D6 dual track URLs, D10 endpoint removed, D13 meta.cached removed.
+ *   - New tests: D4 international_scope rendering (all 4 values), D6 both URLs rendered,
+ *     D9 coverage_summary placeholder, D11 meta._note rendered, D13 meta.cached absent.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -29,8 +35,15 @@ const toolInputSchema = z.object({
 // =============================================================================
 
 /**
- * Build a minimal CarrierConstraintsResponse fixture based on spec §2.2.
- * One service has company_override applied, one does not.
+ * Build a minimal CarrierConstraintsResponse fixture based on spec §2.2 v2.
+ * One service has company_override applied (national), one does not (international).
+ *
+ * v2 changes applied:
+ *   D4:  services include international_code + international_scope.
+ *   D5:  carrier includes volumetric_factor_id.
+ *   D6:  tracking uses envia_track_url_template + carrier_track_url_template.
+ *   D10: carrier.endpoint removed.
+ *   D13: meta.cached removed.
  */
 function makeConstraintsResponse(
     overrides: Partial<CarrierConstraintsResponse> = {},
@@ -44,9 +57,9 @@ function makeConstraintsResponse(
                 display_name: 'FedEx',
                 controller: 'FedexRest',
                 color: '#4D148C',
-                endpoint: 'https://apis.fedex.com',
-                track_url: 'https://www.fedex.com/fedextrack/?trknbr={tracking_number}',
+                // D10: endpoint intentionally absent
                 volumetric_factor: 5000,
+                volumetric_factor_id: 12, // D5
                 box_weight: 0.5,
                 pallet_weight: 30,
                 allows_mps: true,
@@ -66,7 +79,9 @@ function makeConstraintsResponse(
                 fee: 0.0,
             },
             tracking: {
-                track_url_template: 'https://www.fedex.com/fedextrack/?trknbr={tracking_number}',
+                // D6: two separate URL templates
+                envia_track_url_template: 'https://envia.com/track/{tracking_number}',
+                carrier_track_url_template: 'https://www.fedex.com/fedextrack/?trknbr={tracking_number}',
                 pattern: '^[0-9]{12}$',
                 track_limit: 100,
                 tracking_delay_minutes: 30,
@@ -78,7 +93,9 @@ function makeConstraintsResponse(
                     name: 'FedEx Ground',
                     description: 'Domestic ground shipping',
                     delivery_estimate: '3-5 business days',
-                    international: false,
+                    international: false,          // D4
+                    international_code: 0,          // D4
+                    international_scope: 'national', // D4
                     limits: {
                         min_weight_kg: 0.1,
                         max_weight_kg: 30,
@@ -116,11 +133,13 @@ function makeConstraintsResponse(
                 },
                 {
                     id: 24,
-                    service_code: 'FEDEX_EXPRESS',
-                    name: 'FedEx Express',
-                    description: 'Overnight express',
-                    delivery_estimate: '1 business day',
-                    international: false,
+                    service_code: 'FEDEX_EXPRESS_INT',
+                    name: 'FedEx International Express',
+                    description: 'International overnight express',
+                    delivery_estimate: '1-3 business days',
+                    international: true,              // D4
+                    international_code: 1,             // D4: export
+                    international_scope: 'international', // D4
                     limits: {
                         min_weight_kg: 0.1,
                         max_weight_kg: 68,
@@ -142,7 +161,7 @@ function makeConstraintsResponse(
                         custom_plan: false,
                     },
                     shipment_type: { id: 1, label: 'parcel' },
-                    rate_type: { id: 2, label: 'domestic' },
+                    rate_type: { id: 3, label: 'international' },
                     operational: {
                         hour_limit: '14:00',
                         timeout_seconds: 30,
@@ -193,7 +212,7 @@ function makeConstraintsResponse(
             carrier_id: 1,
             company_id: 12345,
             service_filter: null,
-            cached: false,
+            // D13: cached removed
             generated_at: '2026-04-27T18:42:13Z',
         },
         ...overrides,
@@ -366,18 +385,28 @@ describe('envia_get_carrier_constraints', () => {
     });
 
     // -------------------------------------------------------------------------
-    // 14. Meta block (company_id, cached) appears at the end of the output
+    // 14. D13: meta.cached is NOT rendered in the output
     // -------------------------------------------------------------------------
-    it('should include meta information (company_id, cached) in the output', async () => {
+    it('should not include "cached:" text in the output (meta.cached removed in D13)', async () => {
+        const result = await handler({ carrier_id: 1 });
+        const text = result.content[0].text;
+
+        expect(text).not.toContain('cached:');
+    });
+
+    // -------------------------------------------------------------------------
+    // 15. Meta block (company_id, generated) appears at the end of the output
+    // -------------------------------------------------------------------------
+    it('should include meta information (company_id, generated_at) in the output', async () => {
         const result = await handler({ carrier_id: 1 });
         const text = result.content[0].text;
 
         expect(text).toContain('12345');
-        expect(text).toContain('cached: no');
+        expect(text).toContain('generated:');
     });
 
     // -------------------------------------------------------------------------
-    // 15. Empty services list renders graceful message
+    // 16. Empty services list renders graceful message
     // -------------------------------------------------------------------------
     it('should render graceful message when services array is empty', async () => {
         const fixture = makeConstraintsResponse();
@@ -391,7 +420,7 @@ describe('envia_get_carrier_constraints', () => {
     });
 
     // -------------------------------------------------------------------------
-    // 16. additional_services=null renders no additional services section
+    // 17. additional_services=null renders no additional services section
     // -------------------------------------------------------------------------
     it('should not render additional services section when backend returns null', async () => {
         const fixture = makeConstraintsResponse();
@@ -405,7 +434,7 @@ describe('envia_get_carrier_constraints', () => {
     });
 
     // -------------------------------------------------------------------------
-    // 17. Backend 422 (service_id mismatch) surfaces clear error
+    // 18. Backend 422 (service_id mismatch) surfaces clear error
     // -------------------------------------------------------------------------
     it('should surface 422 validation error message when service_id mismatches carrier', async () => {
         mockFetch.mockResolvedValueOnce(
@@ -420,5 +449,127 @@ describe('envia_get_carrier_constraints', () => {
         const text = result.content[0].text;
 
         expect(text).toContain('service_id does not belong to this carrier');
+    });
+
+    // -------------------------------------------------------------------------
+    // 19. D4: international_scope is rendered for a national service (code 0)
+    // -------------------------------------------------------------------------
+    it('should render "national (code 0)" for a domestic service', async () => {
+        const result = await handler({ carrier_id: 1 });
+        const text = result.content[0].text;
+
+        expect(text).toContain('national (code 0)');
+    });
+
+    // -------------------------------------------------------------------------
+    // 20. D4: international_scope is rendered for an international service (code 1)
+    // -------------------------------------------------------------------------
+    it('should render "international (code 1)" for an export service', async () => {
+        const result = await handler({ carrier_id: 1 });
+        const text = result.content[0].text;
+
+        expect(text).toContain('international (code 1)');
+    });
+
+    // -------------------------------------------------------------------------
+    // 21. D4: international_scope "import" (code 2) is rendered correctly
+    // -------------------------------------------------------------------------
+    it('should render "import (code 2)" for an import service', async () => {
+        const fixture = makeConstraintsResponse();
+        fixture.data.services = [{
+            ...fixture.data.services[0],
+            id: 25,
+            service_code: 'FEDEX_IMPORT',
+            name: 'FedEx Import',
+            international: true,
+            international_code: 2,
+            international_scope: 'import',
+        }];
+        mockFetch.mockResolvedValueOnce(makeApiResponse(fixture));
+
+        const result = await handler({ carrier_id: 1 });
+        const text = result.content[0].text;
+
+        expect(text).toContain('import (code 2)');
+    });
+
+    // -------------------------------------------------------------------------
+    // 22. D4: international_scope "thirdparty" (code 3) is rendered correctly
+    // -------------------------------------------------------------------------
+    it('should render "thirdparty (code 3)" for a third-party international service', async () => {
+        const fixture = makeConstraintsResponse();
+        fixture.data.services = [{
+            ...fixture.data.services[0],
+            id: 26,
+            service_code: 'FEDEX_THIRDPARTY',
+            name: 'FedEx Third Party',
+            international: true,
+            international_code: 3,
+            international_scope: 'thirdparty',
+        }];
+        mockFetch.mockResolvedValueOnce(makeApiResponse(fixture));
+
+        const result = await handler({ carrier_id: 1 });
+        const text = result.content[0].text;
+
+        expect(text).toContain('thirdparty (code 3)');
+    });
+
+    // -------------------------------------------------------------------------
+    // 23. D6: both tracking URLs are rendered with correct labels
+    // -------------------------------------------------------------------------
+    it('should render both Envia and carrier tracking URLs with their labels', async () => {
+        const result = await handler({ carrier_id: 1 });
+        const text = result.content[0].text;
+
+        expect(text).toContain('Envia tracking:');
+        expect(text).toContain('Carrier tracking:');
+        expect(text).toContain('envia.com/track');
+        expect(text).toContain('fedex.com/fedextrack');
+    });
+
+    // -------------------------------------------------------------------------
+    // 24. D9: coverage_summary placeholder renders "pending Phase 2" message
+    // -------------------------------------------------------------------------
+    it('should render "pending Phase 2" message when coverage_summary has _unavailable set', async () => {
+        const fixture = makeConstraintsResponse();
+        fixture.data.coverage_summary = {
+            _unavailable: 'Computed asynchronously — pending Phase 2',
+            by_service: [],
+        };
+        mockFetch.mockResolvedValueOnce(makeApiResponse(fixture));
+
+        const result = await handler({ carrier_id: 1 });
+        const text = result.content[0].text;
+
+        expect(text).toContain('pending Phase 2');
+        expect(text).toContain('Coverage Summary');
+    });
+
+    // -------------------------------------------------------------------------
+    // 25. D11: meta._note is rendered prominently when services[] is empty
+    // -------------------------------------------------------------------------
+    it('should render meta._note prominently when carrier has no services for the company', async () => {
+        const fixture = makeConstraintsResponse();
+        fixture.data.services = [];
+        fixture.meta._note = 'Carrier exists but has no services available for your company.';
+        mockFetch.mockResolvedValueOnce(makeApiResponse(fixture));
+
+        const result = await handler({ carrier_id: 1 });
+        const text = result.content[0].text;
+
+        expect(text).toContain('Note:');
+        expect(text).toContain('no services available');
+    });
+
+    // -------------------------------------------------------------------------
+    // 26. D5: volumetric_factor_id is shown in the carrier header when present
+    // -------------------------------------------------------------------------
+    it('should include volumetric_factor_id catalog reference when present', async () => {
+        const result = await handler({ carrier_id: 1 });
+        const text = result.content[0].text;
+
+        // volumetric_factor_id: 12 should appear as "catalog id: 12"
+        expect(text).toContain('catalog id: 12');
     });
 });

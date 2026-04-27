@@ -823,6 +823,27 @@ self-service capability discovery work.
 follow-up clarification, modulo the 4 open questions enumerated in
 spec §12.
 
+**[2026-04-27 UPDATE — Spec v2 published. Backend team can proceed with implementation.]**
+A backend code review session on 2026-04-27 produced 13 decisions that
+have been incorporated into spec v2. All open questions from v1 §12 have
+been resolved or have documented fallback rules. The spec is now authoritative
+and self-contained. MCP code (`src/types/carrier-constraints.ts`,
+`src/services/carrier-constraints.ts`, `src/tools/get-carrier-constraints.ts`)
+has been aligned to the v2 contract in the same commit. Summary of the 13
+closed decisions:
+  1–3.  Company JWT filters four tables (private carriers, private services,
+        disabled carriers, disabled services) — backend-side, no MCP changes.
+  4.    `international` is now a triple field (bool + int code + string scope).
+  5.    `volumetric_factor_id` added as optional FK alongside the actual divisor.
+  6.    Tracking split into `envia_track_url_template` + `carrier_track_url_template`.
+  7.    `additional_service_prices.active = 1` enforced in query — backend-side.
+  8.    Coverage summary SQL corrected to use `carriers.locale_id → locales.country_code`.
+  9.    Coverage summary returns Phase 1 placeholder, never fails the request.
+  10.   `carrier.endpoint` omitted from response (internal URL security).
+  11.   "Carrier not active" 404 removed; empty services returns 200 + `meta._note`.
+  12.   Strict 400 (malformed input) vs 422 (business mismatch) distinction.
+  13.   `meta.cached` removed; cache observability via Datadog APM span attributes.
+
 ---
 
 ## Closed since this brief was drafted (resolution log)

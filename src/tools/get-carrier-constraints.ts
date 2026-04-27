@@ -16,7 +16,7 @@
  * once the backend deploys.
  *
  * Data source: GET ${shippingBase}/carrier-constraints/{carrier_id}
- * Spec: _docs/specs/CARRIER_CONSTRAINTS_ENDPOINT_SPEC.md
+ * Spec: _docs/specs/CARRIER_CONSTRAINTS_ENDPOINT_SPEC.md (v2)
  */
 
 import { z } from 'zod';
@@ -32,6 +32,8 @@ import type {
     ServiceConstraint,
     AdditionalServiceRef,
     CompanyOverride,
+    CoverageSummary,
+    ResponseMeta,
 } from '../types/carrier-constraints.js';
 
 // ---------------------------------------------------------------------------
@@ -39,29 +41,40 @@ import type {
 // ---------------------------------------------------------------------------
 
 /**
- * Format the carrier identity block (name, volumetric factor, pickup window).
+ * Format the carrier identity block (name, volumetric factor, pickup window,
+ * and tracking URLs).
+ *
+ * D6: Both envia_track_url_template and carrier_track_url_template are rendered
+ * with clear labels so the user can distinguish between the Envia tracking page
+ * and the carrier's own tracking page.
  *
  * @param data - Full response data block
  * @returns Formatted markdown section
  */
 function formatCarrierHeader(data: CarrierConstraintsResponse['data']): string {
-    const { carrier, pickup } = data;
+    const { carrier, pickup, tracking } = data;
     const pickupLine = pickup.supported
         ? `${pickup.start_hour}:00–${pickup.end_hour}:00 (span ${pickup.span_minutes} min${pickup.same_day ? ', same-day' : ''})`
         : 'not supported';
     const pickupFee = pickup.fee > 0 ? ` — fee ${pickup.fee}` : ' — free';
 
+    const volFactorId = carrier.volumetric_factor_id != null
+        ? ` (catalog id: ${carrier.volumetric_factor_id})`
+        : '';
+
     const lines: string[] = [
         `## ${carrier.display_name} (id: ${carrier.id})`,
         '',
         `Controller: ${carrier.controller}`,
-        `Volumetric factor: ${carrier.volumetric_factor}`,
+        `Volumetric factor: ${carrier.volumetric_factor}${volFactorId}`,
         `Box weight: ${carrier.box_weight} kg  |  Pallet weight: ${carrier.pallet_weight} kg`,
         `MPS (multi-piece): ${carrier.allows_mps ? 'yes' : 'no'}`,
         `Async label creation: ${carrier.allows_async_create ? 'yes' : 'no'}`,
         '',
         `**Pickup:** ${pickupLine}${pickup.supported ? pickupFee : ''}`,
-        `**Tracking pattern:** ${data.tracking.pattern ?? 'n/a'}  |  track limit: ${data.tracking.track_limit}`,
+        `**Tracking pattern:** ${tracking.pattern ?? 'n/a'}  |  track limit: ${tracking.track_limit}`,
+        `**Envia tracking:** ${tracking.envia_track_url_template}`,
+        `**Carrier tracking:** ${tracking.carrier_track_url_template}`,
     ];
 
     return lines.join('\n');
@@ -85,6 +98,9 @@ function formatOverride(override: CompanyOverride): string {
 /**
  * Format a single service entry into a compact table row.
  *
+ * D4: `international_scope` is rendered instead of just the boolean.
+ * Example: "International: import (code 2)" instead of "International: yes".
+ *
  * @param svc - Service constraint object
  * @returns Formatted table row string
  */
@@ -93,12 +109,13 @@ function formatServiceRow(svc: ServiceConstraint): string {
         ? `COD ✓ (min ${svc.cash_on_delivery.minimum_amount ?? '—'}, ${svc.cash_on_delivery.commission_percentage ?? '—'}%)`
         : 'COD ✗';
     const dropOff = svc.options.drop_off ? 'drop-off ✓' : 'drop-off ✗';
-    const intl = svc.international ? '[intl]' : '[domestic]';
+    // D4: render scope label + code for clarity, e.g. "International: import (code 2)"
+    const intlLabel = `International: ${svc.international_scope} (code ${svc.international_code})`;
     const override = formatOverride(svc.limits.company_override);
 
     return [
         `### ${svc.name} (id: ${svc.id}, ${svc.service_code})`,
-        `${intl}  |  ${svc.delivery_estimate ?? 'ETA unknown'}`,
+        `${intlLabel}  |  ${svc.delivery_estimate ?? 'ETA unknown'}`,
         `Weight: ${svc.limits.min_weight_kg ?? 0}–${svc.limits.max_weight_kg} kg  |  vol. factor: ${svc.limits.volumetric_factor}  |  pallets: ${svc.limits.limit_pallets}`,
         `${cod}  |  ${dropOff}`,
         `Operational: cutoff ${svc.operational.hour_limit ?? 'n/a'}  |  timeout ${svc.operational.timeout_seconds}s  |  max ${svc.operational.pickup_package_max} pkgs/pickup`,
@@ -108,6 +125,9 @@ function formatServiceRow(svc: ServiceConstraint): string {
 
 /**
  * Format the services list section.
+ *
+ * D11: when services is empty and meta._note is set, the caller renders the
+ * _note prominently instead of a generic "no services" message.
  *
  * @param services - Array of service constraints
  * @returns Formatted markdown section with one sub-section per service
@@ -143,6 +163,53 @@ function formatAdditionalServices(addons: AdditionalServiceRef[] | null): string
     });
 
     return `## Additional Services (${addons.length})\n\n${header}\n${sep}\n${rows.join('\n')}`;
+}
+
+/**
+ * Format the coverage summary section.
+ *
+ * D9: when `_unavailable` is set (Phase 1 placeholder), render a clear
+ * "pending Phase 2" message instead of an empty or confusing section.
+ *
+ * @param coverage - Coverage summary object (may be null)
+ * @returns Formatted markdown section, or empty string if not present
+ */
+function formatCoverageSummary(coverage: CoverageSummary | null): string {
+    if (!coverage) {
+        return '';
+    }
+    if (coverage._unavailable) {
+        return `## Coverage Summary\n\nCoverage summary: pending Phase 2 (${coverage._unavailable})`;
+    }
+    if (coverage.by_service.length === 0) {
+        return '## Coverage Summary\n\nNo coverage data available.';
+    }
+
+    const lines: string[] = ['## Coverage Summary'];
+    for (const entry of coverage.by_service) {
+        const countries = entry.countries
+            .map((c) => `${c.country_code}: ${c.postal_code_count.toLocaleString()} postal codes`)
+            .join(', ');
+        lines.push(`Service ${entry.service_id}: ${countries}`);
+    }
+    return lines.join('\n');
+}
+
+/**
+ * Format the response meta footer.
+ *
+ * D11: `_note` is rendered prominently when present (carrier has no services
+ * for this company).
+ * D13: `cached` removed from meta — not in the response body.
+ *
+ * @param meta - Response metadata block
+ * @returns Formatted footer string
+ */
+function formatMeta(meta: ResponseMeta): string {
+    const noteSection = meta._note
+        ? `\n⚠ Note: ${meta._note}\n`
+        : '';
+    return `${noteSection}---\n_Company id: ${meta.company_id ?? 'n/a'}  |  generated: ${meta.generated_at}_`;
 }
 
 // ---------------------------------------------------------------------------
@@ -217,6 +284,14 @@ export function registerGetCarrierConstraints(
 
                 lines.push(formatCarrierHeader(data));
                 lines.push('');
+
+                // D11: when meta._note is present and services[] is empty, show the note
+                // prominently before the services section.
+                if (meta._note && data.services.length === 0) {
+                    lines.push(`⚠ Note: ${meta._note}`);
+                    lines.push('');
+                }
+
                 lines.push(formatServices(data.services));
                 lines.push('');
 
@@ -226,22 +301,13 @@ export function registerGetCarrierConstraints(
                     lines.push('');
                 }
 
-                if (data.coverage_summary && data.coverage_summary.by_service.length > 0) {
-                    lines.push('## Coverage Summary');
-                    for (const entry of data.coverage_summary.by_service) {
-                        const countries = entry.countries
-                            .map((c) => `${c.country_code}: ${c.postal_code_count.toLocaleString()} postal codes`)
-                            .join(', ');
-                        lines.push(`Service ${entry.service_id}: ${countries}`);
-                    }
+                const coverageSection = formatCoverageSummary(data.coverage_summary);
+                if (coverageSection) {
+                    lines.push(coverageSection);
                     lines.push('');
                 }
 
-                lines.push(
-                    `---\n_Company id: ${meta.company_id ?? 'n/a'}  |  ` +
-                    `cached: ${meta.cached ? 'yes' : 'no'}  |  ` +
-                    `generated: ${meta.generated_at}_`,
-                );
+                lines.push(formatMeta(meta));
 
                 return textResponse(lines.join('\n'));
             } catch (err: unknown) {

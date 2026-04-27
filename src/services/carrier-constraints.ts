@@ -11,8 +11,16 @@
  * ENVIA_ENVIRONMENT env var (which controls shippingBase) needs to
  * point to the live carriers service.
  *
+ * Results reflect availability for the company associated with the JWT
+ * (not a global catalog). Four tables are applied server-side:
+ *   - company_private_carriers   — carriers enabled for the company
+ *   - company_private_services   — services enabled for the company (D2)
+ *   - config_disabled_carriers   — carriers disabled for the company (D3)
+ *   - config_disabled_services   — services disabled for the company (D3)
+ * The MCP receives only the filtered result — no client-side filtering needed.
+ *
  * Data source: ${config.shippingBase}/carrier-constraints/{carrier_id}
- * Spec: _docs/specs/CARRIER_CONSTRAINTS_ENDPOINT_SPEC.md
+ * Spec: _docs/specs/CARRIER_CONSTRAINTS_ENDPOINT_SPEC.md (v2)
  */
 
 import type { EnviaApiClient } from '../utils/api-client.js';
@@ -48,10 +56,20 @@ export interface FetchCarrierConstraintsOptions {
  * and ?include=... query parameters. Returns the strongly-typed response on
  * success, or throws an Error with a user-friendly message on any failure.
  *
+ * Results reflect the company identified by the JWT (D1-D3): filters for
+ * company_private_carriers, company_private_services, config_disabled_carriers,
+ * and config_disabled_services are applied server-side.
+ *
+ * D11 — Empty services (200 + services: []): when the carrier exists but has
+ * no services available for the requesting company, the backend returns HTTP 200
+ * with `services: []` and `meta._note` set. This is NOT an error — return the
+ * response normally. The tool formatter renders `meta._note` prominently.
+ *
  * Error mapping:
+ *   - 400 (malformed carrier_id or invalid include) → propagates backend message
  *   - 401 → "Authentication failed — verify your ENVIA_API_KEY."
- *   - 404 (carrier not found / not active) → clear message + C11 note if applicable
- *   - 422 → propagates backend validation message
+ *   - 404 (carrier not found) → "Carrier not found." or C11 note if endpoint missing
+ *   - 422 (service_id valid but does not belong to this carrier) → propagates backend message
  *   - 5xx → "Backend error: {message}"
  *   - network → rethrows the network error from the client
  *
@@ -84,6 +102,8 @@ export async function fetchCarrierConstraints(
     const res = await client.get<CarrierConstraintsResponse>(url);
 
     if (res.ok) {
+        // D11: 200 + empty services[] + meta._note is a valid response, not an error.
+        // Return it normally; the formatter handles the _note rendering.
         return res.data;
     }
 
@@ -96,6 +116,12 @@ export async function fetchCarrierConstraints(
         : (res.error ?? '');
 
     switch (res.status) {
+        case 400:
+            // D12: 400 = malformed input (bad carrier_id, unknown include value, etc.)
+            throw new Error(
+                rawError || 'Bad request — check that carrier_id is a positive integer and include values are valid.',
+            );
+
         case 401:
             throw new Error(
                 'Authentication failed — verify your ENVIA_API_KEY is valid and not expired.',
@@ -106,12 +132,8 @@ export async function fetchCarrierConstraints(
             // not yet existing (C11 not shipped). The backend returns a plain-text
             // "Not Found" / empty body when the route doesn't exist, vs. a JSON
             // { error: "Carrier not found" } when the route exists but the carrier is missing.
-            const isEndpointMissing =
-                !rawError ||
-                rawError.toLowerCase().includes('not found') === false ||
-                res.status === 404 && rawError.trim() === '';
-
-            if (isEndpointMissing && rawError.trim() === '') {
+            // D11: "Carrier not active" has been removed — backend now returns 200 + empty services.
+            if (rawError.trim() === '') {
                 throw new Error(
                     'Carrier constraints endpoint is not yet available (backend ticket C11 pending). ' +
                     'This tool will work automatically once the backend ships the endpoint.',
@@ -124,8 +146,9 @@ export async function fetchCarrierConstraints(
         }
 
         case 422:
+            // D12: 422 = business mismatch (service_id valid but does not belong to this carrier).
             throw new Error(
-                rawError || 'Validation error — check that service_id belongs to the requested carrier.',
+                rawError || 'Validation error — service_id does not belong to the requested carrier.',
             );
 
         default:

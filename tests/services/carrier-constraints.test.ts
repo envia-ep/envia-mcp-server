@@ -3,6 +3,13 @@
  *
  * All HTTP calls are mocked via vi.stubGlobal('fetch', ...).
  * Tests are fully offline and deterministic.
+ *
+ * v2 changes (2026-04-27):
+ *   - Fixtures updated: international triple field (D4), volumetric_factor_id (D5),
+ *     envia/carrier track URLs (D6), endpoint removed (D10), meta._note (D11),
+ *     meta.cached removed (D13).
+ *   - New tests: 400 malformed input (D12), 422 business mismatch (D12),
+ *     empty services + meta._note (D11).
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -16,8 +23,16 @@ import type { CarrierConstraintsResponse } from '../../src/types/carrier-constra
 // =============================================================================
 
 /**
- * Build a minimal but realistic CarrierConstraintsResponse fixture.
- * Matches spec §2.2 verbatim for FedEx carrier id=1.
+ * Build a minimal but realistic CarrierConstraintsResponse fixture (v2).
+ * Matches spec §2.2 v2 for FedEx carrier id=1.
+ *
+ * v2 changes applied to fixture:
+ *   D4:  services include international_code + international_scope.
+ *   D5:  carrier includes volumetric_factor_id (optional — present in base fixture).
+ *   D6:  tracking uses envia_track_url_template + carrier_track_url_template.
+ *   D10: carrier.endpoint removed.
+ *   D11: meta._note absent in happy-path fixture (only present in empty-services scenario).
+ *   D13: meta.cached removed.
  */
 function makeConstraintsResponse(overrides: Partial<CarrierConstraintsResponse> = {}): CarrierConstraintsResponse {
     return {
@@ -29,9 +44,9 @@ function makeConstraintsResponse(overrides: Partial<CarrierConstraintsResponse> 
                 display_name: 'FedEx',
                 controller: 'FedexRest',
                 color: '#4D148C',
-                endpoint: 'https://apis.fedex.com',
-                track_url: 'https://www.fedex.com/fedextrack/?trknbr={tracking_number}',
+                // D10: endpoint intentionally absent
                 volumetric_factor: 5000,
+                volumetric_factor_id: 12, // D5: optional FK present in this fixture
                 box_weight: 0.5,
                 pallet_weight: 30,
                 allows_mps: true,
@@ -51,7 +66,9 @@ function makeConstraintsResponse(overrides: Partial<CarrierConstraintsResponse> 
                 fee: 0.0,
             },
             tracking: {
-                track_url_template: 'https://www.fedex.com/fedextrack/?trknbr={tracking_number}',
+                // D6: two separate URLs
+                envia_track_url_template: 'https://envia.com/track/{tracking_number}',
+                carrier_track_url_template: 'https://www.fedex.com/fedextrack/?trknbr={tracking_number}',
                 pattern: '^[0-9]{12}$',
                 track_limit: 100,
                 tracking_delay_minutes: 30,
@@ -63,7 +80,9 @@ function makeConstraintsResponse(overrides: Partial<CarrierConstraintsResponse> 
                     name: 'FedEx Ground',
                     description: 'Domestic ground shipping',
                     delivery_estimate: '3-5 business days',
-                    international: false,
+                    international: false,          // D4
+                    international_code: 0,          // D4
+                    international_scope: 'national', // D4
                     limits: {
                         min_weight_kg: 0.1,
                         max_weight_kg: 30,
@@ -101,11 +120,13 @@ function makeConstraintsResponse(overrides: Partial<CarrierConstraintsResponse> 
                 },
                 {
                     id: 24,
-                    service_code: 'FEDEX_EXPRESS',
-                    name: 'FedEx Express',
-                    description: 'Overnight express',
-                    delivery_estimate: '1 business day',
-                    international: false,
+                    service_code: 'FEDEX_EXPRESS_INT',
+                    name: 'FedEx International Express',
+                    description: 'International overnight express',
+                    delivery_estimate: '1-3 business days',
+                    international: true,              // D4
+                    international_code: 1,             // D4: export
+                    international_scope: 'international', // D4
                     limits: {
                         min_weight_kg: 0.1,
                         max_weight_kg: 68,
@@ -127,7 +148,7 @@ function makeConstraintsResponse(overrides: Partial<CarrierConstraintsResponse> 
                         custom_plan: false,
                     },
                     shipment_type: { id: 1, label: 'parcel' },
-                    rate_type: { id: 2, label: 'domestic' },
+                    rate_type: { id: 3, label: 'international' },
                     operational: {
                         hour_limit: '14:00',
                         timeout_seconds: 30,
@@ -178,7 +199,7 @@ function makeConstraintsResponse(overrides: Partial<CarrierConstraintsResponse> 
             carrier_id: 1,
             company_id: 12345,
             service_filter: null,
-            cached: false,
+            // D13: cached removed
             generated_at: '2026-04-27T18:42:13Z',
         },
         ...overrides,
@@ -223,16 +244,76 @@ describe('fetchCarrierConstraints', () => {
     });
 
     // -------------------------------------------------------------------------
-    // 2. Carrier meta fields are present
+    // 2. Carrier meta fields are present (D5: volumetric_factor_id present)
     // -------------------------------------------------------------------------
-    it('should expose carrier volumetric_factor in the response', async () => {
+    it('should expose carrier volumetric_factor and volumetric_factor_id in the response', async () => {
         const result = await fetchCarrierConstraints(client, 1, {}, MOCK_CONFIG);
 
         expect(result.data.carrier.volumetric_factor).toBe(5000);
+        expect(result.data.carrier.volumetric_factor_id).toBe(12);
     });
 
     // -------------------------------------------------------------------------
-    // 3. Services list is present
+    // 3. D5: volumetric_factor_id is optional (absent when not in response)
+    // -------------------------------------------------------------------------
+    it('should work correctly when volumetric_factor_id is absent', async () => {
+        const fixture = makeConstraintsResponse();
+        delete (fixture.data.carrier as Record<string, unknown>).volumetric_factor_id;
+        mockFetch.mockResolvedValueOnce(makeApiResponse(fixture));
+
+        const result = await fetchCarrierConstraints(client, 1, {}, MOCK_CONFIG);
+
+        expect(result.data.carrier.volumetric_factor).toBe(5000);
+        expect(result.data.carrier.volumetric_factor_id).toBeUndefined();
+    });
+
+    // -------------------------------------------------------------------------
+    // 4. D10: carrier.endpoint is NOT present in the response
+    // -------------------------------------------------------------------------
+    it('should not include endpoint field on carrier (security decision D10)', async () => {
+        const result = await fetchCarrierConstraints(client, 1, {}, MOCK_CONFIG);
+
+        expect((result.data.carrier as Record<string, unknown>).endpoint).toBeUndefined();
+    });
+
+    // -------------------------------------------------------------------------
+    // 5. D6: both tracking URL templates are present
+    // -------------------------------------------------------------------------
+    it('should expose both envia_track_url_template and carrier_track_url_template', async () => {
+        const result = await fetchCarrierConstraints(client, 1, {}, MOCK_CONFIG);
+
+        expect(result.data.tracking.envia_track_url_template).toContain('envia.com');
+        expect(result.data.tracking.carrier_track_url_template).toContain('fedex.com');
+    });
+
+    // -------------------------------------------------------------------------
+    // 6. D4: services include international triple field
+    // -------------------------------------------------------------------------
+    it('should include international_code and international_scope on each service', async () => {
+        const result = await fetchCarrierConstraints(client, 1, {}, MOCK_CONFIG);
+
+        const domestic = result.data.services[0];
+        expect(domestic.international).toBe(false);
+        expect(domestic.international_code).toBe(0);
+        expect(domestic.international_scope).toBe('national');
+
+        const intl = result.data.services[1];
+        expect(intl.international).toBe(true);
+        expect(intl.international_code).toBe(1);
+        expect(intl.international_scope).toBe('international');
+    });
+
+    // -------------------------------------------------------------------------
+    // 7. D13: meta.cached is NOT present in the response
+    // -------------------------------------------------------------------------
+    it('should not include meta.cached in the response', async () => {
+        const result = await fetchCarrierConstraints(client, 1, {}, MOCK_CONFIG);
+
+        expect((result.meta as Record<string, unknown>).cached).toBeUndefined();
+    });
+
+    // -------------------------------------------------------------------------
+    // 8. Services list is present
     // -------------------------------------------------------------------------
     it('should include services array with service constraints', async () => {
         const result = await fetchCarrierConstraints(client, 1, {}, MOCK_CONFIG);
@@ -242,7 +323,7 @@ describe('fetchCarrierConstraints', () => {
     });
 
     // -------------------------------------------------------------------------
-    // 4. company_override applied=true is preserved
+    // 9. company_override applied=true is preserved
     // -------------------------------------------------------------------------
     it('should preserve company_override applied=true in service limits', async () => {
         const result = await fetchCarrierConstraints(client, 1, {}, MOCK_CONFIG);
@@ -253,7 +334,7 @@ describe('fetchCarrierConstraints', () => {
     });
 
     // -------------------------------------------------------------------------
-    // 5. company_override applied=false is preserved
+    // 10. company_override applied=false is preserved
     // -------------------------------------------------------------------------
     it('should preserve company_override applied=false for services with no override', async () => {
         const result = await fetchCarrierConstraints(client, 1, {}, MOCK_CONFIG);
@@ -263,7 +344,7 @@ describe('fetchCarrierConstraints', () => {
     });
 
     // -------------------------------------------------------------------------
-    // 6. Query string includes service_id when provided
+    // 11. Query string includes service_id when provided
     // -------------------------------------------------------------------------
     it('should append service_id query param when serviceId option is set', async () => {
         await fetchCarrierConstraints(client, 1, { serviceId: 23 }, MOCK_CONFIG);
@@ -273,7 +354,7 @@ describe('fetchCarrierConstraints', () => {
     });
 
     // -------------------------------------------------------------------------
-    // 7. Query string includes include param when provided
+    // 12. Query string includes include param when provided
     // -------------------------------------------------------------------------
     it('should append include query param when include option is set', async () => {
         await fetchCarrierConstraints(
@@ -288,7 +369,7 @@ describe('fetchCarrierConstraints', () => {
     });
 
     // -------------------------------------------------------------------------
-    // 8. Default include=additional_services applied when omitted
+    // 13. Default include=additional_services applied when omitted
     // -------------------------------------------------------------------------
     it('should default include to additional_services when options.include is omitted', async () => {
         await fetchCarrierConstraints(client, 1, {}, MOCK_CONFIG);
@@ -298,7 +379,7 @@ describe('fetchCarrierConstraints', () => {
     });
 
     // -------------------------------------------------------------------------
-    // 9. Correct URL path is constructed
+    // 14. Correct URL path is constructed
     // -------------------------------------------------------------------------
     it('should call the correct shippingBase URL with carrier_id in path', async () => {
         await fetchCarrierConstraints(client, 7, {}, MOCK_CONFIG);
@@ -308,7 +389,7 @@ describe('fetchCarrierConstraints', () => {
     });
 
     // -------------------------------------------------------------------------
-    // 10. 404 response throws "Carrier not found"
+    // 15. 404 response throws "Carrier not found"
     // -------------------------------------------------------------------------
     it('should throw "Carrier not found" on HTTP 404 with carrier error body', async () => {
         mockFetch.mockResolvedValueOnce(
@@ -321,7 +402,7 @@ describe('fetchCarrierConstraints', () => {
     });
 
     // -------------------------------------------------------------------------
-    // 11. 401 response throws authentication error
+    // 16. 401 response throws authentication error
     // -------------------------------------------------------------------------
     it('should throw authentication error on HTTP 401', async () => {
         mockFetch.mockResolvedValueOnce(
@@ -334,7 +415,41 @@ describe('fetchCarrierConstraints', () => {
     });
 
     // -------------------------------------------------------------------------
-    // 12. 422 propagates backend validation message
+    // 17. D12: 400 malformed input throws with backend message
+    // -------------------------------------------------------------------------
+    it('should throw with backend message on HTTP 400 malformed input', async () => {
+        mockFetch.mockResolvedValueOnce(
+            makeApiResponse(
+                { error: 'carrier_id must be a positive integer', status: 'error' },
+                false,
+                400,
+            ),
+        );
+
+        await expect(
+            fetchCarrierConstraints(client, 1, {}, MOCK_CONFIG),
+        ).rejects.toThrow('carrier_id must be a positive integer');
+    });
+
+    // -------------------------------------------------------------------------
+    // 18. D12: 400 unknown include value throws with backend message
+    // -------------------------------------------------------------------------
+    it('should throw with backend message on HTTP 400 unknown include value', async () => {
+        mockFetch.mockResolvedValueOnce(
+            makeApiResponse(
+                { error: 'include accepts only: additional_services, coverage_summary', status: 'error' },
+                false,
+                400,
+            ),
+        );
+
+        await expect(
+            fetchCarrierConstraints(client, 1, {}, MOCK_CONFIG),
+        ).rejects.toThrow('include accepts only');
+    });
+
+    // -------------------------------------------------------------------------
+    // 19. D12: 422 = service_id valid but does not belong to this carrier
     // -------------------------------------------------------------------------
     it('should throw with backend validation message on HTTP 422', async () => {
         mockFetch.mockResolvedValueOnce(
@@ -351,7 +466,23 @@ describe('fetchCarrierConstraints', () => {
     });
 
     // -------------------------------------------------------------------------
-    // 13. 5xx response throws "Backend error"
+    // 20. D11: 200 + empty services + meta._note is returned normally (not an error)
+    // -------------------------------------------------------------------------
+    it('should return response normally on 200 with empty services and meta._note', async () => {
+        const fixture = makeConstraintsResponse();
+        fixture.data.services = [];
+        fixture.meta._note = 'Carrier exists but has no services available for your company.';
+        mockFetch.mockResolvedValueOnce(makeApiResponse(fixture));
+
+        const result = await fetchCarrierConstraints(client, 1, {}, MOCK_CONFIG);
+
+        expect(result.status).toBe('success');
+        expect(result.data.services).toHaveLength(0);
+        expect(result.meta._note).toContain('no services available');
+    });
+
+    // -------------------------------------------------------------------------
+    // 21. 5xx response throws "Backend error"
     // Mock client.get directly to avoid triggering the 3-retry backoff loop
     // that the lower-level fetch mock would cause on 500 responses.
     // -------------------------------------------------------------------------
@@ -369,7 +500,7 @@ describe('fetchCarrierConstraints', () => {
     });
 
     // -------------------------------------------------------------------------
-    // 14. Network/timeout error is propagated
+    // 22. Network/timeout error is propagated
     // Mock client.get directly to avoid the retry backoff delays.
     // -------------------------------------------------------------------------
     it('should propagate network-level errors from the client', async () => {
@@ -386,7 +517,7 @@ describe('fetchCarrierConstraints', () => {
     });
 
     // -------------------------------------------------------------------------
-    // 15. additional_services are returned in the response
+    // 23. additional_services are returned in the response
     // -------------------------------------------------------------------------
     it('should include additional_services in the response data', async () => {
         const result = await fetchCarrierConstraints(client, 1, {}, MOCK_CONFIG);
@@ -396,7 +527,7 @@ describe('fetchCarrierConstraints', () => {
     });
 
     // -------------------------------------------------------------------------
-    // 16. meta fields are present and correct
+    // 24. meta fields are present and correct
     // -------------------------------------------------------------------------
     it('should include correct meta block with carrier_id and generated_at', async () => {
         const result = await fetchCarrierConstraints(client, 1, {}, MOCK_CONFIG);
