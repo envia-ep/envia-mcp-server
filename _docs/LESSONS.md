@@ -410,12 +410,33 @@ generic-form GET instead.
 numeric claims (volumetric factor 1,000,000). Accepted uncritically,
 then user corrected.
 
+**Empirical error rate (admon-monorepo audit, 2026-04-26):** 5
+corrections out of 16 random-sampled claims = **~31% error rate** when
+explorer-agent claims are not directly source-verified. Top error mode:
+agents over-count endpoints by ~2× when grep-counting handler
+invocations or other patterns instead of route-object definitions
+(e.g., Agent 2 reported 94 endpoints in `finances.routes.js` where
+the true count is 49). Other modes: structure misinterpretation (Agent
+3 reported a 26-element flat array of permission IDs that is actually
+a 25-tuple `[perm_id, ticket_type_id]` mapping), and conflating
+distinct code paths (claiming "constant-time comparison" for a token
+strategy when only ONE of two cron auth paths actually uses it).
+
 **Rule.**
 - When an Explore agent returns numeric facts, carrier-specific rules,
   or business logic claims — spot-check at least one before using in a
   decision or shipping.
+- For endpoint counts specifically, verify via:
+  `grep -c -E "method:\s*'(GET|POST|PUT|PATCH|DELETE)'" <route-file>`.
+  Don't accept agent-reported totals.
+- For arrays/structures claimed as "flat list of N items" — open the
+  source file, don't trust the description.
 - Explore agents are great at scope and structure, weaker at
   interpreting dense PHP/Node semantics. Trust with verification.
+- Plan for ~30% spot-check rate on critical numeric claims; budget
+  the cross-check time into the audit, don't treat it as optional.
+
+---
 
 ---
 
