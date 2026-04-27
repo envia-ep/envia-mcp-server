@@ -9,6 +9,7 @@ import {
     resolveDaneCode,
     getBrazilIcms,
     normaliseLocationPair,
+    applyCanaryIslandsOverride,
     DANE_CODE_PATTERN,
 } from '../../src/services/geocodes-helpers.js';
 import { EnviaApiClient } from '../../src/utils/api-client.js';
@@ -39,6 +40,74 @@ describe('normaliseLocationPair', () => {
         const out = normaliseLocationPair({ country_code: 'mx', state_code: 'nl', postal_code: ' 64000 ' });
 
         expect(out.postal_code).toBe('64000');
+    });
+
+    it('should override ES → IC when destination postal code starts with 35 (Las Palmas)', () => {
+        const out = normaliseLocationPair({
+            country_code: 'ES',
+            state_code: 'ES-CN',
+            postal_code: '35001',
+        });
+
+        expect(out.country_code).toBe('IC');
+        expect(out.postal_code).toBe('35001');
+    });
+
+    it('should override ES → IC when destination postal code starts with 38 (Tenerife)', () => {
+        const out = normaliseLocationPair({
+            country_code: 'ES',
+            state_code: 'ES-TF',
+            postal_code: '38001',
+        });
+
+        expect(out.country_code).toBe('IC');
+    });
+});
+
+describe('applyCanaryIslandsOverride', () => {
+    it('should return IC for ES + Las Palmas postal codes (35xxx)', () => {
+        expect(applyCanaryIslandsOverride('ES', '35001')).toBe('IC');
+    });
+
+    it('should return IC for ES + Tenerife postal codes (38xxx)', () => {
+        expect(applyCanaryIslandsOverride('ES', '38001')).toBe('IC');
+    });
+
+    it('should return ES for ES + Madrid postal codes (28xxx)', () => {
+        expect(applyCanaryIslandsOverride('ES', '28001')).toBe('ES');
+    });
+
+    it('should return ES for ES + Ceuta postal codes (51xxx)', () => {
+        // Ceuta is an exceptional territory but the carriers backend
+        // override only handles Canarias (CP 35/38). Ceuta/Melilla
+        // are tracked separately in EXCEPTIONAL_TERRITORIES — not part
+        // of this override.
+        expect(applyCanaryIslandsOverride('ES', '51001')).toBe('ES');
+    });
+
+    it('should leave non-ES countries untouched even with 35xxx postal codes', () => {
+        // CP 35xxx exists in many countries (e.g. Mexico Coahuila,
+        // Italy Padova). The override is gated on country='ES'.
+        expect(applyCanaryIslandsOverride('MX', '35020')).toBe('MX');
+        expect(applyCanaryIslandsOverride('IT', '35100')).toBe('IT');
+    });
+
+    it('should return ES when postal code is undefined', () => {
+        expect(applyCanaryIslandsOverride('ES', undefined)).toBe('ES');
+    });
+
+    it('should return ES when postal code is shorter than 2 chars', () => {
+        expect(applyCanaryIslandsOverride('ES', '3')).toBe('ES');
+    });
+
+    it('should not match ES + a 35-prefix that lives in a longer postal (e.g. 35XXX continental)', () => {
+        // Defensive: the carriers backend rule is "starts with 35 or 38",
+        // not "is 5 chars long". Continental Spain has no 35xxx/38xxx
+        // postal codes today (per official Correos numbering plan), so
+        // this is purely a regression guard against future numbering
+        // changes.
+        expect(applyCanaryIslandsOverride('ES', '35999')).toBe('IC');
+        expect(applyCanaryIslandsOverride('ES', '38500')).toBe('IC');
     });
 });
 
@@ -103,6 +172,46 @@ describe('getAddressRequirements', () => {
         });
 
         expect(res.ok).toBe(false);
+    });
+
+    it('should send country=IC when destination is ES + Canarias postal code', async () => {
+        mockFetch.mockResolvedValueOnce({
+            ok: true,
+            status: 200,
+            json: () => Promise.resolve({
+                applyTaxes: false, includeBOL: true,
+                isInternalEU: false, isInternalGB: false, isInternalUK: false,
+            }),
+        });
+
+        await getAddressRequirements(client, {
+            origin: { country_code: 'ES', state_code: 'ES-MD', postal_code: '28001' },
+            destination: { country_code: 'ES', state_code: 'ES-CN', postal_code: '35001' },
+        });
+
+        const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+        expect(body.origin.country_code).toBe('ES');
+        expect(body.destination.country_code).toBe('IC');
+    });
+
+    it('should also override origin when origin is ES + Canarias postal code', async () => {
+        mockFetch.mockResolvedValueOnce({
+            ok: true,
+            status: 200,
+            json: () => Promise.resolve({
+                applyTaxes: false, includeBOL: true,
+                isInternalEU: false, isInternalGB: false, isInternalUK: false,
+            }),
+        });
+
+        await getAddressRequirements(client, {
+            origin: { country_code: 'ES', state_code: 'ES-CN', postal_code: '35001' },
+            destination: { country_code: 'ES', state_code: 'ES-MD', postal_code: '28001' },
+        });
+
+        const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+        expect(body.origin.country_code).toBe('IC');
+        expect(body.destination.country_code).toBe('ES');
     });
 });
 

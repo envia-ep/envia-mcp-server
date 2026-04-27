@@ -82,7 +82,10 @@ export async function getAddressRequirements(
     return client.post<AddressRequirements>(url, body);
 }
 
-/** Uppercase country + state codes; trim postal when present. */
+/** Uppercase country + state codes; trim postal when present; apply the
+ * Canary Islands country override before the geocodes call (see
+ * `applyCanaryIslandsOverride` for full rationale).
+ */
 function normaliseLocationPair(
     pair: { country_code: string; state_code: string; postal_code?: string },
 ): Record<string, string> {
@@ -93,7 +96,36 @@ function normaliseLocationPair(
     if (pair.postal_code !== undefined && pair.postal_code !== '') {
         out.postal_code = pair.postal_code.trim();
     }
+    out.country_code = applyCanaryIslandsOverride(out.country_code, out.postal_code);
     return out;
+}
+
+/**
+ * Override `country_code='ES'` to `'IC'` when the postal code points at the
+ * Canary Islands. Mirrors exactly what carriers backend already does in
+ * `services/carriers/app/ep/util/CarrierUtil.php:4851-4852` for every
+ * shipment passing through `/ship/rate` / `/ship/generate`. Geocodes'
+ * `/location-requirements` does NOT perform the same conversion (verified
+ * via curl 2026-04-27 — see BACKEND_TEAM_BRIEF.md C8), so without this
+ * override the MCP receives `applyTaxes: true / includeBOL: false` for
+ * Canarias-bound shipments — the wrong tax flags. Replicating the
+ * 1-line transform keeps MCP correct without waiting on the geocodes
+ * fix; the backend conversion still runs unchanged for the actual rate
+ * / generate calls.
+ *
+ * Triggering rule (verified): country code 'ES' AND postal code starting
+ * with '35' (Las Palmas) or '38' (Tenerife). State code is intentionally
+ * NOT consulted — carriers backend ignores it for this decision.
+ *
+ * @param countryCode Already trimmed + uppercased country code.
+ * @param postalCode  Already trimmed postal code, or undefined.
+ * @returns 'IC' when the override applies; the original country code otherwise.
+ */
+function applyCanaryIslandsOverride(countryCode: string, postalCode: string | undefined): string {
+    if (countryCode !== 'ES') return countryCode;
+    if (!postalCode || postalCode.length < 2) return countryCode;
+    const prefix = postalCode.substring(0, 2);
+    return prefix === '35' || prefix === '38' ? 'IC' : countryCode;
 }
 
 // ---------------------------------------------------------------------------
@@ -192,4 +224,4 @@ export async function getBrazilIcms(
 }
 
 // Export internals for isolated testing only.
-export { normaliseLocationPair, DANE_CODE_PATTERN };
+export { normaliseLocationPair, applyCanaryIslandsOverride, DANE_CODE_PATTERN };

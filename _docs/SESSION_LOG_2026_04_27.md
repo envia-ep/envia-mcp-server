@@ -84,24 +84,92 @@ identically in MCP. Sprint 5 picks this up.
 
 **Tool count:** 72 → 70 user-facing.
 
-## Block 3 — Sprint 4a part 2 (in progress)
+## Block 3 — Sprint 4a part 2 (2026-04-27 ~02:00-02:20 UTC) ✅
 
-**Goal:** observability layer + ESLint guard.
+**Done:**
+- Added `pino@^9.14.0` + `pino-pretty@^11` (dev only).
+- `src/utils/logger.ts` — pino factory with env-driven config
+  (LOG_LEVEL/LOG_PRETTY/NODE_ENV), level emitted as string for
+  Datadog/Loki, ISO timestamps, lazy pretty-print transport.
+- `src/utils/server-logger.ts` — `decorateServerWithLogging` patches
+  `McpServer.registerTool` once at server-construction so every
+  subsequently-registered tool emits a structured `tool_call_complete`
+  / `tool_call_failed` event with `{tool, duration_ms, status,
+  error_message?, error_class?}`. Idempotent — re-decoration captures
+  the same original delegate, no wrapper stacking. Exposes
+  `wrapHandlerWithLogging` for direct unit testing.
+- `src/index.ts`:
+  - `createEnviaServer(logContext)` accepts correlation/session context.
+  - HTTP mode: per-request correlationId from upstream
+    `x-correlation-id` / `x-request-id` headers (or fresh UUID).
+    Echoed back in response. Logs `mcp_request_received`,
+    `mcp_request_closed`, `mcp_request_error`.
+  - stdio mode: process-wide sessionId.
+  - HTTP listen + stdio startup: structured `mcp_listening` /
+    `mcp_ready` events replace `console.error` lines.
+- ESLint guard `no-restricted-syntax` for raw `{content:[{type:'text',...}]}`
+  was already in `eslint.config.js:13-19` (verified). All tools already
+  use `textResponse()` — grep returned 0 raw matches. **Skipped this
+  task — already done.**
+- 22 new tests (10 logger + 12 server-logger).
+
+**Verification:**
+- `npm run build` — clean
+- `npm run lint` — clean
+- `npx vitest run` — 1404/1404 passing (was 1382 + 22 new)
+
+**Commit:** `af71e0b — feat(sprint-4a): observability layer — pino + correlation IDs + structured tool-call events`
+
+## Block 4 — Sprint 5 step 1 — Canarias γ (2026-04-27 ~02:20-02:35 UTC) ✅
+
+**Investigation finding (verified at code level via Explore agent +
+spot-check):**
+- The `country='ES' → 'IC'` transform for Canarias lives in
+  `services/carriers/app/ep/util/CarrierUtil.php:4852` inside
+  `validateAddress()`. **Global** (not Zeleris-specific), runs at
+  validation time before any carrier-specific code.
+- This explains why `/ship/rate` and `/ship/generate` work correctly
+  for Canarias destinations regardless of carrier.
+- `geocodes /location-requirements` does NOT have the same logic →
+  consumers like MCP that hit it directly receive wrong tax flags.
+- Production data 94% ES / 5.9% IC reflects persistence inconsistency,
+  NOT runtime bug — the carrier API call always sees IC.
+
+**Done:**
+- Added `applyCanaryIslandsOverride(country, postal)` to
+  `src/services/geocodes-helpers.ts` — replicates the exact 1-line
+  transform from `CarrierUtil::validateAddress:4852`.
+- Wired into `normaliseLocationPair` so every call to
+  `getAddressRequirements` automatically gets correct flags for
+  Canarias-bound shipments.
+- 12 new tests covering the override (positive cases for 35/38 prefixes,
+  negative cases for non-ES countries with same prefixes, undefined
+  postal, short postal) + integration tests confirming outgoing
+  payload to geocodes carries `country='IC'`.
+- Updated C8 in BACKEND_TEAM_BRIEF with the verified file:line
+  + interim mitigation note.
+
+**Verification:**
+- `npm run build` — clean
+- `npx vitest run` — 1416/1416 passing (was 1404 + 12 new)
+
+**Commit:** pending (this block).
+
+## Block 5 — Sprint 5 step 2+ (NEXT)
 
 **Plan:**
-- Add `pino` + `pino-pretty` (dev) dependencies.
-- Create `src/utils/logger.ts` — pino factory with environment-aware config.
-- Create `src/utils/server-logger.ts` — wraps `McpServer.registerTool` to
-  emit structured `{tool_name, duration_ms, status, error_code}` events
-  per call without touching individual tools.
-- HTTP mode: generate correlation ID per request, attach via child logger.
-- Stdio mode: per-process logger with no correlation context.
-- ESLint guard: `no-restricted-syntax` rule blocking raw
-  `{ content: [{ type: 'text', ... }] }` to enforce `textResponse()`.
-- Tests: logger config + server-logger wrapping + ESLint rule
-  triggers on a synthetic file.
+- Drift fix `EXCEPTIONAL_TERRITORIES` in `src/services/country-rules.ts`
+  to match geocodes excStates exactly (remove `FR-MC`, `ES-35`,
+  `ES-38`; add `ES-CE`, `ES-ML`).
+- Add MX state remap (BN→BC, DF→CDMX, etc. — 11 cases per geocodes
+  `Util::setStateCodeMx`).
+- Wire generic-form validation into `update-order-address`,
+  `create-client`, `update-client` (matches what `create-address` /
+  `update-address` already do).
+- Tests per country.
 
-**Status:** starting implementation.
+**Status:** Decide between continuing in this Opus session OR handoff
+to Sonnet via prompt — depends on remaining context budget.
 
 ## Roadmap remaining (after Sprint 4a part 2)
 

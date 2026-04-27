@@ -611,9 +611,18 @@ generate-time rejections at customs.
   `if carrier == zeleris && destination is Canarias → country = IC`.
 
 **Carriers backend Canarias awareness (verified in code 2026-04-27):**
+- **`CarrierUtil::validateAddress` at `app/ep/util/CarrierUtil.php:4845-4868`
+  applies the global override for ALL carriers** —
+  `$address->country = $address->country == 'ES' && in_array(substr($address->postalCode, 0, 2), ["35","38"]) ? "IC" : $address->country;`
+  (line 4852). This runs at validation time, before any carrier-specific
+  code sees the address. So every shipment passing through `/ship/rate`
+  / `/ship/generate` with ES + CP 35xxx/38xxx automatically becomes IC
+  before the carrier API call. `country='IC'` is a first-class code per
+  `CountryTimezoneUtil.php:26` (`'IC' => 'Atlantic/Canary'`).
 - `Zeleris` — REQUIRES country='IC'. `ZelerisUtil.php:174` throws
   `InvalidValueException(1125)` if intl shipments are requested from
-  Canarias. Zeleris is the Spain↔Canarias specialist carrier.
+  Canarias. Zeleris is the Spain↔Canarias specialist carrier. Receives
+  IC because validateAddress already converted before its code runs.
 - `Correos Express` (`CorreosExpressUtil.php:664-691`),
   `DHL` (`DhlRestV3Util.php:497`),
   `UPS` (`UpsUtil.php:845`),
@@ -622,10 +631,14 @@ generate-time rejections at customs.
   classification 2=Canarias, 5=Baleares),
   `Envialia` (`EnvialiaUtil.php:199-248`)
   — all detect Canarias internally via `postal_code` ranges /
-  classification table, NOT via country code. They accept
-  country='ES' and route correctly.
-- `CountryTimezoneUtil.php:26` confirms `'IC' => 'Atlantic/Canary'`
-  is a first-class country code in the backend.
+  classification table. They are robust to either country code (ES or
+  IC) because they consult postal_code first.
+
+**Why production data still shows 94% as country='ES':**
+The `shipments` table persists the address BEFORE `validateAddress`
+runs (or via a different path). The override is "on the way to the
+carrier", not stored back to the database. Customer-visible behaviour
+is correct because the carrier API call always sees IC.
 
 **Revised severity assessment:**
 
@@ -652,20 +665,33 @@ are stored inconsistently for ES Canarias — `GC`, `cn` (lowercase),
 
 **Recommendation revised:**
 
-(a) Geocodes-side fix in `/location-requirements` to auto-detect
-    state→exceptional-territory remains correct, but is now
-    **MEDIUM severity** rather than HIGH, because each carrier
-    already has its own Canarias-aware path. The fix matters mostly
-    for consumers that act on the location-requirements flags
-    (MCP today does, when deciding whether to populate items[]).
+(a) Geocodes-side fix in `/location-requirements` to apply the same
+    1-line transform that lives in `CarrierUtil::validateAddress`
+    (`app/ep/util/CarrierUtil.php:4852`). Single source of truth →
+    every consumer of `/location-requirements` (MCP, V1 portal,
+    integrations, future tools) receives correct flags without
+    needing to replicate the rule. **MEDIUM severity** — bug exists
+    and matters for any consumer trusting the location-requirements
+    flags but does NOT break the rate/generate path because that
+    runs through validateAddress.
 
-(b) **Separate proposal: centralise the "carrier requires which
-    country code for Canarias" decision** in carriers backend
-    (e.g., a `services.requires_canarias_iso` flag). Today it's
-    implicit in the V1 portal's hardcoded logic and would break if
-    a new Canarias-specialist carrier (or zeleris-equivalent in
-    Baleares) is integrated. This is a separate item — not part of
-    C8 but worth raising with the carriers team.
+(b) **Interim MCP-side mitigation (LANDED 2026-04-27):** the MCP
+    `getAddressRequirements` helper now applies the same exact
+    transform from `CarrierUtil::validateAddress:4852` before
+    calling geocodes. See
+    `ai-agent/envia-mcp-server/src/services/geocodes-helpers.ts`
+    `applyCanaryIslandsOverride()`. The transform is verbatim — when
+    geocodes lands C8, the MCP can keep the override in place
+    (idempotent — geocodes returning the same flags either way) or
+    remove it as cleanup; both are safe.
+
+(c) **Separate proposal: surface the persistence inconsistency.**
+    Decide whether `shipments` table should store the post-override
+    country code (consistent with carrier API view) or pre-override
+    (consistent with user-input view). Today it's the latter for
+    most paths but Zeleris-via-V1 (53 of 905 in 90 days) persists
+    the post-override IC. Inconsistent persistence makes analytics
+    harder. Not part of C8.
 
 **Effort:** C8 still 1-2 h code + tests in geocodes.
 **Severity:** **MEDIUM** (revised from HIGH after carrier-code
