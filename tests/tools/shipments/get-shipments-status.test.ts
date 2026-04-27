@@ -18,24 +18,31 @@ import { registerGetShipmentsStatus } from '../../../src/tools/shipments/get-shi
 // Factories
 // =============================================================================
 
-/** Build a flat-shape stats response matching the live sandbox 2026-04-27. */
+/**
+ * Build a flat-shape stats response matching the live sandbox 2026-04-27.
+ *
+ * Note: backend returns percentages as pre-formatted strings with the `%`
+ * trailing character already included (verified live: `'100.00%'`,
+ * `'0.00%'`). Fixtures must mirror that shape so the formatter is tested
+ * against reality.
+ */
 function makeStatsResponse(overrides: Record<string, unknown> = {}) {
     return {
         packagesPendingShip: 12,
         packagesPendingPickUp: 5,
         packagesPickup: 8,
-        percentagePickup: 6.4,
+        percentagePickup: '6.40%',
         packagesShipped: 45,
-        percentageShipped: 36.0,
+        percentageShipped: '36.00%',
         packagesOutForDelivery: 18,
-        percentageOutForDelivery: 14.4,
+        percentageOutForDelivery: '14.40%',
         packagesDeliveryFilter: 38,
-        percentagePackagesDeliveryFilter: 30.4,
+        percentagePackagesDeliveryFilter: '30.40%',
         packagesActiveAndDeliveryFilter: 52,
         packagesIssue: 3,
-        percentageIssue: 2.4,
+        percentageIssue: '2.40%',
         packagesReturned: 1,
-        percentageReturned: 0.8,
+        percentageReturned: '0.80%',
         dateFromMiddleware: '2026-04-01',
         dateTo: '2026-04-30',
         ...overrides,
@@ -94,9 +101,9 @@ describe('envia_get_shipments_status', () => {
     });
 
     // -------------------------------------------------------------------------
-    // 2. Percentages render alongside counts
+    // 2. Percentages render alongside counts (single % only — no doubling)
     // -------------------------------------------------------------------------
-    it('should render percentages alongside counts', async () => {
+    it('should render percentages alongside counts with a single % (no doubling)', async () => {
         const result = await handler({
             api_key: MOCK_CONFIG.apiKey,
             date_from: '2026-04-01',
@@ -104,9 +111,12 @@ describe('envia_get_shipments_status', () => {
         });
         const text = result.content[0].text;
 
-        expect(text).toContain('(6.4%)');
-        expect(text).toContain('(36%)');
-        expect(text).toContain('(0.8%)');
+        expect(text).toContain('(6.40%)');
+        expect(text).toContain('(36.00%)');
+        expect(text).toContain('(0.80%)');
+        // Regression guard: backend returns "6.40%" (string with %); the
+        // formatter must NOT append another %, otherwise output is "6.40%%".
+        expect(text).not.toContain('%%');
     });
 
     // -------------------------------------------------------------------------

@@ -242,18 +242,24 @@ export interface ShipmentStatusStats {
     packagesPendingShip?: number;
     packagesPendingPickUp?: number;
     packagesPickup?: number;
-    percentagePickup?: number;
+    /** Pre-formatted string with the trailing `%` baked in (e.g. `"6.40%"`). */
+    percentagePickup?: string;
     packagesShipped?: number;
-    percentageShipped?: number;
+    /** Pre-formatted string with `%` (e.g. `"36.00%"`). */
+    percentageShipped?: string;
     packagesOutForDelivery?: number;
-    percentageOutForDelivery?: number;
+    /** Pre-formatted string with `%`. */
+    percentageOutForDelivery?: string;
     packagesDeliveryFilter?: number;
-    percentagePackagesDeliveryFilter?: number;
+    /** Pre-formatted string with `%`. */
+    percentagePackagesDeliveryFilter?: string;
     packagesActiveAndDeliveryFilter?: number;
     packagesIssue?: number;
-    percentageIssue?: number;
+    /** Pre-formatted string with `%`. */
+    percentageIssue?: string;
     packagesReturned?: number;
-    percentageReturned?: number;
+    /** Pre-formatted string with `%`. */
+    percentageReturned?: string;
     /** Echo of the (normalised) start of the queried date range. */
     dateFromMiddleware?: string;
     /** Echo of the end of the queried date range. */

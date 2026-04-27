@@ -76,13 +76,16 @@ export function registerGetShipmentsStatus(
                 `Period: ${args.date_from} to ${args.date_to}`,
                 '═'.repeat(50),
                 '',
+                // Backend returns percentages as pre-formatted strings with the
+                // trailing `%` already baked in (e.g. "6.40%"). Do NOT append
+                // another `%` — that produces "6.40%%". Verified live 2026-04-27.
                 `Pending ship:     ${stats.packagesPendingShip ?? 0}`,
-                `Pickup:           ${stats.packagesPickup ?? 0} (${stats.percentagePickup ?? 0}%)`,
-                `In transit:       ${stats.packagesShipped ?? 0} (${stats.percentageShipped ?? 0}%)`,
-                `Out for delivery: ${stats.packagesOutForDelivery ?? 0} (${stats.percentageOutForDelivery ?? 0}%)`,
-                `Delivered:        ${stats.packagesDeliveryFilter ?? 0} (${stats.percentagePackagesDeliveryFilter ?? 0}%)`,
-                `Issues:           ${stats.packagesIssue ?? 0} (${stats.percentageIssue ?? 0}%)`,
-                `Returned:         ${stats.packagesReturned ?? 0} (${stats.percentageReturned ?? 0}%)`,
+                `Pickup:           ${stats.packagesPickup ?? 0} (${stats.percentagePickup ?? '0%'})`,
+                `In transit:       ${stats.packagesShipped ?? 0} (${stats.percentageShipped ?? '0%'})`,
+                `Out for delivery: ${stats.packagesOutForDelivery ?? 0} (${stats.percentageOutForDelivery ?? '0%'})`,
+                `Delivered:        ${stats.packagesDeliveryFilter ?? 0} (${stats.percentagePackagesDeliveryFilter ?? '0%'})`,
+                `Issues:           ${stats.packagesIssue ?? 0} (${stats.percentageIssue ?? '0%'})`,
+                `Returned:         ${stats.packagesReturned ?? 0} (${stats.percentageReturned ?? '0%'})`,
                 '',
                 'Use envia_list_shipments with a status_id filter for detailed shipment lists.',
             ];
