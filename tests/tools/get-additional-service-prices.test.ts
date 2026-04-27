@@ -210,4 +210,36 @@ describe('envia_get_additional_service_prices', () => {
         expect(text).toContain('Insurance');
         expect(text).toContain('COD');
     });
+
+    // -------------------------------------------------------------------------
+    // 12. Coverage gap audit: amount=null falls back to "—" in formatter
+    // -------------------------------------------------------------------------
+    it('should render "—" when amount is null', async () => {
+        const rowWithNullAmount = {
+            ...makePriceRow({ name: 'TBD Service' }),
+            amount: null as unknown as number,
+        };
+        mockFetch.mockResolvedValueOnce(makeApiResponse([rowWithNullAmount]));
+
+        const result = await handler({ service_id: 42 });
+        const text = result.content[0].text;
+
+        expect(text).toContain('TBD Service');
+        expect(text).toContain('—');
+    });
+
+    // -------------------------------------------------------------------------
+    // 13. Coverage gap audit: is_custom=false omits the [custom] badge
+    // -------------------------------------------------------------------------
+    it('should NOT render [custom] badge when is_custom is false', async () => {
+        mockFetch.mockResolvedValueOnce(
+            makeApiResponse([makePriceRow({ name: 'Standard Service', is_custom: false })]),
+        );
+
+        const result = await handler({ service_id: 42 });
+        const text = result.content[0].text;
+
+        expect(text).toContain('Standard Service');
+        expect(text).not.toContain('[custom]');
+    });
 });

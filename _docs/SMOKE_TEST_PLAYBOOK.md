@@ -6,9 +6,10 @@ Run top-to-bottom. Each step must PASS before proceeding to the next.
 > **Audience:** Engineer or AI agent executing the deploy.
 >
 > **Environment:** All commands target the staging/sandbox environment by default.
-> Replace `<APP>` with the actual Heroku app name (e.g. `envia-mcp-server`).
+> Replace `<APP>` with the actual Heroku app name (currently: `envia-mcp-stage`).
 >
-> **Verified 2026-04-17** against `https://envia-mcp-server-c0fa1b3dab48.herokuapp.com` (commit `2eb87a4`).
+> **Verified 2026-04-27** against `https://envia-mcp-stage-8942f8239481.herokuapp.com` — 6/6 PASS, see `_docs/DEPLOY_LOG_2026_04_27.md`.
+> **Previous verification 2026-04-17** against `https://envia-mcp-server-c0fa1b3dab48.herokuapp.com` (commit `2eb87a4`) — that app URL is no longer active; the staging app was renamed to `envia-mcp-stage` between deploys.
 
 ---
 

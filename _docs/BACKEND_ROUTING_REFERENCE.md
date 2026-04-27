@@ -4,7 +4,7 @@ Which backend service each tool talks to, and how environment selection
 works. Useful when debugging a failed tool call, provisioning a new
 environment, or extending the MCP with a new tool.
 
-Last verified: 2026-04-17 against commit `2c3c885`.
+Last verified: 2026-04-27 (smoke test against `envia-mcp-stage` PASS 6/6 — see `DEPLOY_LOG_2026_04_27.md`). URLs current as of `b282249` on `mcp-expansion`.
 
 ## 1. Environment selection
 
@@ -34,6 +34,27 @@ production: { shipping: "https://api.envia.com",       queries: "https://queries
 
 So a single atomic switch keeps shipping + queries consistent. Geocodes
 does not change because its backend has no sandbox.
+
+### Carriers service URL aliases (backend-confirmed 2026-04-27)
+
+The carriers service is reachable via two hostnames per environment.
+Both resolve to the same backend dyno; the difference is only routing
+(direct Heroku vs Cloudflare → Heroku Private Spaces). Pick either —
+they are functionally interchangeable.
+
+| Env | Public URL (used by MCP) | Internal URL (also valid) |
+|-----|--------------------------|---------------------------|
+| sandbox | `https://api-test.envia.com` (Cloudflare → Spaces) | `https://envia-api-dev.herokuapp.com` (Heroku direct) |
+| production | `https://api.envia.com` (Cloudflare → Spaces) | `https://api-clients.envia.com` (Cloudflare → same Spaces dyno) |
+
+The MCP uses the public Cloudflare-fronted URLs (`api-test.envia.com` /
+`api.envia.com`). The internal URLs are documented because the backend
+team sometimes references them in tickets — knowing the alias avoids
+confusion ("is this a different server?"). It is NOT a different server.
+
+If a new MCP tool needs to point to a carriers endpoint, keep using
+`config.shippingBase`. Do NOT add a separate env var for the internal
+URL — that would duplicate config and tempt drift.
 
 ## 2. Per-service backend map
 

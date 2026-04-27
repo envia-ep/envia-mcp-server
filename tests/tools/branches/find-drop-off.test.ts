@@ -229,4 +229,38 @@ describe('envia_find_drop_off', () => {
 
         expect(text).toContain('No branches found');
     });
+
+    // -------------------------------------------------------------------------
+    // 14. Coverage gap audit: capacity outside the known table → "Type N" fallback
+    // -------------------------------------------------------------------------
+    it('should fall back to "Type N" label when capacity is not in the known map', async () => {
+        mockFetch.mockResolvedValueOnce({
+            ok: true,
+            status: 200,
+            json: () => Promise.resolve([{ name: 'Branch X', capacity: 99 }]),
+        });
+
+        const result = await handler({ carrier: 'fedex' });
+        const text = result.content[0].text;
+
+        expect(text).toContain('Type 99');
+    });
+
+    // -------------------------------------------------------------------------
+    // 15. Coverage gap audit: missing name field renders the "—" placeholder
+    // -------------------------------------------------------------------------
+    it('should render "—" placeholder when branch name is missing', async () => {
+        mockFetch.mockResolvedValueOnce({
+            ok: true,
+            status: 200,
+            json: () => Promise.resolve([{ code: 'XYZ-001', city: 'Mexico City' }]),
+        });
+
+        const result = await handler({ carrier: 'fedex' });
+        const text = result.content[0].text;
+
+        // Index "1." precedes the name dash; the bracketed code follows it
+        expect(text).toContain('1. —');
+        expect(text).toContain('[XYZ-001]');
+    });
 });
