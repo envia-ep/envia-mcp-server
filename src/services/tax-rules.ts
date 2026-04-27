@@ -27,6 +27,15 @@ import { EU_COUNTRIES, EXCEPTIONAL_TERRITORIES } from './country-rules.js';
  *   4. If both in EU → `inter = true` (intra-EU VAT applies).
  *   5. If states differ and exactly one is an exceptional territory → `inter = false`.
  *
+ * NOTE — Canarias detection is split across two layers and this function
+ * only covers HALF of it. State-based detection (`ES-CN`/`ES-TF`/`ES-GC`,
+ * plus `ES-CE`/`ES-ML`) lives here via `EXCEPTIONAL_TERRITORIES`. Postal-code
+ * detection (35xxx/38xxx → country override `IC`) lives in
+ * `geocodes-helpers.applyCanaryIslandsOverride`, which runs BEFORE this
+ * function on the request path. If you change Canarias logic, audit BOTH
+ * sites — the state list here will not see a `country='ES'` request whose
+ * Canarian nature is encoded only in the postal code.
+ *
  * @param originCountry - ISO 3166-1 alpha-2 origin country code.
  * @param originState - Origin state or province code.
  * @param destCountry - ISO 3166-1 alpha-2 destination country code.
