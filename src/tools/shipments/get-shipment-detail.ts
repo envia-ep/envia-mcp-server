@@ -20,7 +20,8 @@ import { requiredApiKeySchema } from '../../utils/schemas.js';
 import { textResponse } from '../../utils/mcp-response.js';
 import { mapCarrierError } from '../../utils/error-mapper.js';
 import { queryShipmentsApi, formatCurrency } from '../../services/shipments.js';
-import type { ShipmentDetailResponse } from '../../types/shipments.js';
+import { parseToolResponse } from '../../utils/response-validator.js';
+import { ShipmentDetailResponseSchema } from '../../schemas/shipments.js';
 
 /**
  * Register the envia_get_shipment_detail tool on the MCP server.
@@ -45,7 +46,7 @@ export function registerGetShipmentDetail(
             const activeClient = resolveClient(client, args.api_key, config);
             const tracking = encodeURIComponent(args.tracking_number.trim());
 
-            const res = await queryShipmentsApi<ShipmentDetailResponse>(
+            const res = await queryShipmentsApi<unknown>(
                 activeClient, config, `/guide/${tracking}`, {},
             );
 
@@ -56,8 +57,14 @@ export function registerGetShipmentDetail(
                 );
             }
 
+            const validated = parseToolResponse(
+                ShipmentDetailResponseSchema,
+                res.data,
+                'envia_get_shipment_detail',
+            );
+
             // Backend wraps the record in a one-element array. Take [0].
-            const s = res.data?.data?.[0];
+            const s = validated.data?.[0];
             if (!s) {
                 return textResponse(
                     `No shipment found for tracking number "${args.tracking_number}". Verify the number is correct.`,
@@ -89,10 +96,10 @@ export function registerGetShipmentDetail(
                 `  Email:   ${s.consignee_email ?? '—'}`,
                 '',
                 '— Costs —',
-                `  Shipping:    ${formatCurrency(s.total, s.currency)}`,
-                `  Insurance:   ${formatCurrency(s.insurance_cost, s.currency)}`,
-                `  Additional:  ${formatCurrency(s.additional_services_cost, s.currency)}`,
-                `  Grand Total: ${formatCurrency(s.grand_total, s.currency)}`,
+                `  Shipping:    ${formatCurrency(s.total as number | undefined, s.currency)}`,
+                `  Insurance:   ${formatCurrency(s.insurance_cost as number | undefined, s.currency)}`,
+                `  Additional:  ${formatCurrency(s.additional_services_cost as number | undefined, s.currency)}`,
+                `  Grand Total: ${formatCurrency(s.grand_total as number | undefined, s.currency)}`,
                 '',
                 '— Dates —',
                 `  Created:   ${s.created_at ?? '—'}`,
