@@ -1,5 +1,5 @@
 /**
- * Tests for the quote_shipment tool.
+ * Tests for the envia_quote_shipment tool.
  *
  * The tool now accepts minimal params (postal codes + weight), resolves
  * city/state via the address-resolver, and supports "all" carrier mode.
@@ -23,7 +23,7 @@ vi.mock('../../src/utils/address-resolver.js', () => ({
 
 const resolveAddressMock = vi.mocked(resolveAddress);
 
-describe('quote_shipment', () => {
+describe('envia_quote_shipment', () => {
     let handler: ToolHandler;
     let mockFetch: ReturnType<typeof vi.fn>;
 
@@ -45,7 +45,7 @@ describe('quote_shipment', () => {
         const { server, handlers } = createMockServer();
         const client = new EnviaApiClient(MOCK_CONFIG);
         registerGetShippingRates(server, client, MOCK_CONFIG);
-        handler = handlers.get('quote_shipment')!;
+        handler = handlers.get('envia_quote_shipment')!;
     });
 
     afterEach(() => {
@@ -471,7 +471,7 @@ describe('quote_shipment', () => {
         const text = result.content[0].text;
 
         expect(text).toContain('Next step:');
-        expect(text).toContain('create_shipment');
+        expect(text).toContain('envia_create_shipment');
     });
 
     // -----------------------------------------------------------------------

@@ -181,7 +181,7 @@ describe("envia_create_commercial_invoice", () => {
   });
 
   // -------------------------------------------------------------------------
-  // 9. mentions classify_hscode in error tip
+  // 9. mentions envia_classify_hscode in error tip
   // -------------------------------------------------------------------------
   it("should include mapped suggestion in error response", async () => {
     mockFetch.mockResolvedValueOnce({
@@ -220,6 +220,6 @@ describe("envia_create_commercial_invoice", () => {
     const text = result.content[0].text;
 
     expect(text).toContain("Next steps:");
-    expect(text).toContain("create_shipment");
+    expect(text).toContain("envia_create_shipment");
   });
 });

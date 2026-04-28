@@ -137,15 +137,15 @@ route that serves `src/chat/` is tracked as a Sprint 4 item.
 |------|-----------|-------------|
 | `envia_validate_address` | optional | Validate postal codes, look up cities, and surface country-specific required fields |
 | `envia_list_carriers` | **required** | List available carriers and services for a country |
-| `list_additional_services` | **required** | List optional add-ons (insurance, COD, signatures) for a route |
-| `quote_shipment` | **required** | Compare rates across carriers with auto-resolved addresses |
-| `create_shipment` | **required** | Purchase a shipping label with dynamic address validation and BR DCe support |
+| `envia_list_additional_services` | **required** | List optional add-ons (insurance, COD, signatures) for a route |
+| `envia_quote_shipment` | **required** | Compare rates across carriers with auto-resolved addresses |
+| `envia_create_shipment` | **required** | Purchase a shipping label with dynamic address validation and BR DCe support |
 | `envia_get_ecommerce_order` | **required** | Fetch ecommerce order details and build shipment payloads |
 | `envia_track_package` | optional | Track one or more shipments |
 | `envia_cancel_shipment` | **required** | Void a label and reclaim balance |
 | `envia_schedule_pickup` | **required** | Schedule carrier pickup |
 | `envia_get_shipment_history` | **required** | List shipments by month |
-| `classify_hscode` | optional | Classify product HS/NCM code for customs and BR DCe |
+| `envia_classify_hscode` | optional | Classify product HS/NCM code for customs and BR DCe |
 | `envia_create_commercial_invoice` | **required** | Generate customs invoice PDF |
 
 ### Authentication
@@ -153,15 +153,15 @@ route that serves `src/chat/` is tracked as a Sprint 4 item.
 Every tool accepts an `api_key` parameter that overrides the server-level `ENVIA_API_KEY`. This enables multi-tenant setups where different users provide their own credentials per request.
 
 - **Required tools** (9) — `api_key` must be provided. These operate on user-specific data (rates, labels, orders, pickups, history).
-- **Optional tools** (3) — `api_key` is optional. `envia_validate_address`, `envia_track_package`, and `classify_hscode` work with the server default but accept an override.
+- **Optional tools** (3) — `api_key` is optional. `envia_validate_address`, `envia_track_package`, and `envia_classify_hscode` work with the server default but accept an override.
 
 When no override is provided, the server falls back to `ENVIA_API_KEY` from the environment.
 
 ### Additional services
 
-Both `quote_shipment` and `create_shipment` support optional additional services such as insurance, cash on delivery, and signature requirements:
+Both `envia_quote_shipment` and `envia_create_shipment` support optional additional services such as insurance, cash on delivery, and signature requirements:
 
-- **`additional_services`** — Array of `{ service, amount? }` objects. Use `list_additional_services` to discover available services for a route.
+- **`additional_services`** — Array of `{ service, amount? }` objects. Use `envia_list_additional_services` to discover available services for a route.
 - **`insurance_type`** — Shortcut for insurance: `"envia_insurance"`, `"insurance"` (carrier-native, CO/BR), or `"high_value_protection"`. Only one type allowed per shipment.
 - **`cash_on_delivery_amount`** — Automatically adds a `cash_on_delivery` service with the specified collection amount.
 
@@ -169,24 +169,24 @@ The rate response displays which services were applied and warns about any that 
 
 ### Address auto-resolution
 
-Both `quote_shipment` and `create_shipment` auto-resolve city, state, and district (colonia) from postal codes using the Envia geocodes API. Colombia DANE codes are also translated automatically. Provide explicit values only when you need to override.
+Both `envia_quote_shipment` and `envia_create_shipment` auto-resolve city, state, and district (colonia) from postal codes using the Envia geocodes API. Colombia DANE codes are also translated automatically. Provide explicit values only when you need to override.
 
 For **MX addresses**, the district (colonia/neighborhood) is particularly important — some carriers validate availability at this level. The tool auto-resolves it from the postal code's first suburb, but you can provide `origin_district` / `destination_district` explicitly when the customer knows their specific colonia.
 
-### create_shipment — dual mode
+### envia_create_shipment — dual mode
 
 - **Manual mode** — Provide addresses, package details, carrier, and service directly. For international shipments, an `items` array with customs data (quantity, price, HS code) is required.
 - **Ecommerce mode** — Pass an `order_identifier` and the tool fetches the order, extracts addresses/packages/carrier, resolves print settings, and generates the label in a single step.
 
 #### Dynamic address validation
 
-Before creating any label, `create_shipment` validates both origin and destination addresses against the country's generic-form rules (fetched from the Envia API). Each country defines which address fields are required — for example, BR requires `identificationNumber` (CPF/CNPJ), while other countries may require `district` or `reference`. Missing fields are reported with the exact tool parameter name to provide.
+Before creating any label, `envia_create_shipment` validates both origin and destination addresses against the country's generic-form rules (fetched from the Envia API). Each country defines which address fields are required — for example, BR requires `identificationNumber` (CPF/CNPJ), while other countries may require `district` or `reference`. Missing fields are reported with the exact tool parameter name to provide.
 
-The `envia_validate_address` tool also surfaces these required fields, so agents can proactively discover what's needed before calling `create_shipment`.
+The `envia_validate_address` tool also surfaces these required fields, so agents can proactively discover what's needed before calling `envia_create_shipment`.
 
 #### Brazil DCe pre-authorization
 
-For BR-to-BR domestic shipments, Brazilian regulations require a Declaracao de Conteudo Eletronica (DCe) authorization from SEFAZ before labels can be generated. `create_shipment` handles this automatically:
+For BR-to-BR domestic shipments, Brazilian regulations require a Declaracao de Conteudo Eletronica (DCe) authorization from SEFAZ before labels can be generated. `envia_create_shipment` handles this automatically:
 
 1. Validates that `items` are provided with `productCode` (NCM code) for each item
 2. Validates that both origin and destination have `identificationNumber` (CPF or CNPJ)
@@ -208,7 +208,7 @@ You: Ship a 2kg box (30x20x15cm) from postal code 64000 in Monterrey
      to 03100 in Mexico City. Compare DHL and Estafeta rates.
 
 AI:  [validates both postal codes with envia_validate_address]
-     [fetches rates with quote_shipment for dhl,estafeta]
+     [fetches rates with envia_quote_shipment for dhl,estafeta]
 
      Here are your options:
        DHL Economy:    $185.20 MXN — 3-5 business days
@@ -218,7 +218,7 @@ AI:  [validates both postal codes with envia_validate_address]
 
 You: Yes, go with DHL Economy.
 
-AI:  [creates label with create_shipment]
+AI:  [creates label with envia_create_shipment]
 
      Label created!
        Tracking: 7520610403
@@ -232,8 +232,8 @@ AI:  [creates label with create_shipment]
 You: Ship a leather handbag worth $299 USD from Monterrey (66612)
      to McAllen TX (78572) via DHL International Express.
 
-AI:  [classifies HS code with classify_hscode → 4202.21]
-     [creates label with create_shipment, including items array]
+AI:  [classifies HS code with envia_classify_hscode → 4202.21]
+     [creates label with envia_create_shipment, including items array]
 
      Label created!
        Tracking: 1234567890
@@ -247,8 +247,8 @@ AI:  [classifies HS code with classify_hscode → 4202.21]
 You: Quote a 3kg package from Bogota DC to Medellin ANT with Envia insurance
      for $500,000 COP and collect $200,000 cash on delivery.
 
-AI:  [lists services with list_additional_services for CO]
-     [fetches rates with quote_shipment, insurance_type="envia_insurance",
+AI:  [lists services with envia_list_additional_services for CO]
+     [fetches rates with envia_quote_shipment, insurance_type="envia_insurance",
       declared_value=500000, cash_on_delivery_amount=200000]
 
      Found 4 rates:
@@ -269,7 +269,7 @@ You: Ship a Smart TV AIWA 32" worth R$800 from São Paulo (01310-100)
 
 AI:  [validates addresses with envia_validate_address — confirms BR
       requires identificationNumber, address fields complete]
-     [creates label with create_shipment, including items with
+     [creates label with envia_create_shipment, including items with
       productCode "8528.72.00" and both identification numbers]
 
      DCe authorized by SEFAZ!
@@ -285,7 +285,7 @@ AI:  [validates addresses with envia_validate_address — confirms BR
 ```
 You: Create a label for order #1062.
 
-AI:  [fetches order with create_shipment(order_identifier="1062")]
+AI:  [fetches order with envia_create_shipment(order_identifier="1062")]
 
      Label created!
        Tracking: 9876543210

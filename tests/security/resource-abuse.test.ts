@@ -141,7 +141,7 @@ describe("Resource Abuse / DoS Prevention", () => {
             carriers: twentyCarriers,
         };
 
-        await callHandler("quote_shipment", args);
+        await callHandler("envia_quote_shipment", args);
 
         // The handler should cap at MAX_CARRIERS = 10
         expect(mockFetch).toHaveBeenCalledTimes(10);
@@ -156,7 +156,7 @@ describe("Resource Abuse / DoS Prevention", () => {
             carriers: ",,,,",
         };
 
-        const result = await callHandler("quote_shipment", args);
+        const result = await callHandler("envia_quote_shipment", args);
 
         // All entries are empty after split + trim + filter(Boolean),
         // so the handler should return an error about providing at least one carrier.
@@ -173,7 +173,7 @@ describe("Resource Abuse / DoS Prevention", () => {
             carriers: "  ,  ,  ",
         };
 
-        const result = await callHandler("quote_shipment", args);
+        const result = await callHandler("envia_quote_shipment", args);
 
         expect(result.content[0].text).toContain("at least one carrier");
         expect(mockFetch).not.toHaveBeenCalled();
@@ -334,7 +334,7 @@ describe("Resource Abuse / DoS Prevention", () => {
             shipment_type: 1,
         };
 
-        const result = await callHandler("create_shipment", args);
+        const result = await callHandler("envia_create_shipment", args);
 
         expect(result.content[0].text).toBeDefined();
         expect(result.content[0].text).toContain("Label created successfully");

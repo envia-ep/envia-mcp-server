@@ -8,7 +8,7 @@
  * The tool replicates the order-to-payload transformation performed by
  * the envia-clients frontend (Scan & Go workflow) so that an AI assistant
  * can look up any order and immediately proceed to rate shopping or label
- * creation using the existing quote_shipment / create_shipment tools.
+ * creation using the existing envia_quote_shipment / envia_create_shipment tools.
  */
 
 import { z } from 'zod';
@@ -128,7 +128,7 @@ function formatOutput(
             lines.push(
                 '  Ensure all products have descriptions, quantities, prices, and productCode (NCM/HS code).',
             );
-            lines.push('  Use classify_hscode to look up the correct code for each product.');
+            lines.push('  Use envia_classify_hscode to look up the correct code for each product.');
             break; // Only show the warning once
         }
     }
@@ -149,7 +149,7 @@ function formatQuotePayload(loc: TransformedLocation): string[] {
     const lines: string[] = [];
     const q = loc.quotePayload;
 
-    lines.push('--- Quote Payload (for quote_shipment) ---');
+    lines.push('--- Quote Payload (for envia_quote_shipment) ---');
     lines.push(`  Origin:      ${q.origin.postalCode}, ${q.origin.city}, ${q.origin.state}, ${q.origin.country}`);
     lines.push(`  Destination: ${q.destination.postalCode}, ${q.destination.city}, ${q.destination.state}, ${q.destination.country}`);
 
@@ -175,14 +175,14 @@ function formatGeneratePayload(loc: TransformedLocation): string[] {
     const lines: string[] = [];
 
     if (!loc.generatePayload) {
-        lines.push('--- Generate Payload (for create_shipment) ---');
-        lines.push('  Not available — no carrier pre-selected. Use quote_shipment first to choose a carrier and service.');
+        lines.push('--- Generate Payload (for envia_create_shipment) ---');
+        lines.push('  Not available — no carrier pre-selected. Use envia_quote_shipment first to choose a carrier and service.');
         return lines;
     }
 
     const g = loc.generatePayload;
 
-    lines.push('--- Generate Payload (for create_shipment) ---');
+    lines.push('--- Generate Payload (for envia_create_shipment) ---');
     lines.push(`  Origin name:    ${g.origin.name}`);
     lines.push(`  Origin address: ${g.origin.street}, ${g.origin.city}, ${g.origin.state} ${g.origin.postalCode}, ${g.origin.country}`);
     lines.push(`  Origin phone:   ${g.origin.phone}`);
@@ -223,14 +223,14 @@ function formatNextSteps(
     }
 
     if (!hasCarrier) {
-        lines.push('  • No carrier pre-selected. Use quote_shipment with the origin/destination postal codes and package weight to compare rates.');
-        lines.push('  • Once you choose a carrier and service, use create_shipment with the full address details above.');
+        lines.push('  • No carrier pre-selected. Use envia_quote_shipment with the origin/destination postal codes and package weight to compare rates.');
+        lines.push('  • Once you choose a carrier and service, use envia_create_shipment with the full address details above.');
     } else if (payloadType === 'quote') {
-        lines.push('  • A carrier is already pre-selected. You can proceed directly to create_shipment.');
-        lines.push('  • Or use quote_shipment to compare other carriers first.');
+        lines.push('  • A carrier is already pre-selected. You can proceed directly to envia_create_shipment.');
+        lines.push('  • Or use envia_quote_shipment to compare other carriers first.');
     } else {
-        lines.push('  • Use create_shipment with the carrier, service, and address details shown above to purchase a label.');
-        lines.push('  • Or use quote_shipment first to compare other carriers.');
+        lines.push('  • Use envia_create_shipment with the carrier, service, and address details shown above to purchase a label.');
+        lines.push('  • Or use envia_quote_shipment first to compare other carriers.');
     }
 
     return lines;
@@ -258,7 +258,7 @@ export function registerGetEcommerceOrder(
             description:
                 'Fetch an ecommerce order by its platform identifier and get ready-to-use shipment payloads. ' +
                 'Returns order details, origin/destination addresses, package dimensions, and carrier info ' +
-                'formatted for use with quote_shipment and create_shipment. ' +
+                'formatted for use with envia_quote_shipment and envia_create_shipment. ' +
                 'Use this when the user provides an order number from their ecommerce platform (Shopify, Tiendanube, WooCommerce, etc.).',
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,

@@ -5,7 +5,7 @@
  * Used by both rate quoting and label generation endpoints.
  *
  * Two entry points:
- *  - Manual input  — from flat tool parameters (create-label, quote_shipment)
+ *  - Manual input  — from flat tool parameters (create-label, envia_quote_shipment)
  *  - V4 order data — from ecommerce order packages
  *
  * All package types are defined in src/types/carriers-api.ts.

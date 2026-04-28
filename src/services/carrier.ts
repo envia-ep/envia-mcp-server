@@ -2,7 +2,7 @@
  * Carrier Service
  *
  * Fetches carrier availability information from the Envia Queries API.
- * Used by quote_shipment to fan out rate requests across all available
+ * Used by envia_quote_shipment to fan out rate requests across all available
  * carriers for a country.
  */
 

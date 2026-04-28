@@ -87,7 +87,7 @@ export TOKEN="ea7aa2285b00f166846a0924260ccf2395cf68f2582183b8e204d71e75a665f3"
 
 ---
 
-### Step 2.1 — quote_shipment (Quote)
+### Step 2.1 — envia_quote_shipment (Quote)
 
 ```bash
 curl -s -X POST "$MCP_URL/mcp" \
@@ -98,7 +98,7 @@ curl -s -X POST "$MCP_URL/mcp" \
     "id": 1,
     "method": "tools/call",
     "params": {
-      "name": "quote_shipment",
+      "name": "envia_quote_shipment",
       "arguments": {
         "api_key": "'"$TOKEN"'",
         "origin_postal_code": "03940",
@@ -121,7 +121,7 @@ curl -s -X POST "$MCP_URL/mcp" \
 
 ---
 
-### Step 2.2 — create_shipment (Create Label)
+### Step 2.2 — envia_create_shipment (Create Label)
 
 > **Sandbox carrier note:** DHL Express works reliably. UPS fails with error 1300 (sandbox shipper number constraint). Use `dhl` / `express`.
 
@@ -134,7 +134,7 @@ curl -s -X POST "$MCP_URL/mcp" \
     "id": 2,
     "method": "tools/call",
     "params": {
-      "name": "create_shipment",
+      "name": "envia_create_shipment",
       "arguments": {
         "api_key": "'"$TOKEN"'",
         "carrier": "dhl",
@@ -274,7 +274,7 @@ curl -s -X POST "$MCP_URL/mcp" \
     "id": 6,
     "method": "tools/call",
     "params": {
-      "name": "create_shipment",
+      "name": "envia_create_shipment",
       "arguments": {
         "api_key": "INVALID_KEY_TEST",
         "carrier": "dhl",
@@ -340,8 +340,8 @@ After running, record results in `_docs/DEPLOY_LOG_<DATE>.md`:
 ```
 | Step | Tool                    | Result | Notes                          |
 |------|-------------------------|--------|--------------------------------|
-| 2.1  | quote_shipment          | PASS   | 13 carriers returned           |
-| 2.2  | create_shipment         | PASS   | tracking_number=2178339811     |
+| 2.1  | envia_quote_shipment          | PASS   | 13 carriers returned           |
+| 2.2  | envia_create_shipment         | PASS   | tracking_number=2178339811     |
 | 2.3  | envia_track_package     | PASS   | status=Created                 |
 | 2.4  | envia_cancel_shipment   | PASS   | shipment cancelled             |
 | 2.5  | envia_check_balance     | PASS   | balance=$9,920,987 MXN         |

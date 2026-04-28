@@ -661,7 +661,7 @@ describe('EcommerceOrderService', () => {
             expect(result.carrier).toBeNull();
             expect(result.warnings).toContain(
                 'No carrier pre-selected for this location. ' +
-                'Use quote_shipment to compare rates, then pass carrier and service to create_shipment.',
+                'Use envia_quote_shipment to compare rates, then pass carrier and service to envia_create_shipment.',
             );
         });
 

@@ -205,7 +205,7 @@ describe('envia_find_drop_off', () => {
     });
 
     // -------------------------------------------------------------------------
-    // 12. should include guidance to use branch_code in create_shipment
+    // 12. should include guidance to use branch_code in envia_create_shipment
     // -------------------------------------------------------------------------
     it('should include branch_code guidance in output', async () => {
         const result = await handler({ carrier: 'fedex' });

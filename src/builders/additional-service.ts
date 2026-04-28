@@ -5,7 +5,7 @@
  * with an explicit additional_services array into a single unified list of
  * AdditionalServiceEntry objects ready for the carriers API payload.
  *
- * Shared by quote_shipment and create_shipment.
+ * Shared by envia_quote_shipment and envia_create_shipment.
  */
 
 import type { AdditionalServiceEntry, InsuranceServiceType } from '../types/carriers-api.js';

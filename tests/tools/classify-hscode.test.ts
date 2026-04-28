@@ -23,7 +23,7 @@ describe("envia_classify_hscode", () => {
     const { server, handlers } = createMockServer();
     const client = new EnviaApiClient(MOCK_CONFIG);
     registerClassifyHscode(server, client, MOCK_CONFIG);
-    handler = handlers.get("classify_hscode")!;
+    handler = handlers.get("envia_classify_hscode")!;
   });
 
   afterEach(() => {

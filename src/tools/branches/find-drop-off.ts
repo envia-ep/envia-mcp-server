@@ -162,7 +162,7 @@ export function registerFindDropOff(
                 lines.push(formatBranch(branches[i], i + 1));
                 lines.push('');
             }
-            lines.push('Use the branch code in create_shipment as branch_code to route the shipment to this location.');
+            lines.push('Use the branch code in envia_create_shipment as branch_code to route the shipment to this location.');
 
             return textResponse(lines.join('\n'));
         },

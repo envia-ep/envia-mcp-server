@@ -1,5 +1,5 @@
 /**
- * Tool: create_shipment
+ * Tool: envia_create_shipment
  *
  * Purchases a shipping label from a carrier. Returns the tracking number
  * and a PDF label URL.
@@ -7,7 +7,7 @@
  * Dual-mode operation:
  *  - **Manual mode** — provide addresses, package details, and carrier
  *    directly. City/state are auto-resolved from postal codes and Colombia
- *    DANE codes are translated automatically (same as quote_shipment).
+ *    DANE codes are translated automatically (same as envia_quote_shipment).
  *  - **Ecommerce mode** — provide an `order_identifier` and the tool
  *    fetches the order, extracts addresses/packages/carrier, fetches
  *    print settings, and generates the label in a single step.
@@ -109,7 +109,7 @@ function formatLabelOutput(shipment: LabelData): string {
 // ---------------------------------------------------------------------------
 
 /**
- * Register the create_shipment tool on the given MCP server.
+ * Register the envia_create_shipment tool on the given MCP server.
  *
  * @param server - MCP server instance to register the tool on
  * @param client - Envia API client for HTTP requests
@@ -121,7 +121,7 @@ export function registerCreateLabel(
     config: EnviaConfig,
 ): void {
     server.registerTool(
-        'create_shipment',
+        'envia_create_shipment',
         {
             description:
                 'Purchase a shipping label. This charges your Envia account balance. ' +
@@ -245,7 +245,7 @@ export function registerCreateLabel(
                     productCode: z.string().optional().describe(
                         'HS / tariff code, also known as NCM code in Brazil (e.g. "4202.21.6000", "8528.72.00"). ' +
                         'Required for international shipments and BR-to-BR domestic shipments. ' +
-                        'Use classify_hscode to look up the correct code for a product.',
+                        'Use envia_classify_hscode to look up the correct code for a product.',
                     ),
                     countryOfManufacture: z.string().optional().describe(
                         'ISO 2-letter country where manufactured (e.g. "MX", "CN").',
@@ -279,7 +279,7 @@ export function registerCreateLabel(
                     'In ecommerce mode: overrides the order\'s pre-selected carrier.',
                 ),
                 service: z.string().optional().describe(
-                    'Service code from quote_shipment (e.g. "express"). Required in manual mode. ' +
+                    'Service code from envia_quote_shipment (e.g. "express"). Required in manual mode. ' +
                     'In ecommerce mode: overrides the order\'s pre-selected service.',
                 ),
                 shipment_type: z.number().default(1).describe('1 = parcel (default), 2 = LTL, 3 = FTL'),
@@ -309,7 +309,7 @@ export function registerCreateLabel(
                     ),
                 })).optional().describe(
                     'Optional additional services for the shipment. ' +
-                    'Use list_additional_services to discover available services for a route. ' +
+                    'Use envia_list_additional_services to discover available services for a route. ' +
                     'Example: [{ "service": "adult_signature_required" }]',
                 ),
                 insurance_type: z.enum(['envia_insurance', 'insurance', 'high_value_protection']).optional().describe(
@@ -451,7 +451,7 @@ async function handleEcommerceMode(
                         'Options:\n' +
                         '  1. Pre-authorize the DCe manually and pass the result as xml_data.\n' +
                         '  2. Use manual mode (omit order_identifier) and supply items with productCode (NCM) for each product.\n' +
-                        '     Use classify_hscode to look up the correct NCM code for each item.\n' +
+                        '     Use envia_classify_hscode to look up the correct NCM code for each item.\n' +
                         '     Example: items: [{ description: "T-shirt", quantity: 1, price: 50, productCode: "6109.10.00" }]',
                     );
                 }
@@ -657,7 +657,7 @@ async function handleManualMode(
     if (!carrier || !service) {
         return textResponse(
             'Error: carrier and service are required in manual mode.\n' +
-            'Use quote_shipment first to compare rates and get carrier/service codes.',
+            'Use envia_quote_shipment first to compare rates and get carrier/service codes.',
         );
     }
     if (!args.origin_name || !args.origin_street || !args.destination_name || !args.destination_street) {
@@ -779,7 +779,7 @@ async function handleManualMode(
             return textResponse(
                 `This route (${originCC}\u2192${destCC}) requires items in each package for customs/fiscal declarations.\n\n` +
                 'Each item needs: description, quantity, price, and productCode (HS/NCM code).\n' +
-                'Use classify_hscode to look up the correct code for each product.\n\n' +
+                'Use envia_classify_hscode to look up the correct code for each product.\n\n' +
                 'Example: items: [{ "description": "Cotton T-shirt", "quantity": 2, "price": 25.00, "productCode": "6109.10.00" }]',
             );
         }

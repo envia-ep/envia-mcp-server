@@ -95,7 +95,7 @@ describe("Input Injection Resistance", () => {
                 shipment_type: 1,
             };
 
-            const result = await callHandler("create_shipment", args);
+            const result = await callHandler("envia_create_shipment", args);
             expect(result.content[0].text).toBeDefined();
         });
 
@@ -151,7 +151,7 @@ describe("Input Injection Resistance", () => {
                 shipment_type: 1,
             };
 
-            const result = await callHandler("create_shipment", args);
+            const result = await callHandler("envia_create_shipment", args);
             expect(result.content[0].text).toBeDefined();
         });
 
@@ -166,7 +166,7 @@ describe("Input Injection Resistance", () => {
                 shipment_type: 1,
             };
 
-            const result = await callHandler("create_shipment", args);
+            const result = await callHandler("envia_create_shipment", args);
             expect(result.content[0].text).toBeDefined();
         });
 
@@ -205,7 +205,7 @@ describe("Input Injection Resistance", () => {
     // =========================================================================
 
     describe("Command injection", () => {
-        it("handles $(command) in description (classify_hscode)", async () => {
+        it("handles $(command) in description (envia_classify_hscode)", async () => {
             vi.stubGlobal(
                 "fetch",
                 mockFetchSuccess({
@@ -214,7 +214,7 @@ describe("Input Injection Resistance", () => {
                 }),
             );
 
-            const result = await callHandler("classify_hscode", {
+            const result = await callHandler("envia_classify_hscode", {
                 description: "cotton $(rm -rf /)",
                 include_alternatives: true,
             });
@@ -289,7 +289,7 @@ describe("Input Injection Resistance", () => {
                 shipment_type: 1,
             };
 
-            const result = await callHandler("create_shipment", args);
+            const result = await callHandler("envia_create_shipment", args);
             expect(result.content[0].text).toBeDefined();
         });
 
@@ -304,7 +304,7 @@ describe("Input Injection Resistance", () => {
                 shipment_type: 1,
             };
 
-            const result = await callHandler("create_shipment", args);
+            const result = await callHandler("envia_create_shipment", args);
             expect(result.content[0].text).toBeDefined();
         });
 
@@ -334,7 +334,7 @@ describe("Input Injection Resistance", () => {
     // =========================================================================
 
     describe("Boundary values", () => {
-        it("handles 10000 char string in description (classify_hscode)", async () => {
+        it("handles 10000 char string in description (envia_classify_hscode)", async () => {
             vi.stubGlobal(
                 "fetch",
                 mockFetchSuccess({
@@ -344,7 +344,7 @@ describe("Input Injection Resistance", () => {
             );
 
             const longDescription = "A".repeat(10_000);
-            const result = await callHandler("classify_hscode", {
+            const result = await callHandler("envia_classify_hscode", {
                 description: longDescription,
                 include_alternatives: true,
             });
@@ -447,7 +447,7 @@ describe("Input Injection Resistance", () => {
             };
 
             // carrier.trim().toLowerCase() should not throw even on special chars
-            const result = await callHandler("create_shipment", args);
+            const result = await callHandler("envia_create_shipment", args);
             expect(result.content[0].text).toBeDefined();
         });
 

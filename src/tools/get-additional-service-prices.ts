@@ -102,7 +102,7 @@ export function registerGetAdditionalServicePrices(
                 lines.push(formatPriceRow(row));
             }
             lines.push('');
-            lines.push('Pass service names via additional_services in quote_shipment or create_shipment.');
+            lines.push('Pass service names via additional_services in envia_quote_shipment or envia_create_shipment.');
 
             return textResponse(lines.join('\n'));
         },

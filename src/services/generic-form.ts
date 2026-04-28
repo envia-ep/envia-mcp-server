@@ -4,7 +4,7 @@
  * Fetches country-specific address form definitions from the Envia Queries API
  * and validates address completeness against the required fields.
  *
- * Used by both `create_shipment` (pre-generation validation) and
+ * Used by both `envia_create_shipment` (pre-generation validation) and
  * `envia_validate_address` (proactive field requirements surfacing).
  *
  * Results are cached per country code for the process lifetime to avoid
@@ -80,7 +80,7 @@ export interface RequiredFieldDescriptor {
 
 /**
  * Maps generic_forms `fieldId` values to the corresponding MCP tool parameter
- * names used in `create_shipment`. Used for error messages so the AI agent
+ * names used in `envia_create_shipment`. Used for error messages so the AI agent
  * knows exactly which parameter to provide.
  */
 const FIELD_TO_TOOL_PARAM: Record<string, string> = {
@@ -98,7 +98,7 @@ const FIELD_TO_TOOL_PARAM: Record<string, string> = {
 };
 
 /**
- * Generic-form field IDs that `create_shipment` does not support.
+ * Generic-form field IDs that `envia_create_shipment` does not support.
  *
  * These fields have no corresponding tool parameter and are not sent to the
  * carrier API. When a country marks them as required the validation skips them
@@ -230,7 +230,7 @@ export function getRequiredFields(formFields: GenericFormField[]): RequiredField
             if (!f.rules?.required || f.visible === false) return false;
             if (UNSUPPORTED_FIELD_IDS.has(f.fieldId)) {
                 console.warn(
-                    `[generic-form] Required field "${f.fieldId}" is not supported by create_shipment ` +
+                    `[generic-form] Required field "${f.fieldId}" is not supported by envia_create_shipment ` +
                     `and will be skipped. The carrier may reject the request if this field is mandatory.`,
                 );
                 return false;

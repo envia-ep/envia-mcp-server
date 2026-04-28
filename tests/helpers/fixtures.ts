@@ -222,7 +222,7 @@ export const MOCK_CITY_RESPONSE = [
 // Quote tool — minimal argument sets
 // ---------------------------------------------------------------------------
 
-/** Minimal required args for the quote_shipment tool (MX domestic). */
+/** Minimal required args for the envia_quote_shipment tool (MX domestic). */
 export const VALID_QUOTE_ARGS = {
     origin_postal_code: "64000",
     destination_postal_code: "03100",

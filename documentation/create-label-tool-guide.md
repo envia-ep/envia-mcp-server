@@ -1,13 +1,13 @@
-# create_shipment Tool — Technical Guide
+# envia_create_shipment Tool — Technical Guide
 
 ## 1. Purpose
 
-The `create_shipment` tool purchases a shipping label from a carrier via `POST /ship/generate/`. It charges the user's Envia account balance and returns a tracking number, label PDF URL, and tracking URL.
+The `envia_create_shipment` tool purchases a shipping label from a carrier via `POST /ship/generate/`. It charges the user's Envia account balance and returns a tracking number, label PDF URL, and tracking URL.
 
 The tool operates in two modes:
 
 - **Ecommerce mode** — provide an `order_identifier` and the tool fetches the order, extracts addresses/packages/carrier, resolves print settings, and generates the label in a single step.
-- **Manual mode** — provide addresses, package details, and carrier/service directly. City and state are auto-resolved from postal codes (like `quote_shipment`). Colombia DANE codes are translated automatically.
+- **Manual mode** — provide addresses, package details, and carrier/service directly. City and state are auto-resolved from postal codes (like `envia_quote_shipment`). Colombia DANE codes are translated automatically.
 
 ---
 
@@ -52,7 +52,7 @@ The tool operates in two modes:
 | `items[].price` | `number` | Yes | Unit price |
 | `items[].weight` | `number` | No | Weight per unit in KG |
 | `items[].sku` | `string` | No | Stock keeping unit identifier |
-| `items[].productCode` | `string` | BR: Yes | HS / tariff code, also known as NCM in Brazil (e.g. "8528.72.00"). Use `classify_hscode` to look up. |
+| `items[].productCode` | `string` | BR: Yes | HS / tariff code, also known as NCM in Brazil (e.g. "8528.72.00"). Use `envia_classify_hscode` to look up. |
 | `items[].countryOfManufacture` | `string` | No | ISO 2-letter country of manufacture |
 | `items[].currency` | `string` | No | ISO 4217 currency of the price |
 
@@ -237,7 +237,7 @@ In manual mode, the carrier API is skipped (no `carrier_id` available) and defau
 ### Ecommerce — direct label creation
 
 ```
-create_shipment (order_identifier: "1234")
+envia_create_shipment (order_identifier: "1234")
   → Label created
   → envia_track_package (tracking_number from response)
 ```
@@ -247,18 +247,18 @@ create_shipment (order_identifier: "1234")
 ```
 envia_get_ecommerce_order (order_identifier: "1234")
   → See available rates and carrier options
-  → quote_shipment (with postal codes from order)
+  → envia_quote_shipment (with postal codes from order)
   → Pick cheapest carrier
-  → create_shipment (order_identifier: "1234", carrier: "fedex", service: "ground")
+  → envia_create_shipment (order_identifier: "1234", carrier: "fedex", service: "ground")
 ```
 
 ### Manual — full domestic workflow
 
 ```
 envia_validate_address (postal_code, country)
-  → quote_shipment (origin/destination postal codes + weight)
+  → envia_quote_shipment (origin/destination postal codes + weight)
   → Pick carrier/service
-  → create_shipment (full addresses + carrier + service)
+  → envia_create_shipment (full addresses + carrier + service)
   → envia_track_package
   → envia_schedule_pickup (if needed)
 ```
@@ -271,11 +271,11 @@ envia_validate_address (postal_code, country)
 |---|---|---|
 | Order not found | Ecommerce | Returns tips to verify identifier and API access |
 | All packages fulfilled | Ecommerce | Returns message suggesting `envia_track_package` |
-| No carrier pre-selected, none provided | Ecommerce | Error suggesting `quote_shipment` first |
+| No carrier pre-selected, none provided | Ecommerce | Error suggesting `envia_quote_shipment` first |
 | `location_index` out of bounds | Ecommerce | Error with valid range |
 | Missing required address fields | Manual | Validation error listing missing fields |
 | Generic-form required fields missing | Both | Error listing missing fields per country (e.g. identificationNumber for BR) |
-| Missing carrier/service | Manual | Error suggesting `quote_shipment` |
+| Missing carrier/service | Manual | Error suggesting `envia_quote_shipment` |
 | Missing items for international/BR | Manual | Error explaining items requirement |
 | Missing productCode (NCM) for BR items | Manual | Error explaining NCM requirement |
 | DCe authorization fails (SEFAZ error) | Both | Returns SEFAZ status code and error message |

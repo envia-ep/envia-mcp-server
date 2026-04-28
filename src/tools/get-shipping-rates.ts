@@ -1,5 +1,5 @@
 /**
- * Tool: quote_shipment
+ * Tool: envia_quote_shipment
  *
  * Compares shipping rates across carriers for a route with minimal input.
  * Only postal codes, country, and package weight are required — city and
@@ -48,7 +48,7 @@ interface RateEntry {
 const MAX_CARRIERS = 10;
 
 /**
- * Register the quote_shipment tool on the given MCP server.
+ * Register the envia_quote_shipment tool on the given MCP server.
  *
  * @param server - MCP server instance to register the tool on
  * @param client - Envia API client for HTTP requests
@@ -60,7 +60,7 @@ export function registerGetShippingRates(
     config: EnviaConfig,
 ): void {
     server.registerTool(
-        'quote_shipment',
+        'envia_quote_shipment',
         {
             description:
                 'Get shipping rates for a parcel shipment. ' +
@@ -141,7 +141,7 @@ export function registerGetShippingRates(
                     ),
                 })).optional().describe(
                     'Optional additional services for the shipment. ' +
-                    'Use list_additional_services to discover available services for a route. ' +
+                    'Use envia_list_additional_services to discover available services for a route. ' +
                     'Example: [{ "service": "adult_signature_required" }]',
                 ),
                 insurance_type: z.enum(['envia_insurance', 'insurance', 'high_value_protection']).optional().describe(
@@ -408,7 +408,7 @@ export function registerGetShippingRates(
 
             lines.push(
                 '',
-                'Next step: use create_shipment with the chosen carrier and service to purchase the label.',
+                'Next step: use envia_create_shipment with the chosen carrier and service to purchase the label.',
             );
 
             return textResponse(lines.join('\n'));

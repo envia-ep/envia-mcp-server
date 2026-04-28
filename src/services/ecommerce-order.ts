@@ -126,7 +126,7 @@ export class EcommerceOrderService {
      * Find the target location from an order, filtering to unfulfilled packages.
      *
      * Reusable across tools — used by create-label (ecommerce mode) and
-     * potentially by quote_shipment when quoting from an order.
+     * potentially by envia_quote_shipment when quoting from an order.
      *
      * @param order - V4 order
      * @param locIndex - Zero-based location index
@@ -169,7 +169,7 @@ export class EcommerceOrderService {
      * pre-selected carrier from the package-level quote.
      *
      * Reusable across tools — used by create-label (ecommerce mode) and
-     * potentially by quote_shipment when quoting from an order.
+     * potentially by envia_quote_shipment when quoting from an order.
      *
      * @param activePackages - Unfulfilled packages for the location
      * @param carrierParam - Carrier override from tool input
@@ -194,7 +194,7 @@ export class EcommerceOrderService {
             return {
                 error:
                     'No carrier pre-selected for this order and no carrier/service provided. ' +
-                    'Use quote_shipment to compare rates, then pass carrier and service to this tool.',
+                    'Use envia_quote_shipment to compare rates, then pass carrier and service to this tool.',
             };
         }
 
@@ -308,7 +308,7 @@ export class EcommerceOrderService {
         if (!carrier && activePackages.length > 0) {
             warnings.push(
                 'No carrier pre-selected for this location. ' +
-                'Use quote_shipment to compare rates, then pass carrier and service to create_shipment.',
+                'Use envia_quote_shipment to compare rates, then pass carrier and service to envia_create_shipment.',
             );
         }
 

@@ -42,7 +42,7 @@ export function registerListCarriers(
         {
             description:
                 "List available shipping carriers for a country. Optionally include their services. " +
-                "Use this to find which carrier and service codes to pass to quote_shipment or create_shipment.",
+                "Use this to find which carrier and service codes to pass to envia_quote_shipment or envia_create_shipment.",
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
                 country: countrySchema.describe("ISO 3166-1 alpha-2 country code (e.g. MX, US, CO)"),

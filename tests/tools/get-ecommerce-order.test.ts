@@ -336,7 +336,7 @@ describe('envia_get_ecommerce_order', () => {
     // Next steps guidance
     // -----------------------------------------------------------------------
 
-    it('should suggest quote_shipment when no carrier is pre-selected', async () => {
+    it('should suggest envia_quote_shipment when no carrier is pre-selected', async () => {
         const order = makeV4OrderResponse();
         order.shipment_data.locations[0].packages[0].quote = {
             price: null,
@@ -354,10 +354,10 @@ describe('envia_get_ecommerce_order', () => {
         const result = await handler({ order_identifier: 'SHOP-1234', payload_type: 'both' });
         const text = result.content[0].text;
 
-        expect(text).toContain('quote_shipment');
+        expect(text).toContain('envia_quote_shipment');
     });
 
-    it('should suggest create_shipment when carrier is available', async () => {
+    it('should suggest envia_create_shipment when carrier is available', async () => {
         const order = makeV4OrderResponse();
         mockFetch.mockResolvedValueOnce({
             ok: true,
@@ -368,7 +368,7 @@ describe('envia_get_ecommerce_order', () => {
         const result = await handler({ order_identifier: 'SHOP-1234', payload_type: 'both' });
         const text = result.content[0].text;
 
-        expect(text).toContain('create_shipment');
+        expect(text).toContain('envia_create_shipment');
     });
 
     it('should suggest envia_track_package when all packages are fulfilled', async () => {

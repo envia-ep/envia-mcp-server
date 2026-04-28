@@ -34,7 +34,7 @@ export function registerSchedulePickup(
         {
             description:
                 "Schedule a carrier pickup at a specific address and date/time window. " +
-                "You must have already created labels with create_shipment — provide the tracking numbers. " +
+                "You must have already created labels with envia_create_shipment — provide the tracking numbers. " +
                 "The carrier will arrive between time_from and time_to on the chosen date.",
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
@@ -81,7 +81,7 @@ export function registerSchedulePickup(
                 .filter(Boolean);
 
             if (trackingNumbers.length === 0) {
-                return textResponse('Error: Provide at least one tracking number. Create labels first with create_shipment.');
+                return textResponse('Error: Provide at least one tracking number. Create labels first with envia_create_shipment.');
             }
 
             const body = {

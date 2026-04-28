@@ -1,5 +1,5 @@
 /**
- * Tool: classify_hscode
+ * Tool: envia_classify_hscode
  *
  * Uses AI to classify a product description into a Harmonized System (HS) code
  * (known as NCM in Brazil), required for international shipments and BR domestic
@@ -36,13 +36,13 @@ export function registerClassifyHscode(
     config: EnviaConfig,
 ): void {
     server.registerTool(
-        "classify_hscode",
+        "envia_classify_hscode",
         {
             description:
                 "Classify a product into an HS code (known as NCM in Brazil) for customs and regulatory compliance. " +
                 "Describe the product in plain language and optionally specify destination countries. " +
                 "Returns the recommended HS/NCM code and alternatives. " +
-                "Use the code as productCode in items when calling quote_shipment or create_shipment " +
+                "Use the code as productCode in items when calling envia_quote_shipment or envia_create_shipment " +
                 "for international shipments and BR-to-BR domestic shipments (required for DCe authorization).",
             inputSchema: z.object({
                 api_key: optionalApiKeySchema,

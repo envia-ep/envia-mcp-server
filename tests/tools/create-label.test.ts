@@ -1,5 +1,5 @@
 /**
- * Tests for the create_shipment tool (dual-mode: manual + ecommerce).
+ * Tests for the envia_create_shipment tool (dual-mode: manual + ecommerce).
  *
  * Manual mode: address resolution is mocked at the module level.
  * Ecommerce mode: order fetch, print settings, and generate API are mocked via global fetch.
@@ -153,7 +153,7 @@ const VALID_MANUAL_ARGS = {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('create_shipment', () => {
+describe('envia_create_shipment', () => {
     let handler: ToolHandler;
     let mockFetch: ReturnType<typeof vi.fn>;
 
@@ -177,7 +177,7 @@ describe('create_shipment', () => {
         const { server, handlers } = createMockServer();
         const client = new EnviaApiClient(MOCK_CONFIG);
         registerCreateLabel(server, client, MOCK_CONFIG);
-        handler = handlers.get('create_shipment')!;
+        handler = handlers.get('envia_create_shipment')!;
     });
 
     afterEach(() => {
@@ -775,7 +775,7 @@ describe('create_shipment', () => {
         const result = await handler({ order_identifier: 'SHOP-1234' });
 
         expect(result.content[0].text).toContain('No carrier pre-selected');
-        expect(result.content[0].text).toContain('quote_shipment');
+        expect(result.content[0].text).toContain('envia_quote_shipment');
     });
 
     it('should return error when location_index is out of bounds', async () => {
@@ -952,7 +952,7 @@ describe('create_shipment', () => {
             const { server: ecartServer, handlers: ecartHandlers } = createMockServer();
             const ecartClient = new EnviaApiClient(CONFIG_WITH_ECART);
             registerCreateLabel(ecartServer, ecartClient, CONFIG_WITH_ECART);
-            const ecartHandler = ecartHandlers.get('create_shipment')!;
+            const ecartHandler = ecartHandlers.get('envia_create_shipment')!;
 
             mockFetch.mockReset();
             mockFetch
@@ -987,7 +987,7 @@ describe('create_shipment', () => {
             const { server: ecartServer, handlers: ecartHandlers } = createMockServer();
             const ecartClient = new EnviaApiClient(CONFIG_WITH_ECART);
             registerCreateLabel(ecartServer, ecartClient, CONFIG_WITH_ECART);
-            const ecartHandler = ecartHandlers.get('create_shipment')!;
+            const ecartHandler = ecartHandlers.get('envia_create_shipment')!;
 
             mockFetch.mockReset();
             mockFetch
@@ -1014,7 +1014,7 @@ describe('create_shipment', () => {
             const { server: ecartServer, handlers: ecartHandlers } = createMockServer();
             const ecartClient = new EnviaApiClient(CONFIG_WITH_ECART);
             registerCreateLabel(ecartServer, ecartClient, CONFIG_WITH_ECART);
-            const ecartHandler = ecartHandlers.get('create_shipment')!;
+            const ecartHandler = ecartHandlers.get('envia_create_shipment')!;
 
             mockFetch.mockReset();
             mockFetch

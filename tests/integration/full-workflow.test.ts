@@ -109,7 +109,7 @@ describe("Full workflow integration", () => {
                 json: () => Promise.resolve(MOCK_RATES_RESPONSE),
             });
 
-            const ratesHandler = handlers.get("quote_shipment")!;
+            const ratesHandler = handlers.get("envia_quote_shipment")!;
             const ratesResult = await ratesHandler({
                 ...VALID_QUOTE_ARGS,
                 carriers: "dhl",
@@ -124,7 +124,7 @@ describe("Full workflow integration", () => {
                 json: () => Promise.resolve(MOCK_LABEL_RESPONSE),
             });
 
-            const labelHandler = handlers.get("create_shipment")!;
+            const labelHandler = handlers.get("envia_create_shipment")!;
             const labelResult = await labelHandler({
                 ...VALID_ORIGIN_ARGS,
                 ...VALID_DESTINATION_ARGS,
@@ -176,7 +176,7 @@ describe("Full workflow integration", () => {
                     Promise.resolve({ message: "Invalid origin postal code" }),
             });
 
-            const ratesHandler = handlers.get("quote_shipment")!;
+            const ratesHandler = handlers.get("envia_quote_shipment")!;
             const ratesResult = await ratesHandler({
                 ...VALID_QUOTE_ARGS,
                 carriers: "dhl",
@@ -210,7 +210,7 @@ describe("Full workflow integration", () => {
                 status: 200,
                 json: () => Promise.resolve(MOCK_HSCODE_RESPONSE),
             });
-            const classifyHandler = handlers.get("classify_hscode")!;
+            const classifyHandler = handlers.get("envia_classify_hscode")!;
             const hsResult = await classifyHandler({
                 description: "cotton t-shirt",
                 include_alternatives: true,
@@ -223,7 +223,7 @@ describe("Full workflow integration", () => {
                 status: 200,
                 json: () => Promise.resolve(MOCK_RATES_RESPONSE),
             });
-            const ratesHandler = handlers.get("quote_shipment")!;
+            const ratesHandler = handlers.get("envia_quote_shipment")!;
             await ratesHandler({
                 ...VALID_QUOTE_ARGS,
                 carriers: "dhl",
@@ -262,7 +262,7 @@ describe("Full workflow integration", () => {
                     status: 200,
                     json: () => Promise.resolve(MOCK_LABEL_RESPONSE),
                 });
-            const labelHandler = handlers.get("create_shipment")!;
+            const labelHandler = handlers.get("envia_create_shipment")!;
             const labelResult = await labelHandler({
                 ...VALID_ORIGIN_ARGS,
                 ...VALID_DESTINATION_ARGS,
@@ -289,7 +289,7 @@ describe("Full workflow integration", () => {
                     status: 200,
                     json: () => Promise.resolve(MOCK_LABEL_RESPONSE),
                 });
-            const labelHandler = handlers.get("create_shipment")!;
+            const labelHandler = handlers.get("envia_create_shipment")!;
             await labelHandler({
                 ...VALID_ORIGIN_ARGS,
                 ...VALID_DESTINATION_ARGS,
@@ -331,7 +331,7 @@ describe("Full workflow integration", () => {
                     status: 200,
                     json: () => Promise.resolve(MOCK_LABEL_RESPONSE),
                 });
-            const labelHandler = handlers.get("create_shipment")!;
+            const labelHandler = handlers.get("envia_create_shipment")!;
             await labelHandler({
                 ...VALID_ORIGIN_ARGS,
                 ...VALID_DESTINATION_ARGS,
@@ -379,12 +379,12 @@ describe("Full workflow integration", () => {
             const expectedTools = [
                 "envia_validate_address",
                 "envia_list_carriers",
-                "quote_shipment",
-                "create_shipment",
+                "envia_quote_shipment",
+                "envia_create_shipment",
                 "envia_track_package",
                 "envia_cancel_shipment",
                 "envia_schedule_pickup",
-                "classify_hscode",
+                "envia_classify_hscode",
                 "envia_create_commercial_invoice",
             ];
 

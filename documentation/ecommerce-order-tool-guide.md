@@ -2,7 +2,7 @@
 
 ## 1. Purpose
 
-The `envia_get_ecommerce_order` tool fetches an ecommerce order by its platform identifier and transforms it into ready-to-use payloads for the existing `quote_shipment` and `create_shipment` tools. It bridges the gap between ecommerce order data and the Envia Shipping API, allowing an AI assistant to look up any order and immediately proceed to rate shopping or label creation.
+The `envia_get_ecommerce_order` tool fetches an ecommerce order by its platform identifier and transforms it into ready-to-use payloads for the existing `envia_quote_shipment` and `envia_create_shipment` tools. It bridges the gap between ecommerce order data and the Envia Shipping API, allowing an AI assistant to look up any order and immediately proceed to rate shopping or label creation.
 
 This tool is the entry point for the **ecommerce order workflow**. Users provide an order identifier from their ecommerce platform (Shopify, Tiendanube, WooCommerce, etc.), and the tool returns structured address, package, and carrier data.
 
@@ -52,13 +52,13 @@ Response:
     Carrier:     fedex / ground
     Packages:    1
 
-  --- Quote Payload (for quote_shipment) ---
+  --- Quote Payload (for envia_quote_shipment) ---
     Origin:      64000, Monterrey, NL, MX
     Destination: 03100, Mexico City, CDMX, MX
     Package 1:   1.5KG — 20x15x10CM — "T-Shirts"
     Pre-selected: fedex / ground — you can skip quoting and go directly to label creation.
 
-  --- Generate Payload (for create_shipment) ---
+  --- Generate Payload (for envia_create_shipment) ---
     Origin name:    Warehouse Norte
     Origin address: Av. Constitucion 123, Monterrey, NL 64000, MX
     ...
@@ -108,14 +108,14 @@ Shown when packages have existing tracking numbers:
 
 Each origin location (warehouse) gets its own section with:
 
-- **Quote Payload**: Postal codes, city/state/country for origin and destination, package dimensions and weight. Ready to feed into `quote_shipment`.
-- **Generate Payload**: Full names, phones, street addresses, carrier/service, currency, and ecommerce metadata. Ready to feed into `create_shipment`.
+- **Quote Payload**: Postal codes, city/state/country for origin and destination, package dimensions and weight. Ready to feed into `envia_quote_shipment`.
+- **Generate Payload**: Full names, phones, street addresses, carrier/service, currency, and ecommerce metadata. Ready to feed into `envia_create_shipment`.
 
 ### Next Steps
 
 Contextual guidance based on the order state:
-- No carrier → suggests `quote_shipment`
-- Carrier present → suggests `create_shipment`
+- No carrier → suggests `envia_quote_shipment`
+- Carrier present → suggests `envia_create_shipment`
 - All fulfilled → suggests `envia_track_package`
 
 ---
@@ -127,7 +127,7 @@ Contextual guidance based on the order state:
 ```
 envia_get_ecommerce_order (order_identifier: "1234")
   → carrier already selected (fedex / ground)
-  → create_shipment (use origin/destination/package data from output)
+  → envia_create_shipment (use origin/destination/package data from output)
   → envia_track_package (use tracking number from label)
 ```
 
@@ -136,9 +136,9 @@ envia_get_ecommerce_order (order_identifier: "1234")
 ```
 envia_get_ecommerce_order (order_identifier: "1234", payload_type: "quote")
   → no carrier pre-selected
-  → quote_shipment (use origin/destination postal codes and package weight)
+  → envia_quote_shipment (use origin/destination postal codes and package weight)
   → pick cheapest carrier
-  → create_shipment (combine address data from order + carrier from quote)
+  → envia_create_shipment (combine address data from order + carrier from quote)
 ```
 
 ### Flow 3: Multi-location order
@@ -149,15 +149,15 @@ Each location in the order produces independent payloads. Create labels per-loca
 envia_get_ecommerce_order (order_identifier: "1234")
   → Location 1: Monterrey warehouse → fedex / ground
   → Location 2: Guadalajara warehouse → dhl / express
-  → create_shipment for Location 1
-  → create_shipment for Location 2
+  → envia_create_shipment for Location 1
+  → envia_create_shipment for Location 2
 ```
 
 ---
 
 ## 6. How It Differs from Other Tools
 
-| Aspect | `envia_get_ecommerce_order` | `quote_shipment` | `create_shipment` |
+| Aspect | `envia_get_ecommerce_order` | `envia_quote_shipment` | `envia_create_shipment` |
 |---|---|---|---|
 | Purpose | Fetch order data and build payloads | Compare shipping rates | Purchase a label |
 | Input | Order identifier only | Postal codes + weight | Full addresses + carrier |
@@ -175,7 +175,7 @@ envia_get_ecommerce_order (order_identifier: "1234")
 | API authentication failure | Returns error with suggestion to verify API key |
 | API server error (5xx) | Retries automatically (up to 3 times), then returns error |
 | All packages fulfilled | Returns order data with fulfillment warning and suggests tracking |
-| No carrier pre-selected | Returns quote payload but not generate payload; suggests `quote_shipment` |
+| No carrier pre-selected | Returns quote payload but not generate payload; suggests `envia_quote_shipment` |
 | Missing address fields | Payloads include empty strings for missing fields; carrier API will validate |
 
 ---

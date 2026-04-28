@@ -1,5 +1,5 @@
 /**
- * Tool: list_additional_services
+ * Tool: envia_list_additional_services
  *
  * Lists the optional additional services available for a shipment route
  * (insurance types, cash on delivery, signatures, etc.). Call this before
@@ -19,7 +19,7 @@ import { textResponse } from '../utils/mcp-response.js';
 import { fetchAvailableAdditionalServices, type AdditionalServiceInfo } from '../services/additional-service.js';
 
 /**
- * Register the list_additional_services tool on the given MCP server.
+ * Register the envia_list_additional_services tool on the given MCP server.
  *
  * @param server - MCP server instance to register the tool on
  * @param client - Envia API client for HTTP requests
@@ -31,7 +31,7 @@ export function registerListAdditionalServices(
     config: EnviaConfig,
 ): void {
     server.registerTool(
-        'list_additional_services',
+        'envia_list_additional_services',
         {
             description:
                 'List optional additional services available for a shipment route. ' +
@@ -120,7 +120,7 @@ function formatServiceList(
     }
 
     lines.push(
-        'Usage: pass these service names in the additional_services parameter of quote_shipment or create_shipment.',
+        'Usage: pass these service names in the additional_services parameter of envia_quote_shipment or envia_create_shipment.',
         'Example: additional_services: [{ "service": "cash_on_delivery", "amount": 500 }]',
         '',
         'Insurance rules:',

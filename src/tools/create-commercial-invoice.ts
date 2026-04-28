@@ -163,7 +163,7 @@ export function registerCreateCommercialInvoice(
                 "Next steps:",
                 "  • Download and print the invoice PDF",
                 "  • Attach it to the outside of the package (with the shipping label)",
-                "  • Use create_shipment to generate the shipping label",
+                "  • Use envia_create_shipment to generate the shipping label",
             );
 
             return textResponse(lines.join("\n"));
