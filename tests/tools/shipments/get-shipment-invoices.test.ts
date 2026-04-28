@@ -104,27 +104,12 @@ describe('envia_get_shipment_invoices', () => {
     });
 
     // -------------------------------------------------------------------------
-    // 3. Falls back to `shipments_amount` for legacy fixtures
+    // 3. Renders "—" when total_shipments is absent.
+    //    Note: the old shipments_amount fallback was removed (field never existed
+    //    in the live API — verified 2026-04-28, Phase 1 schema migration).
     // -------------------------------------------------------------------------
-    it('should fall back to shipments_amount when total_shipments is absent (legacy fixtures)', async () => {
-        const legacy = {
-            ...makeInvoice(),
-            total_shipments: undefined,
-            shipments_amount: 42,
-        };
-        mockFetch.mockResolvedValueOnce(makeApiResponse(makeListResponse([legacy])));
-
-        const result = await handler({ api_key: MOCK_CONFIG.apiKey, limit: 20, page: 1 });
-        const text = result.content[0].text;
-
-        expect(text).toContain('Shipments: 42');
-    });
-
-    // -------------------------------------------------------------------------
-    // 4. Renders "—" when both total_shipments and shipments_amount are absent
-    // -------------------------------------------------------------------------
-    it('should render — when neither shipment-count field is present', async () => {
-        const noCount = { ...makeInvoice(), total_shipments: undefined, shipments_amount: undefined };
+    it('should render — when total_shipments is absent', async () => {
+        const noCount = { ...makeInvoice(), total_shipments: undefined };
         mockFetch.mockResolvedValueOnce(makeApiResponse(makeListResponse([noCount])));
 
         const result = await handler({ api_key: MOCK_CONFIG.apiKey, limit: 20, page: 1 });

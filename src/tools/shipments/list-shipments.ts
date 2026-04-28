@@ -15,7 +15,8 @@ import { requiredApiKeySchema } from '../../utils/schemas.js';
 import { textResponse } from '../../utils/mcp-response.js';
 import { mapCarrierError } from '../../utils/error-mapper.js';
 import { queryShipmentsApi, formatAddressSummary, formatCurrency } from '../../services/shipments.js';
-import type { ShipmentListResponse } from '../../types/shipments.js';
+import { parseToolResponse } from '../../utils/response-validator.js';
+import { ShipmentListResponseSchema } from '../../schemas/shipments.js';
 
 /**
  * Register the envia_list_shipments tool on the MCP server.
@@ -67,7 +68,7 @@ export function registerListShipments(
             if (args.include_archived) params.include_archived = true;
             if (args.count_only) params.count_only = true;
 
-            const res = await queryShipmentsApi<ShipmentListResponse>(
+            const res = await queryShipmentsApi<unknown>(
                 activeClient, config, '/shipments', params,
             );
 
@@ -78,7 +79,7 @@ export function registerListShipments(
                 );
             }
 
-            const data = res.data;
+            const data = parseToolResponse(ShipmentListResponseSchema, res.data, 'envia_list_shipments');
 
             if (args.count_only) {
                 return textResponse(`Total shipments matching filters: ${data.total ?? 0}`);
@@ -123,11 +124,11 @@ export function registerListShipments(
                     `  From: ${formatAddressSummary(senderAddr)}  →  To: ${formatAddressSummary(consigneeAddr)}`,
                 );
                 lines.push(
-                    `  Cost: ${formatCurrency(s.grand_total ?? s.total, s.currency)}  |  Created: ${s.created_at ?? '—'}`,
+                    `  Cost: ${formatCurrency(s.grand_total as number | undefined ?? s.total as number | undefined, s.currency)}  |  Created: ${s.created_at ?? '—'}`,
                 );
-                if (s.last_event?.description) {
+                if (s.last_event_description) {
                     lines.push(
-                        `  Last event: ${s.last_event.description}${s.last_event.location ? ` [${s.last_event.location}]` : ''}`,
+                        `  Last event: ${s.last_event_description}${s.last_event_location ? ` [${s.last_event_location}]` : ''}`,
                     );
                 }
                 lines.push('');

@@ -15,7 +15,8 @@ import { requiredApiKeySchema } from '../../utils/schemas.js';
 import { textResponse } from '../../utils/mcp-response.js';
 import { mapCarrierError } from '../../utils/error-mapper.js';
 import { queryShipmentsApi } from '../../services/shipments.js';
-import type { ShipmentStatusStats } from '../../types/shipments.js';
+import { parseToolResponse } from '../../utils/response-validator.js';
+import { ShipmentStatusStatsSchema } from '../../schemas/shipments.js';
 
 /**
  * Register the envia_get_shipments_status tool on the MCP server.
@@ -54,7 +55,7 @@ export function registerGetShipmentsStatus(
             // 2026-04-27). Earlier versions of this tool unwrapped a non-existent
             // `res.data.data` which always yielded undefined, masking real data
             // behind a generic "no statistics" message.
-            const res = await queryShipmentsApi<ShipmentStatusStats>(
+            const res = await queryShipmentsApi<unknown>(
                 activeClient, config, '/shipments/packages-information-by-status', params,
             );
 
@@ -65,7 +66,7 @@ export function registerGetShipmentsStatus(
                 );
             }
 
-            const stats = res.data;
+            const stats = parseToolResponse(ShipmentStatusStatsSchema, res.data, 'envia_get_shipments_status');
             if (!stats || Object.keys(stats).length === 0) {
                 return textResponse('No status statistics available for the specified date range.');
             }

@@ -152,11 +152,13 @@ describe('envia_get_shipments_status', () => {
     });
 
     // -------------------------------------------------------------------------
-    // 5. Regression guard: earlier broken version unwrapped res.data.data —
-    //    if a future refactor reintroduces it, the test below would fail because
-    //    a wrapped fixture should NOT yield a populated stats block.
+    // 5. Regression guard: a wrapped { data: stats } payload is a malformed response.
+    //    With Zod schema validation, the schema strips the unknown `data` key
+    //    (all stat fields are optional), returning an empty object. This means
+    //    "no statistics" is the CORRECT output — it surfaces the backend mismatch
+    //    instead of silently showing zeros. Updated 2026-04-28 for Phase 1 schema.
     // -------------------------------------------------------------------------
-    it('should treat a wrapped { data: stats } payload as empty (the wrapper is the bug)', async () => {
+    it('should show "no statistics" for a wrapped { data: stats } payload (schema detects mismatch)', async () => {
         mockFetch.mockResolvedValueOnce(makeApiResponse({ data: makeStatsResponse() }));
 
         const result = await handler({
@@ -166,11 +168,10 @@ describe('envia_get_shipments_status', () => {
         });
         const text = result.content[0].text;
 
-        // The flat keys would not be at the top level when wrapped, so the
-        // formatter sees keys like `data` and renders 0 for each metric.
-        // Verify it did NOT silently skip with the old "no statistics" path.
-        expect(text).not.toContain('No status statistics available');
-        expect(text).toContain('Pending ship:     0');
+        // Zod strips the unknown `data` wrapper key → all stat fields are undefined
+        // → empty stats object → "no statistics" response. This is correct behaviour:
+        // the schema validation has surfaced a real backend shape mismatch.
+        expect(text).toContain('No status statistics available');
     });
 
     // -------------------------------------------------------------------------
