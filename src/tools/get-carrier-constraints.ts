@@ -27,6 +27,8 @@ import type { EnviaConfig } from '../config.js';
 import { requiredApiKeySchema } from '../utils/schemas.js';
 import { textResponse } from '../utils/mcp-response.js';
 import { fetchCarrierConstraints } from '../services/carrier-constraints.js';
+import { parseToolResponse } from '../utils/response-validator.js';
+import { CarrierConstraintsResponseSchema } from '../schemas/carrier-constraints.js';
 import type {
     CarrierConstraintsResponse,
     ServiceConstraint,
@@ -281,7 +283,7 @@ export function registerGetCarrierConstraints(
             const activeClient = resolveClient(client, args.api_key, config);
 
             try {
-                const response = await fetchCarrierConstraints(
+                const rawResponse = await fetchCarrierConstraints(
                     activeClient,
                     args.carrier_id,
                     {
@@ -290,6 +292,12 @@ export function registerGetCarrierConstraints(
                     },
                     config,
                 );
+
+                const response = parseToolResponse(
+                    CarrierConstraintsResponseSchema,
+                    rawResponse,
+                    'envia_get_carrier_constraints',
+                ) as unknown as CarrierConstraintsResponse;
 
                 const { data, meta } = response;
                 const lines: string[] = [];
