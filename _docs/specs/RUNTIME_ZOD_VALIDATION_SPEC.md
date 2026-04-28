@@ -1,6 +1,6 @@
 # Spec — Runtime Zod Validation in the Response Layer (Phase 1)
 
-**Version:** v1 — drafted 2026-04-28 by Jose Vidrio (CTO) + Claude Opus 4.7.
+**Version:** v1.1 — drafted 2026-04-28 by Jose Vidrio (CTO) + Claude Opus 4.7. Iteration 2 added §1.5, §6.4, expanded §3, §4.1, §5.6, §7, §10, §11.
 **Status:** READY FOR IMPLEMENTATION (Sonnet 4.6 session).
 **Estimated effort:** 6–9 hours single Sonnet session.
 **Phase:** 1 of 2. Phase 2 (rollout to the remaining 63 tools) is a follow-up spec.
@@ -60,6 +60,38 @@ can adopt the pattern in 15 minutes per tool.
 **Out of scope (Phase 2):** rollout to the remaining 63 tools, schema
 generation tooling (`npm run schemas:capture`), schema versioning across
 deployed releases.
+
+---
+
+## 1.5 Schema evolution — when and how to update a schema later
+
+This is operational guidance for after Phase 1 is in production. The
+implementer should familiarise themselves with it because it shapes
+some of the design decisions in §3.
+
+**When the backend ADDS a field** (forward-compatible):
+- The passthrough behaviour (§3.2) accepts the new field silently.
+- No schema update is required for tools that do not consume the new
+  field.
+- When a future tool wants to consume the field, the schema gets
+  extended with `.optional()` for the new field. No breaking change.
+
+**When the backend RENAMES a field** (breaking):
+- A `schema_validation_failed` warning fires in Datadog within seconds
+  of the first request.
+- The fix is: update the schema to the new field name, update the
+  formatter to read the new name, ship a coordinated MCP release.
+- This is exactly the workflow that the 5 audit bugs would have
+  followed if Phase 1 had been in place at the time.
+
+**When the backend changes a TYPE** (e.g. number → string):
+- Same as rename: warning fires, schema gets updated, fix ships.
+- Use `z.union([z.string(), z.number()])` if the backend is in the
+  middle of a migration and both shapes are valid temporarily.
+
+**Never weaken a schema to silence warnings.** If a `schema_validation_failed`
+warning is firing in production, that is signal — do not turn it off
+with `.optional()` on every field. Investigate the root cause.
 
 ---
 
@@ -161,6 +193,60 @@ This spec adds infrastructure and migrates 10 tools. It does NOT:
 
 Resist the temptation to "fix one more thing while we're in here." Each
 out-of-scope change extends review burden and risk.
+
+### 3.7 Nullability conventions in schemas
+
+Pick the right Zod modifier for each field based on what the backend
+ACTUALLY returns in the live capture (not what the existing TS type says):
+
+| Backend behaviour in live capture | Zod modifier | Example |
+|---|---|---|
+| Field always present, value `null` allowed | `.nullable()` | `folio: z.string().nullable()` |
+| Field sometimes absent (key missing), never `null` | `.optional()` | `coverage_summary: CoverageSummarySchema.optional()` |
+| Field sometimes absent AND sometimes `null` | `.nullable().optional()` | `delivered_at: z.string().nullable().optional()` |
+| Field always present, value never `null` | (no modifier) | `tracking_number: z.string()` |
+
+**Rule of thumb:** if the curl in §5.2 ever shows the field as `null`,
+use `.nullable()`. If the curl ever omits the key entirely, use
+`.optional()`. Both can apply.
+
+### 3.8 Tests in strict mode — the contract
+
+Strict mode (`MCP_SCHEMA_VALIDATION_MODE=strict`) is the diagnostic
+that tells us whether our test fixtures match reality. It is the most
+valuable single check in this spec.
+
+When strict mode reveals a failing test that previously passed:
+- **Default conclusion:** the test fixture is wrong (was hand-typed
+  during the audit era; the backend evolved). Update the fixture to
+  the live shape.
+- **Less common:** the schema is wrong (you misread the curl output).
+  Re-capture and verify.
+- **NEVER weaken the schema** (`.optional()` everywhere, `.passthrough`
+  abuse) just to make a test pass. That defeats the purpose.
+
+If a test cannot reasonably be made to match a real backend shape
+(e.g. the backend will never return that error structure), it is the
+test that needs to be removed, not the schema.
+
+### 3.9 Date-time, currency, and string-vs-number conventions
+
+The Envia backend has known idiosyncrasies for some types:
+
+- **Timestamps:** always strings of the form `"2026-04-27 13:27:18"`
+  (no timezone). Use `z.string()` — do NOT use `z.string().datetime()`
+  (that requires ISO 8601 with timezone, which the backend does not
+  produce).
+- **Currency amounts:** usually `number` (e.g. `14.28`) but for some
+  COD endpoints they come as strings. Use `z.union([z.number(),
+  z.string()])` for any amount field that you observe as either type
+  in the live capture. Only one type → use that one.
+- **Percentages from `/shipments/packages-information-by-status`:**
+  pre-formatted strings with `%` baked in (e.g. `"100.00%"`). Use
+  `z.string()`. This was the bug in commit `1af57ad`.
+- **Boolean-like integers:** the backend uses `0`/`1` for many flags
+  (`active`, `is_default`, `is_favorite`, `private`). Schema should
+  use `z.number()` even when the formatter coerces to boolean.
 
 ---
 
@@ -280,6 +366,25 @@ export function parseToolResponse<S extends ZodTypeAny>(
 - Read `process.env.MCP_SCHEMA_VALIDATION_MODE` exactly once via the
   module-level `MODE` constant. **Never** read it inside the function.
 
+**Edge cases the helper must handle correctly:**
+
+| Input `data` | Expected behaviour |
+|---|---|
+| `null` | `safeParse` fails → log warning → return `null` (warn) or throw (strict). Tools must check for `null` explicitly before accessing properties; this was already true pre-validation. |
+| `undefined` | Same as `null`. Some endpoints return 204 No Content; the fetch wrapper surfaces this as `undefined`. |
+| `{}` (empty object) | If schema requires fields, `safeParse` fails. Behaviour as above. |
+| `[]` (empty array) | If schema is `z.array(X)`, parses successfully. If schema is `z.object({...})`, parses fail. |
+| Backend returns a string error like `"Internal Server Error"` instead of JSON | The fetch wrapper should already mark `res.ok = false` so the tool returns BEFORE calling `parseToolResponse`. If somehow this slips through, the helper returns the string cast as `z.infer<S>`, and the formatter will fail accessing properties. The log will fire. This is acceptable — it is a backend bug being surfaced. |
+
+**Correlation ID:** the existing pino logger picks up `correlation_id`
+from the active context (Sprint 4a, `decorateServerWithLogging` in
+`src/utils/server-logger.ts`). The `parseToolResponse` helper does not
+need to manually pass it — pino does that automatically when called
+from within a tool handler that was registered through the decorated
+server. Verify this assumption by checking that the existing
+`tool_call_complete` events carry `correlation_id`; if they do, the
+new `schema_validation_failed` events will too.
+
 ### 4.2 `src/utils/server-logger.ts` — extend the event taxonomy
 
 The existing `decorateServerWithLogging` (Sprint 4a, commit `af71e0b`)
@@ -299,8 +404,31 @@ emits `tool_call_complete` and `tool_call_failed` events. **Add**:
    collision with the future `index.ts` if added). This file re-exports
    nothing today — it's a marker for the directory and a place for
    per-domain re-exports as Phase 2 schemas land.
-3. Add a short README at `src/schemas/README.md` explaining the
-   convention, copy-paste from §5.4 below.
+3. Add a short README at `src/schemas/README.md`. Required content:
+
+   ```markdown
+   # Zod schemas (response validation)
+
+   Schemas in this directory mirror the `src/types/` split (one file per
+   domain: `shipments.ts`, `tickets.ts`, `orders.ts`, etc.).
+
+   ## Conventions
+
+   - Schema name = TypeScript type name + `Schema` suffix.
+     Example: `ShipmentDetailResponseSchema` parses into the same
+     shape as `ShipmentDetailResponse` from `src/types/`.
+   - Field-level rules in spec §3.7 (nullability) and §3.9 (types).
+   - Every schema gets a JSDoc citing "Verified live YYYY-MM-DD against
+     {endpoint}".
+   - Every schema is consumed via `parseToolResponse(schema, data,
+     toolName)` from `src/utils/response-validator.ts`. Do not call
+     `.parse()` or `.safeParse()` directly from tool code.
+
+   ## Adding a new schema
+
+   See `_docs/specs/RUNTIME_ZOD_VALIDATION_SPEC.md` §5.4 for the
+   migration template.
+   ```
 
 ---
 
@@ -461,6 +589,34 @@ const s = validated.data?.[0];
   needs it for documentation purposes. The schema's inferred type
   flows through `validated`.
 
+**Import path depth (do not get this wrong — TypeScript will catch it
+but it's annoying):**
+
+| Tool location depth | Import path to helper | Import path to schema |
+|---|---|---|
+| `src/tools/X.ts` (root tools) | `'../utils/response-validator.js'` | `'../schemas/{domain}.js'` |
+| `src/tools/{subdir}/X.ts` (e.g. `shipments/`, `orders/`) | `'../../utils/response-validator.js'` | `'../../schemas/{domain}.js'` |
+| `src/tools/{subdir}/{subsubdir}/X.ts` (none in Phase 1) | `'../../../utils/...'` | `'../../../schemas/...'` |
+
+Verify with `npm run build` after each tool migration — a wrong path
+will fail compilation immediately.
+
+**Type vs schema-inferred type — when to use which:**
+
+The existing `src/types/` files declare TypeScript types. The schemas
+in `src/schemas/` produce runtime-validated types. **Where they
+diverge (which they will, after live-shape capture), the schema is the
+source of truth.**
+
+- Old code: `import type { ShipmentDetailResponse } from '../types/shipments.js';`
+- New code: `import { ShipmentDetailResponseSchema } from '../schemas/shipments.js';`
+  → use `z.infer<typeof ShipmentDetailResponseSchema>` if you need the
+  type explicitly. In most cases the implicit return type from
+  `parseToolResponse` is enough.
+
+The TS type in `src/types/` may stay (other code depends on it) but
+should NOT be the basis for the schema. Use the live curl.
+
 #### Step 3 — Add the validation test
 
 File: `tests/schemas/{domain}.test.ts` (new directory `tests/schemas/`).
@@ -556,28 +712,43 @@ The order is deliberate: each tool in the list either has a confirmed
 shape bug already documented (1–5) or is among the highest-call-volume
 tools (6–10). Migrating in this order maximises Datadog signal early.
 
-| # | Tool | File | Domain | Why on Phase 1 |
-|---|---|---|---|---|
-| 1 | `envia_get_shipment_detail` | `src/tools/shipments/get-shipment-detail.ts` | shipments | Severe bug confirmed 2026-04-27 |
-| 2 | `envia_list_shipments` | `src/tools/shipments/list-shipments.ts` | shipments | Medium bug confirmed |
-| 3 | `envia_get_shipments_status` | `src/tools/shipments/get-shipments-status.ts` | shipments | High bug confirmed |
-| 4 | `envia_get_shipment_invoices` | `src/tools/shipments/get-shipment-invoices.ts` | shipments | Medium bug confirmed |
-| 5 | `envia_create_ticket` | `src/tools/tickets/create-ticket.ts` | tickets | Linkage gap fixed; schema codifies the new shape |
-| 6 | `envia_get_carrier_constraints` | `src/tools/get-carrier-constraints.ts` | carriers | High-value new tool, no prior schema |
-| 7 | `envia_quote_shipment` | `src/tools/get-shipping-rates.ts` | shipping | Most-called tool by volume |
-| 8 | `envia_create_shipment` | `src/tools/create-label.ts` | shipping | Highest revenue impact per call |
-| 9 | `envia_track_package` | `src/tools/track-package.ts` | shipping | Most-called read |
-| 10 | `envia_list_orders` | `src/tools/orders/list-orders.ts` | orders | High-volume, complex shape |
+| # | Tool name | File | Backend endpoint | Schema file → name | Why on Phase 1 |
+|---|---|---|---|---|---|
+| 1 | `envia_get_shipment_detail` | `src/tools/shipments/get-shipment-detail.ts` | `GET /guide/{tracking}` (queries) | `src/schemas/shipments.ts` → `ShipmentDetailResponseSchema` | Severe bug confirmed in commit `a99736a` |
+| 2 | `envia_list_shipments` | `src/tools/shipments/list-shipments.ts` | `GET /shipments` (queries) | `src/schemas/shipments.ts` → `ShipmentListResponseSchema` | Medium bug in `a99736a` |
+| 3 | `envia_get_shipments_status` | `src/tools/shipments/get-shipments-status.ts` | `GET /shipments/packages-information-by-status` (queries) | `src/schemas/shipments.ts` → `ShipmentStatusStatsSchema` | HIGH bug in `9007a5d` (flat-shape) + cosmetic in `1af57ad` (% strings). Two regressions in 24h — schema is highest-value here. |
+| 4 | `envia_get_shipment_invoices` | `src/tools/shipments/get-shipment-invoices.ts` | `GET /shipments/invoices` (queries) | `src/schemas/shipments.ts` → `InvoiceListResponseSchema` | Medium bug in `9007a5d` (DataTables wrapper, total_shipments) |
+| 5 | `envia_create_ticket` | `src/tools/tickets/create-ticket.ts` | `GET /guide/{tracking}` (lookup) + `POST /company/tickets` (queries) | `src/schemas/tickets.ts` → `CreateTicketResponseSchema` (POST), reuse `ShipmentDetailResponseSchema` (GET) | Linkage gap fixed in `9aee101`. Two endpoints touched per call — schema covers both. |
+| 6 | `envia_get_carrier_constraints` | `src/tools/get-carrier-constraints.ts` | `GET /carrier-constraints/{id}` (carriers/shipping) | `src/schemas/carrier-constraints.ts` → `CarrierConstraintsResponseSchema` | C11 spec v3 — backend just shipped (verified live). Schema codifies the v3 contract end-to-end. |
+| 7 | `envia_quote_shipment` | `src/tools/get-shipping-rates.ts` | `POST /ship/rate` (carriers/shipping) | `src/schemas/shipping.ts` → `QuoteShipmentResponseSchema` | Most-called tool. No prior shape bugs — sensitive surface, validate first. |
+| 8 | `envia_create_shipment` | `src/tools/create-label.ts` | `POST /ship/generate` (carriers/shipping) | `src/schemas/shipping.ts` → `CreateShipmentResponseSchema` | Highest revenue-per-call. Backend errors are mission-critical — schema MUST cover error path too. |
+| 9 | `envia_track_package` | `src/tools/track-package.ts` | `POST /ship/generaltrack` (carriers/shipping) | `src/schemas/shipping.ts` → `TrackPackageResponseSchema` | Most-called read. Per-event nested shape — extra care on event array. |
+| 10 | `envia_list_orders` | `src/tools/orders/list-orders.ts` | `GET /v4/orders` (queries) | `src/schemas/orders.ts` → `OrderListResponseSchema` | Heavily used by chat agent. Complex nested order/customer/shipment data — biggest schema in Phase 1. |
 
-**Tools 1–5** already have working types and tests; the migration is
-straightforward (capture live shape → write schema → wire helper → add
-schema test). Estimated 30 min each.
+**Migration dependencies** (do these in order, do not parallelise):
+- Tool #1 (`envia_get_shipment_detail`) writes `ShipmentDetailResponseSchema`
+  in `src/schemas/shipments.ts`. Tool #5 (`envia_create_ticket`) **re-imports
+  that exact schema** for its tracking-number lookup. Migrating #5 before
+  #1 means the agent has to write the same schema twice or guess. **Do
+  #1 first.**
+- Tool #2 and #4 share `src/schemas/shipments.ts` with #1, #3. Append to
+  the same file — do not create duplicates.
+- Tools #6–9 each get their own file (`carrier-constraints.ts`,
+  `shipping.ts`). #7, #8, #9 share `shipping.ts`.
 
-**Tools 6–10** may not have prior schemas matching live shape. Spend
-extra time on §5.2 (live capture) for these. Estimated 45 min each.
+**Tool #8 (`envia_create_shipment`) needs special care:** it can return
+either a success shape with tracking + label URL, or an error shape
+with carrier-mapped errors. The schema should be a `z.union` or
+`z.discriminatedUnion` over both shapes. Capture both via curl (one
+successful create, one with deliberately bad input).
 
-Total estimated: ~6.5 hours. Buffer included in the 6–9 hour overall
-estimate.
+**Time budget:**
+- Tools 1–5 (already have working types): ~30 min each = 2.5h
+- Tools 6, 9, 10 (medium complexity): ~45 min each = 2.25h
+- Tools 7, 8 (high complexity, multi-shape): ~60 min each = 2h
+- Plus infra (§4): ~1h, helper tests (§6.2): ~30min, verification (§7): ~30min
+
+Total ≈ 8h. Within the 6–9h envelope.
 
 ---
 
@@ -618,55 +789,130 @@ This script runs the full test suite with strict mode on. It is what CI
 will eventually call (out of scope for Phase 1) but landing it in
 `package.json` now means devs can use it locally to surface drift early.
 
+If the script name `test:strict` already exists, append a suffix
+(`test:strict:phase1`) — do not overwrite.
+
+### 6.4 Edge-case tests beyond the 3-test minimum (recommended for the
+        more complex schemas)
+
+For tools #3 (status), #6 (carrier-constraints), #8 (create-shipment),
+#9 (track-package), and #10 (list-orders), add these additional tests
+where they apply to the shape:
+
+- **Empty list:** schema for a list endpoint must accept `{ data: [] }`.
+- **Single-element list:** sanity test, smaller than full live capture.
+- **Optional sub-object absent:** e.g. `coverage_summary` absent in
+  carrier-constraints v3. Verify schema does not require it.
+- **Optional sub-object present:** e.g. `coverage_summary` present and
+  has `_unavailable` placeholder.
+- **Nullable field returns `null`:** e.g. `delivered_at: null`.
+- **Nullable field returns string:** e.g. `delivered_at: "2026-04-27 13:27:18"`.
+- **Discriminated union (#8 only):** one test for success shape, one
+  for error shape. Both should parse against the union.
+
+Total additional test count: ~20 across the 5 complex tools (4 each,
+roughly). Counted into the ~36 net new test target.
+
+### 6.5 Fixture sourcing
+
+For each schema test, the "live shape" fixture comes from §5.2
+(real curl output). The fixture lives **inline in the test file**, not
+in a separate JSON. Reasons:
+- Keeps test self-contained and reviewable in a single file.
+- Type narrowing works: TypeScript catches typos in the fixture.
+- No `fs.readFileSync` overhead at test start.
+
+If a fixture is large (>200 lines) consider extracting to a `tests/
+fixtures/{domain}/{tool}.fixture.ts` exporting a single const. Phase 1
+does not require this — it's a Phase 2 optimisation if the test files
+become unwieldy.
+
 ---
 
 ## 7. Operational verification (do not skip)
 
 After build + tests pass, the implementer must run these three checks:
 
-### 7.1 Live sandbox smoke (the 10 migrated tools, hitting real backend)
+### 7.1 Schema-vs-live verification (offline, does NOT need a running MCP)
+
+The most important verification step. Does NOT require deploying anything.
+
+For each of the 10 migrated tools, the agent issues a curl directly to
+the backend (bypassing the MCP) and confirms the response parses
+against the new schema:
 
 ```bash
-# From the MCP server directory:
-npm run build
-node dist/index.js &  # local stdio MCP server
-# Use the staging Heroku app instead if local stdio is awkward:
-export MCP_URL="https://envia-mcp-stage-8942f8239481.herokuapp.com"
-export TOKEN="ea7aa2285b00f166846a0924260ccf2395cf68f2582183b8e204d71e75a665f3"
+TOKEN="ea7aa2285b00f166846a0924260ccf2395cf68f2582183b8e204d71e75a665f3"
+
+# Example for tool #1 (get_shipment_detail):
+curl -s -m 15 \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Accept: application/json" \
+  "https://queries-test.envia.com/guide/9824510570" \
+  > /tmp/live-shipment-detail.json
+
+# Then locally, verify the schema parses it:
+cat > /tmp/verify.mjs << 'EOF'
+import { ShipmentDetailResponseSchema } from './dist/schemas/shipments.js';
+import fs from 'fs';
+const data = JSON.parse(fs.readFileSync('/tmp/live-shipment-detail.json', 'utf8'));
+const result = ShipmentDetailResponseSchema.safeParse(data);
+if (!result.success) {
+    console.error('Schema parse FAILED');
+    console.error(JSON.stringify(result.error.issues.slice(0, 10), null, 2));
+    process.exit(1);
+}
+console.log('PASS');
+EOF
+node /tmp/verify.mjs
 ```
 
-For each of the 10 migrated tools, issue one real call (the same calls
-already documented in `_docs/SMOKE_TEST_PLAYBOOK.md`) and verify:
-- The tool returns a successful, non-empty response.
-- No `schema_validation_failed` warnings appear in the logs.
-- The output to the LLM is unchanged from the pre-migration version
-  (compare against `_docs/DEPLOY_LOG_2026_04_27.md` reference outputs).
+The exact endpoint to hit per tool is in §5.6's `Backend endpoint`
+column. If the endpoint requires a path param (tracking number,
+shipment id, etc.), use the live values from the most recent smoke
+test in `_docs/DEPLOY_LOG_2026_04_27.md`:
+- Tracking number: `9824510570` or `9824458744`
+- Shipment id: `170617` or `170633`
+- Carrier id: `1` (FedEx)
+- Service id: `7` (DHL Express)
+- Ticket id: `3186` or `3177`
 
-If any tool emits `schema_validation_failed`, that is the schema being
-wrong (or the captured fixture being wrong). Fix the schema, not the
-production data. Do not move on.
+For endpoints that need a generated input (quote, create), use the same
+payload as the smoke test playbook.
 
-### 7.2 Strict-mode local run
+### 7.2 Strict-mode local run (most important regression check)
 
 ```bash
 MCP_SCHEMA_VALIDATION_MODE=strict npx vitest run
 ```
 
-All 1581 + 36 tests must still pass. If any test fails in strict mode
-that passed in warn mode, the test fixture is the source of truth that
-needs adjustment.
+All ~1617 tests must pass (1581 baseline + ~36 new — exact count
+expected to land between 1610 and 1625; any delta outside that band
+must be explained in the final report). If any test fails in strict
+mode that passed in warn mode, the test fixture is the source of
+truth that needs adjustment per §3.8.
 
-### 7.3 Datadog warning sanity-check
+### 7.3 Stage-deploy verification (skip if branch not deployed)
 
-After deploying to stage with the new build, manually trigger one tool
-call against a known-mismatched endpoint (none of the 10 migrated tools
-should mismatch — try `envia_get_shipments_surcharges` which is NOT on
-Phase 1 and was untouched, so the helper is not even invoked). Confirm
-no spurious `schema_validation_failed` logs appear in Datadog.
+This step is **optional during the implementation session** — the
+spec does not require Sonnet to deploy `mcp-zod-validation` to Heroku
+stage (that is Jose's call, similar to the previous mcp-expansion
+deploy decision).
 
-If a spurious log appears for a tool NOT on the Phase 1 list, that
-indicates the helper was wired into a non-Phase-1 tool by accident.
-Revert that change.
+If the branch IS deployed to stage during the session:
+- Trigger one tool call per Phase 1 tool through the chat agent or
+  via direct MCP call.
+- Check Datadog or Heroku logs for `schema_validation_failed` events.
+- Zero events expected for Phase 1 tools (their schemas should match
+  live).
+- Up to many events expected for non-Phase-1 tools (their helpers
+  were not wired — these warnings should NOT exist; if they appear
+  it means the helper leaked into a non-target tool by accident).
+
+If the branch is NOT deployed:
+- §7.1 (offline schema-vs-live) is sufficient verification for this
+  session.
+- Note in the final report that stage verification is pending.
 
 ---
 
@@ -685,12 +931,17 @@ Mark each `[ ]` → `[x]`. Do not commit until all are checked.
       migrated domain.
 - [ ] `tests/utils/response-validator.test.ts` has 6 tests, all passing.
 - [ ] `npm run build` exits 0.
-- [ ] `npx vitest run` passes 100% (target: 1617 tests = 1581 + 36).
-- [ ] `MCP_SCHEMA_VALIDATION_MODE=strict npx vitest run` passes 100%.
+- [ ] `npx vitest run` passes 100% — final count between **1610 and 1625**
+      (1581 baseline + 30–45 new). Any delta outside this band must be
+      explained in the final report (§13).
+- [ ] `MCP_SCHEMA_VALIDATION_MODE=strict npx vitest run` passes 100%
+      with the same test count as above.
 - [ ] `package.json` has the new `test:strict` script.
-- [ ] Live sandbox smoke (§7.1) for the 10 migrated tools yields zero
-      `schema_validation_failed` warnings.
-- [ ] No commit on `main`. Branch is `mcp-expansion` throughout.
+- [ ] §7.1 schema-vs-live verification passes for all 10 tools (each
+      tool's live curl response parses against its new schema with
+      zero issues).
+- [ ] No commit on `main`. Branch is `mcp-zod-validation` throughout
+      (created from `mcp-expansion`).
 
 ---
 
@@ -733,6 +984,25 @@ Then `git push origin mcp-expansion`. Do NOT push to `main`.
    pino.
 10. **Do NOT skip the strict-mode test run** (§7.2). It is the single
     most important verification step in this entire spec.
+11. **Do NOT use `z.any()` to silence a parse failure.** That defeats
+    every point of this spec. If a field's shape is genuinely unknown,
+    use `z.unknown()` and document why.
+12. **Do NOT add validation to error responses without thinking.**
+    Backend errors (4xx/5xx) come back via the existing `mapCarrierError`
+    path before `parseToolResponse` is invoked. If a tool needs to
+    validate the *body* of an error response, do it explicitly with a
+    separate schema, not the success schema. Tool #8 (`envia_create_shipment`)
+    is the one place this matters in Phase 1.
+13. **Do NOT mass-update existing test fixtures during this migration.**
+    Some old fixtures will fail in strict mode because they are
+    fixture-vs-reality drift (the bug pattern this spec exists to
+    prevent). Update each fixture **as you migrate the corresponding
+    tool**, not in a separate sweep. The link between the migration
+    commit and the fixture fix is what makes the diff reviewable.
+14. **Do NOT couple two phases of work in a single commit.** This
+    session lands Phase 1. Phase 2 is a separate session with a
+    separate spec. If you finish Phase 1 with time to spare, stop
+    and report — do not start Phase 2 freelance.
 
 ---
 
@@ -763,6 +1033,34 @@ the implementer does not re-litigate them:
   (`src/utils/logger.ts`). No new logger added.
 - **Verified assumption:** TypeScript strict mode is on
   (`tsconfig.json`). The cast `data as z.infer<S>` requires it.
+- **Verified assumption:** Vitest is the canonical test runner
+  (`package.json` declares `vitest@3.x`). No new test framework.
+- **Verified assumption:** The 10 Phase 1 tools all use either
+  `queryShipmentsApi` (queries-base) or a direct HTTP call via
+  `EnviaApiClient.get/post` (carriers-base). Both return objects of
+  shape `{ ok: boolean, status: number, data: T, error?: string }` —
+  the helper takes `data` from that wrapper, never the wrapper itself.
+- **Verified assumption:** `process.env` is read synchronously at
+  module load in Node — no `await` required for the `MODE` constant.
+- **Verified assumption:** the existing 4 tools renamed in commit
+  `83f6b78` (e.g. `envia_quote_shipment`) use the post-rename names
+  in the registered tool name. The schema's `toolName` argument must
+  match the post-rename name, never the historical `quote_shipment`.
+- **Q: What if the existing test for a tool already mocks the response
+  via `vi.mock` of `queryShipmentsApi`?** A: The mock returns whatever
+  fixture the test gives it; `parseToolResponse` runs on that fixture.
+  If the fixture is wrong, the test will fail in strict mode — and that
+  is correct behaviour (the test was lying). Update the fixture per §3.8.
+- **Q: Does the helper need to be exported from a barrel file?** A: No.
+  Each tool imports it directly from `'../utils/response-validator.js'`
+  (or `'../../utils/...'` per §5.4). Barrel files add bundling overhead
+  and obscure import paths.
+- **Q: What happens if Zod throws an unexpected runtime error inside
+  `safeParse`?** A: This is exceedingly rare (would indicate a broken
+  schema definition or memory corruption). The helper does not catch
+  it — let it propagate. The MCP server will return a 500 to the
+  caller. The fix is a code review of the offending schema, not a
+  try/catch in the helper.
 
 ---
 
@@ -784,18 +1082,45 @@ the implementer does not re-litigate them:
 
 When the session completes, the final response must include:
 
-1. List of all files created/modified, with line counts.
-2. Final test count and `npm run build` exit code.
-3. Strict-mode test count.
-4. Commit hash and confirmation push succeeded.
-5. The §7.1 smoke test results (one line per tool: PASS / FAIL with
-   error if any).
-6. Any judgment calls deviating from this spec, with rationale.
-7. List of open items for Phase 2 (any tool that revealed a schema
-   surprise during Phase 1 worth flagging).
+1. **Files created/modified** with line counts. Group by infra
+   (helper, schemas dir, server-logger), schemas (1 line per schema
+   file), tools (1 line per migration), tests (1 line per test file).
+2. **Final test count** and `npm run build` exit code.
+3. **Strict-mode test count** (with `MCP_SCHEMA_VALIDATION_MODE=strict`).
+   If different from #2, explain why.
+4. **Commit hash** and confirmation `git push origin mcp-zod-validation`
+   succeeded.
+5. **§7.1 schema-vs-live results** — one line per tool: `tool_name:
+   PASS` or `tool_name: FAIL — {issue summary}`. Zero failures
+   expected; any failure is a blocker.
+6. **Schema-vs-prior-type divergences** — for each migrated tool, was
+   the new schema identical to the existing TypeScript type in
+   `src/types/`, or did the live capture reveal differences? List
+   every difference (missing field, extra field, wrong type, wrong
+   nullability). This list is the most valuable artifact for Phase 2
+   planning.
+7. **Existing test fixtures updated** — for each tool, did any
+   `tests/tools/{tool}.test.ts` fixture need updating to match the
+   new schema in strict mode? If yes, list them and why.
+8. **Judgment calls** deviating from this spec, with rationale.
+9. **Open items for Phase 2** — any tool that revealed a schema
+   surprise during Phase 1 worth flagging (e.g. a sub-shape used
+   across many tools that deserves a shared schema), or any
+   anti-pattern detected in non-Phase-1 tools.
 
 If any acceptance criterion in §8 cannot be met, **stop immediately and
-report**. Do not paper over a failing check.
+report**. Do not paper over a failing check. Specifically:
+
+- If `npm run build` fails, fix the build or stop and report. Do not
+  ship code that does not compile.
+- If strict-mode test fails, treat it as the most important signal in
+  this entire session — do not bypass it.
+- If §7.1 reveals a schema-vs-live mismatch, that is the spec working
+  as intended. Fix the schema, re-run, re-commit.
+- If you have less than 1 hour left and have not completed all 10 tool
+  migrations, stop and commit what you have with the unfinished tools
+  clearly listed. A partial Phase 1 is still valuable; a rushed Phase
+  1 with wrong schemas is worse than no Phase 1.
 
 ---
 
