@@ -1,6 +1,8 @@
 # Spec — Runtime Zod Validation in the Response Layer (Phase 1)
 
-**Version:** v1.1 — drafted 2026-04-28 by Jose Vidrio (CTO) + Claude Opus 4.7. Iteration 2 added §1.5, §6.4, expanded §3, §4.1, §5.6, §7, §10, §11.
+**Version:** v1.2 — drafted 2026-04-28 by Jose Vidrio (CTO) + Claude Opus 4.7.
+Iteration 2 added §1.5, §6.4, expanded §3, §4.1, §5.6, §7, §10, §11.
+Iteration 3 added §3.10 (security), §5.7 (commit hygiene), §6.6 (completeness self-check), §7.4 (performance budget), §14 (code-review + rollback), §15 (observability), expanded §4.1, §10, §11.
 **Status:** READY FOR IMPLEMENTATION (Sonnet 4.6 session).
 **Estimated effort:** 6–9 hours single Sonnet session.
 **Phase:** 1 of 2. Phase 2 (rollout to the remaining 63 tools) is a follow-up spec.
@@ -248,6 +250,78 @@ The Envia backend has known idiosyncrasies for some types:
   (`active`, `is_default`, `is_favorite`, `private`). Schema should
   use `z.number()` even when the formatter coerces to boolean.
 
+### 3.10 Security guardrails
+
+This is non-negotiable. Schema validation runs in the request path
+and surfaces information about response payloads to logs and
+(potentially) error responses. Every guardrail below is a hard
+constraint, not a recommendation.
+
+**S1 — Never log raw response data on validation failure.**
+
+The default Zod `safeParse` error includes `received` values for each
+failed field. Those values may be PII (customer names, emails, phone
+numbers, tracking numbers, addresses, COD amounts) or carrier API
+secrets. The helper in §4.1 emits ONLY `path`, `code`, and `message`
+— it does NOT include `received`. Verify your implementation matches
+this. If you find yourself calling `JSON.stringify(data)` anywhere in
+the helper, stop.
+
+**S2 — Truncate issue lists.**
+
+A pathological backend response could produce thousands of issues
+(e.g. an array of 10,000 records, all malformed). The helper truncates
+to the first 5 issues in the log. Do not raise this number.
+
+**S3 — Never include the full payload in a thrown error.**
+
+`SchemaValidationError` carries `tool` and `issues` (already
+sanitized). It does NOT carry the raw response. If the strict-mode
+error reaches an HTTP error handler that serialises it to JSON, only
+the sanitized fields surface.
+
+**S4 — Schemas must not be sourced from the request.**
+
+Schemas are imported at module load. Never accept "schema as parameter"
+from a runtime input — that opens a deserialization-of-trust attack
+surface. If a tool needs different schemas for different cases, declare
+each one statically and select between them with a switch.
+
+**S5 — Token redaction in any payload echo.**
+
+If for any reason you need to log a snippet of the raw response
+(allowed only in local dev for debugging, never in committed code),
+the snippet must redact:
+  - `Authorization` header values
+  - Any field named `api_key`, `apiKey`, `token`, `access_token`,
+    `secret`, `password`, `auth_token`, `webhook_token`
+  - Any value that matches the JWT pattern `^[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}$`
+
+Phase 1's `parseToolResponse` does not echo any response payload —
+this rule exists pre-emptively for any extension.
+
+**S6 — Strict mode is a development tool, not a production toggle.**
+
+Setting `MCP_SCHEMA_VALIDATION_MODE=strict` in production would cause
+backend forward-compatible additions to take down user requests.
+Never enable strict mode on the production Heroku app. The CI guard
+in §6.3 is the only place strict mode runs in any pipeline.
+
+**S7 — Log volume bounds.**
+
+A persistent backend mismatch could fire `schema_validation_failed`
+on every single request to a popular tool. Sustained high-cardinality
+logging is a self-DoS. Document a Datadog alert (§15) that catches
+"sustained schema_validation_failed > N/min" and pages someone before
+the log volume causes problems.
+
+**S8 — Schemas live in source control.**
+
+Never load schemas from a remote URL, S3, or any runtime store. Phase
+1 schemas are committed code, reviewed in PRs, deployed atomically
+with the binary. This rules out a class of attacks where an attacker
+modifies a remote schema to bypass validation.
+
 ---
 
 ## 4. Infrastructure to build (3 deliverables)
@@ -331,17 +405,23 @@ export function parseToolResponse<S extends ZodTypeAny>(
 
     // Validation failed. Log structured event regardless of mode so
     // Datadog always captures the drift signal.
+    //
+    // SECURITY (§3.10 S1, S2): we emit ONLY path / code / message.
+    // Zod's default error formatting can include `received` values
+    // — those are PII risk (customer names, phones, addresses,
+    // tracking numbers, COD amounts). NEVER add `received` here.
+    // NEVER stringify `data` here. NEVER raise the slice(0, 5) cap.
     logger.warn(
         {
             event: 'schema_validation_failed',
             tool: toolName,
             issue_count: result.error.issues.length,
-            // Take only the first 5 issues to bound log size; full list is
-            // recoverable from local repro if needed.
             issues: result.error.issues.slice(0, 5).map((i) => ({
                 path: i.path.join('.'),
                 code: i.code,
                 message: i.message,
+                // DO NOT add `received: i` or anything that surfaces
+                // the actual value at the failed path.
             })),
         },
         `[schema] Response shape mismatch for ${toolName}`,
@@ -536,8 +616,52 @@ export type ShipmentDetailResponseT = z.infer<typeof ShipmentDetailResponseSchem
   needed for `total` (sometimes float, sometimes string).
 - For the `_note` and `_unavailable` fields in `meta` and `coverage_summary`:
   `z.string().optional()`.
-- Re-use shared sub-schemas (e.g. `AddressSchema`) when the same shape
-  appears in multiple records.
+
+**Schema reuse for shared sub-shapes (DRY principle):**
+
+Several response shapes in the Envia backend share sub-objects:
+
+| Sub-shape | Used in | Suggested name |
+|---|---|---|
+| Sender / consignee address (flat fields) | `/guide/{tracking}`, `/shipments`, `/get-shipments-ndr` | `FlatAddressSchema` |
+| Address (nested object) | `/all-addresses`, some legacy `/shipments` results | `NestedAddressSchema` |
+| Money amount (number-or-string) | `total`, `grand_total`, `cash_on_delivery_amount` | `MoneyAmountSchema` |
+| ISO datetime string (no TZ) | every `created_at`, `updated_at`, `shipped_at` | `EnviaDateTimeSchema = z.string()` |
+| Carrier reference (id + slug + display) | every list endpoint that surfaces carriers | `CarrierRefSchema` |
+
+When two of the 10 Phase 1 tools share a sub-shape, define it ONCE
+at the top of the relevant `src/schemas/{domain}.ts` file and import
+or compose it in the consumers. Concretely:
+
+```typescript
+// src/schemas/shipments.ts
+const FlatSenderSchema = z.object({
+    sender_name: z.string().optional(),
+    sender_email: z.string().optional(),
+    sender_phone: z.string().optional(),
+    // ...
+});
+
+const FlatConsigneeSchema = z.object({
+    consignee_name: z.string().optional(),
+    // ...
+});
+
+const ShipmentDetailRecordSchema = FlatSenderSchema
+    .merge(FlatConsigneeSchema)
+    .merge(z.object({
+        id: z.number(),
+        tracking_number: z.string(),
+        // ...
+    }));
+```
+
+DO NOT extract sub-schemas across domain files (e.g. don't put
+`FlatAddressSchema` in `src/schemas/_shared.ts` and import it from
+`shipments.ts`, `tickets.ts`, etc.). Cross-file sharing is a Phase 2
+optimisation. In Phase 1, a small amount of duplication across
+domain files is preferable to creating a coupling that makes Phase 2
+schemas harder to evolve independently.
 
 #### Step 2 — Wire the helper into the tool
 
@@ -750,6 +874,46 @@ successful create, one with deliberately bad input).
 
 Total ≈ 8h. Within the 6–9h envelope.
 
+### 5.7 Commit hygiene during the migration
+
+Atomic commits are the difference between "we can revert tool #4 if
+something explodes" and "we can't revert anything without losing the
+other 9 migrations". Do this:
+
+**One commit for infrastructure** (must come first):
+- `src/utils/response-validator.ts`
+- `src/utils/server-logger.ts` (JSDoc update)
+- `src/schemas/_index.ts`, `src/schemas/README.md`
+- `tests/utils/response-validator.test.ts`
+- `package.json` `test:strict` script
+- Commit message: `feat(schemas): add runtime validation infrastructure (Phase 1 of 2)`
+
+**One commit per tool migration** (in the order from §5.6):
+- The schema file (or schema additions if the file already exists from
+  a previous tool migration)
+- The tool file
+- The test file (or additions to an existing test file)
+- Existing tool tests if their fixtures had to be updated to live shape
+- Commit message: `feat(schemas): migrate envia_get_shipment_detail to runtime validation (1/10)`
+- The `(N/10)` suffix lets reviewers track progress at a glance.
+
+**Rationale:** if tool #6 reveals a problem with the helper that
+requires changes to `parseToolResponse`, you go back, edit
+`response-validator.ts`, and the change is in the FIRST commit (infra)
+— which means tools #1–5 effectively pick up the fix without their
+commits being touched. Compare to a single mega-commit where any
+infra change requires re-opening every tool diff.
+
+**Push after each commit.** `git push origin mcp-zod-validation`. The
+worst case is power loss / accidental rebase — local commits not
+pushed are lost work.
+
+**Build + tests must be green at every commit.** If a tool migration
+causes a temporary failure, fix it before committing. Never `--force`,
+never `--no-verify`. If tests fail in a way that requires updating a
+fixture for a tool NOT yet migrated, that means you accidentally
+touched something out of scope — back out, re-scope, retry.
+
 ---
 
 ## 6. Testing strategy
@@ -826,6 +990,61 @@ If a fixture is large (>200 lines) consider extracting to a `tests/
 fixtures/{domain}/{tool}.fixture.ts` exporting a single const. Phase 1
 does not require this — it's a Phase 2 optimisation if the test files
 become unwieldy.
+
+### 6.6 Migration completeness self-check
+
+A mechanical guard against "I forgot to wire one of the 10 tools".
+Add this test file:
+
+`tests/utils/migration-completeness.test.ts`:
+
+```typescript
+/**
+ * Phase 1 completeness guard.
+ *
+ * Verifies that every tool listed as "Phase 1" in
+ * _docs/specs/RUNTIME_ZOD_VALIDATION_SPEC.md §5.6 imports the
+ * parseToolResponse helper. If a tool is on the Phase 1 list but the
+ * source file does not import the helper, the migration was forgotten.
+ *
+ * This test is intentionally simple: a grep for the import statement.
+ * It does NOT verify the helper is invoked correctly — that is the
+ * responsibility of the per-tool tests.
+ */
+
+import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
+const PHASE_1_TOOLS = [
+    'src/tools/shipments/get-shipment-detail.ts',
+    'src/tools/shipments/list-shipments.ts',
+    'src/tools/shipments/get-shipments-status.ts',
+    'src/tools/shipments/get-shipment-invoices.ts',
+    'src/tools/tickets/create-ticket.ts',
+    'src/tools/get-carrier-constraints.ts',
+    'src/tools/get-shipping-rates.ts',
+    'src/tools/create-label.ts',
+    'src/tools/track-package.ts',
+    'src/tools/orders/list-orders.ts',
+] as const;
+
+describe('Phase 1 migration completeness', () => {
+    for (const path of PHASE_1_TOOLS) {
+        it(`${path} imports parseToolResponse`, () => {
+            const source = readFileSync(resolve(process.cwd(), path), 'utf8');
+            expect(source).toMatch(/parseToolResponse/);
+            expect(source).toMatch(/from ['"](?:\.\.\/)+utils\/response-validator\.js['"]/);
+        });
+    }
+});
+```
+
+This test alone does NOT prove correctness — a tool could `import` the
+helper but never call it. The per-tool tests catch that. But this test
+catches the "I migrated 9 out of 10 and forgot the 10th" mistake,
+which is the highest-likelihood human error in a 10-step mechanical
+migration.
 
 ---
 
@@ -913,6 +1132,41 @@ If the branch is NOT deployed:
 - §7.1 (offline schema-vs-live) is sufficient verification for this
   session.
 - Note in the final report that stage verification is pending.
+
+### 7.4 Performance budget — verify Zod overhead is sub-millisecond
+
+Zod parsing overhead has been measured at well under 1 ms for typical
+MCP response sizes (50–500 keys, no deep nesting). This step verifies
+the migration did not introduce a pathological case (e.g. an array
+of 10,000 items, or a regex-heavy schema).
+
+For each migrated tool, run a micro-benchmark in the test suite:
+
+```typescript
+// In one of the schema test files (e.g. tests/schemas/shipments.test.ts)
+it('parses a representative payload in under 5ms (p95 ceiling)', () => {
+    const fixture = /* the live shape from §5.2 */;
+    const ITERATIONS = 1000;
+    const start = performance.now();
+    for (let i = 0; i < ITERATIONS; i++) {
+        ShipmentDetailResponseSchema.safeParse(fixture);
+    }
+    const elapsed = performance.now() - start;
+    const avgMs = elapsed / ITERATIONS;
+    expect(avgMs).toBeLessThan(5); // generous; typical is <0.5ms
+});
+```
+
+Add ONE such micro-benchmark per `tests/schemas/{domain}.test.ts`
+file (so 4–5 total in Phase 1, not per tool). The 5 ms ceiling is
+deliberately generous — actual numbers should be 0.05–0.5 ms. A
+failure of this bound indicates a regex-heavy or recursive schema
+that needs simplification before shipping.
+
+Performance ceiling rationale: the MCP request path is dominated by
+HTTP latency to the backend (50–500 ms). A schema parse adding 1 ms
+is invisible. A schema parse adding 50 ms (10% overhead) is a bug.
+The 5 ms test boundary catches the "10% overhead" case loudly.
 
 ---
 
@@ -1003,6 +1257,27 @@ Then `git push origin mcp-expansion`. Do NOT push to `main`.
     session lands Phase 1. Phase 2 is a separate session with a
     separate spec. If you finish Phase 1 with time to spare, stop
     and report — do not start Phase 2 freelance.
+15. **Do NOT include `received` values in Zod issue logs.** Zod's
+    default `format()` and the raw `issues[i]` object include a
+    `received` field that contains the value at the failed path —
+    that value is PII risk (customer names, addresses, tracking
+    numbers, COD amounts) or secrets. The helper in §4.1 explicitly
+    omits this. Verify your implementation does the same.
+16. **Do NOT log raw response data anywhere in the helper.** No
+    `JSON.stringify(data)`. No `console.log(data)`. No `logger.debug(data)`.
+    The `path / code / message` triple from Zod issues is the only
+    information that should reach observability.
+17. **Do NOT enable strict mode on the production Heroku app.** The
+    `MCP_SCHEMA_VALIDATION_MODE=strict` env var is for CI and local
+    dev only. Setting it in production turns every backend forward-
+    compatible addition into a customer outage.
+18. **Do NOT `--force` push or `--no-verify` commit.** If the build
+    or tests fail, fix them. Force-pushing rewrites history that
+    other reviewers may have already pulled.
+19. **Do NOT skip the migration completeness self-check (§6.6).** It
+    is a 30-line file that prevents the highest-likelihood human
+    error in a 10-step mechanical migration: forgetting to wire one
+    of the tools.
 
 ---
 
@@ -1061,6 +1336,38 @@ the implementer does not re-litigate them:
   it — let it propagate. The MCP server will return a 500 to the
   caller. The fix is a code review of the offending schema, not a
   try/catch in the helper.
+- **Verified assumption (security):** the existing pino logger does
+  NOT log `Authorization` headers, `api_key` arguments, or other
+  secrets by default. Validate this by grepping `src/utils/logger.ts`
+  and `src/utils/server-logger.ts` for any `Authorization` or
+  `api_key` reference; if any exist, raise it as a separate finding
+  (out of scope for this spec — but it's the kind of thing this spec
+  exists to surface).
+- **Verified assumption (security):** `tool_call_complete` events
+  emitted by `decorateServerWithLogging` (Sprint 4a) do NOT include
+  the raw response body. Verify by reading the implementation. If
+  raw response bodies are being logged, fix that as a separate PR
+  before this Phase 1 ships.
+- **Verified assumption (resilience):** `safeParse` is synchronous
+  and pure — same input always produces the same output. No global
+  mutation, no I/O. This is what allows §7.4's micro-benchmarks to
+  be deterministic.
+- **Verified assumption (deps):** Zod's API for `safeParse` is stable
+  across `zod@^3.x`. The `result.error.issues` shape with `path`,
+  `code`, `message` is documented and stable. No breaking change
+  expected within Phase 1's lifetime.
+- **Q: Should the helper sanitize `path`s in the log?** A: Path
+  arrays from Zod consist of field names and array indices — never
+  user-supplied data. Safe to log verbatim. The reason for caution
+  is documented (§3.10 S1) but `path` itself is not the risk.
+- **Q: What if a tool produces a 200 response with an HTML error
+  page (e.g. Cloudflare interstitial during incident)?** A: Zod
+  parse will fail (HTML is not the expected JSON shape). In warn
+  mode the formatter receives the HTML string as `data`, accesses
+  property `data?.[0]` and gets `undefined` — the user sees an
+  unhelpful but not catastrophic output, and a Datadog log fires.
+  This is acceptable behaviour for an edge case during an
+  upstream incident.
 
 ---
 
@@ -1121,6 +1428,182 @@ report**. Do not paper over a failing check. Specifically:
   migrations, stop and commit what you have with the unfinished tools
   clearly listed. A partial Phase 1 is still valuable; a rushed Phase
   1 with wrong schemas is worse than no Phase 1.
+
+---
+
+## 14. Code review checklist + rollback plan
+
+### 14.1 Pre-merge checklist for the human reviewer
+
+When the PR for this Phase 1 work lands, the reviewer (Jose, or
+another engineer) should run through this list. Anything unchecked
+is a blocking comment.
+
+**Code:**
+- [ ] `parseToolResponse` reads `MCP_SCHEMA_VALIDATION_MODE` exactly
+      once at module load (not per-call).
+- [ ] `parseToolResponse` does NOT log `received` values, raw `data`,
+      or any other field beyond `path / code / message`.
+- [ ] `SchemaValidationError` does not carry the raw `data` in its
+      payload.
+- [ ] Each schema file has a JSDoc citing "Verified live YYYY-MM-DD
+      against {endpoint}".
+- [ ] No schema uses `.strict()`. No schema uses `z.coerce.*`. No
+      schema uses `z.any()` to silence a parse failure.
+- [ ] No tool from the 63 not on Phase 1 was modified.
+- [ ] `package.json` has `test:strict` script.
+- [ ] No `--force` push or `--no-verify` commit in the branch
+      history.
+
+**Tests:**
+- [ ] Each Phase 1 tool has a corresponding `tests/schemas/{domain}.test.ts`
+      block with at least 3 tests (live shape passes,
+      missing-field rejection, passthrough acceptance).
+- [ ] `tests/utils/response-validator.test.ts` has 6 tests covering
+      success, warn-mode failure, log emit, strict-mode throw, error
+      tool-name, issue truncation.
+- [ ] `tests/utils/migration-completeness.test.ts` exists and asserts
+      all 10 Phase 1 tools import the helper.
+- [ ] At least 4 `tests/schemas/{domain}.test.ts` files include a
+      performance micro-benchmark per §7.4.
+
+**Verification:**
+- [ ] `npm run build` exit 0.
+- [ ] `npx vitest run` all green.
+- [ ] `MCP_SCHEMA_VALIDATION_MODE=strict npx vitest run` all green.
+- [ ] §7.1 schema-vs-live verification PASS for all 10 tools.
+- [ ] Final report (per §13) attached to the PR description.
+
+**Atomic commits:**
+- [ ] One infra commit, ten tool commits, in the order from §5.6.
+      No mega-commit. No `(N/10)` suffix missing.
+- [ ] Every commit individually builds and tests green.
+
+### 14.2 Rollback plan
+
+If the Phase 1 deploy causes any user-facing issue in stage or
+production:
+
+**Symptom: chat agent starts behaving strangely on a specific tool.**
+1. First check Datadog for `schema_validation_failed` events on that
+   tool. If many: the schema is wrong (live shape diverged from what
+   we captured). Action: write a hotfix that updates the schema, ship
+   it. The MCP keeps working (warn mode) while the fix is in flight.
+2. If no `schema_validation_failed` events: the issue is likely
+   unrelated to schema validation. Investigate elsewhere.
+
+**Symptom: a tool returns blank or partial data.**
+1. The tool was likely returning stale or incorrect data BEFORE the
+   migration too — now strict validation reveals it. Compare the
+   pre-Phase-1 output (from `_docs/DEPLOY_LOG_*` examples) to current.
+2. If the Phase 1 migration introduced a regression, revert just
+   that tool's commit (one of the 10) — the atomic-commit structure
+   in §5.7 makes this trivial.
+
+**Symptom: catastrophic — the MCP server is throwing 500s on every
+request to a Phase 1 tool.**
+1. The most likely cause is a syntax error in a schema file that
+   slipped past the build (extremely unlikely after `tsc` clean run,
+   but possible if production has different Node version).
+2. Immediate action: revert the entire branch on stage or production
+   (the previous deploy worked, and the dependency on Phase 1 is
+   isolated to the 10 tools — reverting brings back warn-vs-no-
+   validation, which is a known-working state).
+3. After revert, investigate offline.
+
+**Symptom: log volume from `schema_validation_failed` is excessive.**
+1. The §15 Datadog alert fires.
+2. Identify which tool / schema is mismatched.
+3. Patch the schema (forward fix) within hours.
+4. The log spike is the spec working as intended — backend drift was
+   caught immediately. Don't disable validation; fix the schema.
+
+**Never the right rollback:** turning off schema validation entirely
+(by adding a "disabled" mode), reverting only the helper but leaving
+schemas in place, or merging a "make every field optional" hotfix
+that defeats the validation. If any of those tempts you, escalate
+to Jose first.
+
+### 14.3 Versioning guidance
+
+This Phase 1 work warrants a `package.json` version bump from
+`1.0.1` to `1.1.0` (semver minor — additive feature, backwards-
+compatible API for tool consumers). The bump goes in the infra
+commit (the first one), not as a separate commit.
+
+---
+
+## 15. Observability — recommended Datadog dashboard
+
+These are recommendations for Jose / the operations team to set up
+AFTER Phase 1 lands. Sonnet does NOT need to create the Datadog
+dashboard — that is operational work outside the source code.
+Documenting here so the recommendation lives with the spec.
+
+### 15.1 Recommended panels
+
+**Panel 1 — `schema_validation_failed` event rate by tool (line graph)**
+
+Datadog query:
+```
+sum:logs{event:schema_validation_failed} by {tool}.as_rate()
+```
+
+Expected baseline: zero. Any non-zero value is an alert.
+
+**Panel 2 — Top 10 tools with most validation failures (bar chart, last 24h)**
+
+Datadog query:
+```
+top(sum:logs{event:schema_validation_failed} by {tool}, 10, 'sum', 'desc')
+```
+
+Useful when shape drift is multi-tool (e.g. a backend deploy that
+renamed a shared field).
+
+**Panel 3 — Validation-failure issue paths heatmap (last 24h)**
+
+Aggregates the `issues.path` field. Useful for diagnosing "is this
+one field that drifted, or many?".
+
+**Panel 4 — Tool call success rate before/after (already exists from Sprint 4a)**
+
+This is the Sprint 4a `tool_call_complete` panel, augmented with
+overlay of Phase 1 deploy time. Helps see whether validation overhead
+is impacting overall success rate (it should not).
+
+### 15.2 Recommended alerts
+
+**Alert 1 — Burst:**
+- Trigger when any single tool emits more than **20 `schema_validation_failed`
+  events per minute** for **3 consecutive minutes**.
+- Severity: P2 (page during business hours).
+- Action: investigate which schema mismatched, write hotfix.
+
+**Alert 2 — Sustained:**
+- Trigger when total `schema_validation_failed` rate is **>0** for
+  **30 consecutive minutes**.
+- Severity: P3 (Slack notification).
+- Action: lower-urgency review of which tool needs a schema update.
+
+**Alert 3 — Diversity:**
+- Trigger when more than **5 distinct tools** are firing
+  `schema_validation_failed` simultaneously.
+- Severity: P1 (this means a backend-wide change happened — page
+  immediately).
+
+### 15.3 What this data buys us
+
+Before Phase 1: we discovered shape drift WEEKS after it shipped, by
+user reports. Time-to-detect was bounded by user observation.
+
+After Phase 1: every drift surfaces in Datadog seconds after the
+first request. Time-to-detect is bounded by alerting cadence
+(minutes, not weeks).
+
+The dashboard pays for itself the first time a backend ships a
+breaking change without coordinating — which historically has
+happened multiple times per quarter.
 
 ---
 
