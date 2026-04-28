@@ -21,6 +21,17 @@
  * Performance: ~10 µs of overhead per call (one pino child logger +
  * Date.now twice). Trivial against the network calls every tool
  * makes.
+ *
+ * Event taxonomy (stable contract for Datadog / Loki consumers):
+ *   tool_call_complete  — emitted on every tool invocation (success or error).
+ *                         Fields: tool, duration_ms, status, error_message?,
+ *                         error_class?, correlation_id (from async context).
+ *   tool_call_failed    — alias: same as tool_call_complete with status='error'.
+ *   schema_validation_failed — emitted by parseToolResponse (response-validator.ts)
+ *                         when a backend response shape diverges from the Zod
+ *                         schema. Fields: event, tool, issue_count, issues[].
+ *                         Severity: warn. Does NOT halt the request in default
+ *                         'warn' mode; only throws in MCP_SCHEMA_VALIDATION_MODE=strict.
  */
 
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';

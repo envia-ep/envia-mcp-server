@@ -168,3 +168,19 @@ export function childLogger(context: LoggerContext): Logger {
 export function _resetLoggerForTesting(): void {
     cachedRoot = null;
 }
+
+/**
+ * Convenience accessor for the process-wide root logger.
+ *
+ * Prefer `childLogger(context)` inside request handlers so correlation IDs
+ * flow automatically. Use `logger` only at module initialisation time or in
+ * code that runs outside a request context (e.g. the response-validator
+ * helper, which is invoked from within tool handlers that already carry
+ * pino's async-local-storage context).
+ */
+export const logger = {
+    warn: (...args: Parameters<ReturnType<typeof getLogger>['warn']>) => getLogger().warn(...args),
+    error: (...args: Parameters<ReturnType<typeof getLogger>['error']>) => getLogger().error(...args),
+    info: (...args: Parameters<ReturnType<typeof getLogger>['info']>) => getLogger().info(...args),
+    debug: (...args: Parameters<ReturnType<typeof getLogger>['debug']>) => getLogger().debug(...args),
+};
