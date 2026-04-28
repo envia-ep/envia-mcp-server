@@ -1607,4 +1607,77 @@ happened multiple times per quarter.
 
 ---
 
+## 16. Session bootstrap prompt
+
+The exact prompt to give a fresh Sonnet 4.6 session that will
+execute this spec. Copy verbatim. Updated each spec version; the
+current version targets v1.2 (this spec).
+
+```
+Implementa Phase 1 del spec en
+_docs/specs/RUNTIME_ZOD_VALIDATION_SPEC.md, rama mcp-zod-validation
+(ya checked out en el monorepo).
+
+Lee el spec end-to-end ANTES de escribir código. Son 1610 líneas;
+ese es el costo de entrada — saltártelo es lo que produce reviews
+de 50 comentarios y bugs de seguridad.
+
+Secciones que NO son opcionales (la mayoría de los 19 anti-patterns
+vienen de aquí):
+  - §3.10 Security guardrails — S1 a S8 son hard rules, no
+    recomendaciones. Memoriza S1 (no logear `received` values) y
+    S6 (strict-mode jamás en producción).
+  - §5.4 Template per-tool + §5.6 orden y dependencias entre las
+    10 tools. Tool #5 necesita el schema de tool #1.
+  - §5.7 Commit hygiene — 1 commit infra + 10 commits de tool con
+    sufijo (N/10). No mega-commits. Push después de cada uno.
+  - §6.6 Migration completeness self-check — un test mecánico que
+    atrapa "olvidé el 10mo".
+  - §7.1 Schema-vs-live verification (offline, no requiere deploy).
+  - §7.4 Performance budget por dominio (micro-benchmark, ceiling
+    5ms).
+
+Al terminar, reporta según §13 — los 9 items del reporte final son
+obligatorios. Si encuentras un blocker (build rojo, test falla en
+strict mode, schema-vs-live mismatch, etc.), detente y repórtalo.
+No lo papees con un workaround.
+
+No toques tools fuera de la lista §5.6. No `--force` push. No
+`--no-verify`. Si necesitas desviar del spec, márcalo en el reporte
+final con justificación.
+
+Sandbox:
+  TOKEN=ea7aa2285b00f166846a0924260ccf2395cf68f2582183b8e204d71e75a665f3
+  queries=https://queries-test.envia.com
+  carriers=https://api-test.envia.com
+
+El spec está escrito como artifact production-grade. Tu implementación
+debería estar al mismo nivel.
+```
+
+### 16.1 Why this prompt looks the way it does
+
+Each line in the prompt above was added because a less explicit
+version would have allowed a typical Sonnet to make a mistake the
+spec's review checklist (§14.1) catches. Specifically:
+
+| Prompt line | What it prevents |
+|---|---|
+| "Lee el spec end-to-end ANTES de escribir código" | Sonnet jumping to §5.4 without reading §3.10 — produces PR with security issues |
+| "S1 a S8 son hard rules" | Soft compliance with security guardrails — produces logs that leak PII |
+| "Tool #5 necesita el schema de tool #1" | Out-of-order migration that duplicates schemas |
+| "1 commit infra + 10 commits de tool" | Mega-commit that defeats the §14.2 rollback plan |
+| "Push después de cada uno" | Lost work on power loss / accidental rebase |
+| "Schema-vs-live verification (offline, no requiere deploy)" | Sonnet trying to deploy to stage and burning hours on infra |
+| "Performance budget por dominio (ceiling 5ms)" | Skipping micro-benchmarks, schema regression sneaks in |
+| "9 items del reporte final son obligatorios" | Sloppy final report that hides judgment calls |
+| "Si necesitas desviar del spec, márcalo" | Silent deviation that surfaces only on review |
+| Sandbox creds inline | Sonnet wasting time looking up the token |
+
+If the spec is updated to v1.3+, this prompt section should be
+updated in the same commit so the bootstrap text always tracks the
+spec contents.
+
+---
+
 End of spec.
