@@ -5,6 +5,12 @@
  * (insurance types, cash on delivery, signatures, etc.). Call this before
  * quoting or creating a shipment to know which services can be requested.
  *
+ * IMPORTANT: this returns the GLOBAL catalog for the route — it is not
+ * filtered by a specific carrier. Two services on the catalog may not both
+ * be supported by the same carrier. For carrier-specific add-on lists
+ * (e.g. "what add-ons does FedEx support?"), use
+ * `envia_get_carrier_constraints` with the carrier_id instead.
+ *
  * Queries API endpoint:
  *   GET /additional-services/{country_code}/{international}/{shipment_type}
  */
@@ -38,7 +44,12 @@ export function registerListAdditionalServices(
                 'Use this before quoting or creating a shipment to discover which services ' +
                 '(insurance, cash on delivery, signatures, etc.) can be requested. ' +
                 'Results depend on the origin country, whether the shipment is international, ' +
-                'and the shipment type.',
+                'and the shipment type. ' +
+                'IMPORTANT: this returns the GLOBAL catalog for the route — it does NOT filter ' +
+                'by a specific carrier. For "which add-ons does {carrier} support?" questions ' +
+                '(e.g. FedEx, DHL, UPS specific), use `envia_get_carrier_constraints` with the ' +
+                'carrier_id instead — that tool returns the list of add-ons that are actually ' +
+                'available for the given carrier on this account.',
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
                 origin_country: countrySchema.describe(
@@ -99,7 +110,7 @@ function formatServiceList(
         : originCountry;
 
     const lines: string[] = [
-        `Available additional services for ${route}:`,
+        `Available additional services for ${route} (GLOBAL catalog — not filtered by carrier):`,
         '',
     ];
 
@@ -122,6 +133,10 @@ function formatServiceList(
     lines.push(
         'Usage: pass these service names in the additional_services parameter of envia_quote_shipment or envia_create_shipment.',
         'Example: additional_services: [{ "service": "cash_on_delivery", "amount": 500 }]',
+        '',
+        'NOTE: This is the GLOBAL catalog for the route. Not every carrier supports every service.',
+        'For carrier-specific availability ("which of these does FedEx / DHL / UPS support?"),',
+        'call envia_get_carrier_constraints with the carrier_id — it returns the filtered list.',
         '',
         'Insurance rules:',
         '  - Only one insurance type at a time: envia_insurance, insurance, or high_value_protection.',
