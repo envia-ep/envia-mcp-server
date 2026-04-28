@@ -25,6 +25,8 @@ import { fetchAvailableCarriers, type CarrierInfo } from '../services/carrier.js
 import { shouldApplyTaxes } from '../services/tax-rules.js';
 import { DOMESTIC_AS_INTERNATIONAL } from '../services/country-rules.js';
 import { mapCarrierError } from '../utils/error-mapper.js';
+import { parseToolResponse } from '../utils/response-validator.js';
+import { QuoteShipmentResponseSchema } from '../schemas/shipping.js';
 
 /** A single rate option returned by the carriers API. */
 interface RateEntry {
@@ -313,8 +315,9 @@ export function registerGetShippingRates(
                     errors.push(`${carrier}: ${mapped.userMessage}${mapped.suggestion ? ` — ${mapped.suggestion}` : ''}`);
                     continue;
                 }
-                if (Array.isArray(res.data?.data)) {
-                    allRates.push(...res.data.data);
+                const validated = parseToolResponse(QuoteShipmentResponseSchema, res.data, 'envia_quote_shipment');
+                if (Array.isArray(validated.data)) {
+                    allRates.push(...(validated.data as unknown as RateEntry[]));
                 } else {
                     const body = res.data as Record<string, unknown> | undefined;
                     const code = typeof body?.code === 'number' ? body.code : 0;
