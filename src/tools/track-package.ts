@@ -13,6 +13,8 @@ import type { EnviaConfig } from "../config.js";
 import { optionalApiKeySchema } from "../utils/schemas.js";
 import { mapCarrierError } from '../utils/error-mapper.js';
 import { textResponse } from '../utils/mcp-response.js';
+import { parseToolResponse } from '../utils/response-validator.js';
+import { TrackPackageResponseSchema } from '../schemas/shipping.js';
 
 interface TrackEvent {
     timestamp?: string;
@@ -66,7 +68,7 @@ export function registerTrackPackage(
             }
 
             const url = `${config.shippingBase}/ship/generaltrack/`;
-            const res = await activeClient.post<{ data: TrackData[] }>(url, {
+            const res = await activeClient.post<unknown>(url, {
                 trackingNumbers: numbers,
             });
 
@@ -75,7 +77,8 @@ export function registerTrackPackage(
                 return textResponse(`Tracking failed: ${mapped.userMessage}\n\nSuggestion: ${mapped.suggestion}`);
             }
 
-            const trackings = Array.isArray(res.data?.data) ? res.data.data : [];
+            const validated = parseToolResponse(TrackPackageResponseSchema, res.data, 'envia_track_package');
+            const trackings = Array.isArray(validated.data) ? (validated.data as TrackData[]) : [];
 
             if (trackings.length === 0) {
                 return textResponse('No tracking information found. The tracking number may be invalid or not yet registered with the carrier.');
