@@ -614,4 +614,27 @@ describe('envia_get_carrier_constraints', () => {
         expect(text).toContain('Note:');
         expect(text).toContain('not available for your company');
     });
+
+    // -------------------------------------------------------------------------
+    // 30. Null-safe rendering: max_weight_kg, limit_pallets, pickup_package_max
+    //     all come back as null on some Fedex services in live sandbox. The
+    //     formatter must NOT print the literal string "null" — it should
+    //     render "no limit" / "—" instead.
+    // -------------------------------------------------------------------------
+    it('should render "no limit" / "—" when limits are null instead of literal "null"', async () => {
+        const fixture = makeConstraintsResponse();
+        // Live Fedex shape: max_weight_kg / limit_pallets often null.
+        fixture.data.services[0].limits.max_weight_kg = null as unknown as number;
+        fixture.data.services[0].limits.limit_pallets = null as unknown as number;
+        fixture.data.services[0].operational.pickup_package_max = null as unknown as number;
+        mockFetch.mockResolvedValueOnce(makeApiResponse(fixture));
+
+        const result = await handler({ carrier_id: 1 });
+        const text = result.content[0].text;
+
+        expect(text).not.toContain('null');
+        expect(text).toContain('no limit');
+        expect(text).toContain('pallets: —');
+        expect(text).toContain('max — pkgs/pickup');
+    });
 });

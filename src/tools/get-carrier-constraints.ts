@@ -113,12 +113,21 @@ function formatServiceRow(svc: ServiceConstraint): string {
     const intlLabel = `International: ${svc.international_scope} (code ${svc.international_code})`;
     const override = formatOverride(svc.limits.company_override);
 
+    // Null-safe rendering: backend may return max_weight_kg / limit_pallets
+    // as null when the carrier service does not enforce a hard cap. Plain
+    // template-string interpolation would print the literal string "null"
+    // — confusing for the LLM and the end user. Use descriptive fallbacks.
+    const minWeight = svc.limits.min_weight_kg ?? 0;
+    const maxWeight = svc.limits.max_weight_kg != null ? `${svc.limits.max_weight_kg} kg` : 'no limit';
+    const pallets = svc.limits.limit_pallets != null ? svc.limits.limit_pallets : '—';
+    const pickupMax = svc.operational.pickup_package_max != null ? svc.operational.pickup_package_max : '—';
+
     return [
         `### ${svc.name} (id: ${svc.id}, ${svc.service_code})`,
         `${intlLabel}  |  ${svc.delivery_estimate ?? 'ETA unknown'}`,
-        `Weight: ${svc.limits.min_weight_kg ?? 0}–${svc.limits.max_weight_kg} kg  |  vol. factor: ${svc.limits.volumetric_factor}  |  pallets: ${svc.limits.limit_pallets}`,
+        `Weight: ${minWeight} kg–${maxWeight}  |  vol. factor: ${svc.limits.volumetric_factor}  |  pallets: ${pallets}`,
         `${cod}  |  ${dropOff}`,
-        `Operational: cutoff ${svc.operational.hour_limit ?? 'n/a'}  |  timeout ${svc.operational.timeout_seconds}s  |  max ${svc.operational.pickup_package_max} pkgs/pickup`,
+        `Operational: cutoff ${svc.operational.hour_limit ?? 'n/a'}  |  timeout ${svc.operational.timeout_seconds}s  |  max ${pickupMax} pkgs/pickup`,
         override,
     ].join('\n');
 }
