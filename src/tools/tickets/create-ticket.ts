@@ -23,8 +23,9 @@ import { textResponse } from '../../utils/mcp-response.js';
 import { mapCarrierError } from '../../utils/error-mapper.js';
 import { mutateTicketApi } from '../../services/tickets.js';
 import { queryShipmentsApi } from '../../services/shipments.js';
-import type { CreateTicketResponse } from '../../types/tickets.js';
-import type { ShipmentDetailResponse } from '../../types/shipments.js';
+import { parseToolResponse } from '../../utils/response-validator.js';
+import { ShipmentDetailResponseSchema } from '../../schemas/shipments.js';
+import { CreateTicketResponseSchema } from '../../schemas/tickets.js';
 
 /**
  * Register the envia_create_ticket tool on the MCP server.
@@ -82,11 +83,16 @@ export function registerCreateTicket(
 
             if (args.tracking_number && args.shipment_id === undefined) {
                 const tracking = encodeURIComponent(args.tracking_number.trim());
-                const lookup = await queryShipmentsApi<ShipmentDetailResponse>(
+                const lookup = await queryShipmentsApi<unknown>(
                     activeClient, config, `/guide/${tracking}`, {},
                 );
 
-                const shipmentRecord = lookup.data?.data?.[0];
+                const validatedLookup = parseToolResponse(
+                    ShipmentDetailResponseSchema,
+                    lookup.data,
+                    'envia_create_ticket',
+                );
+                const shipmentRecord = validatedLookup.data?.[0];
                 if (!lookup.ok || !shipmentRecord?.id) {
                     return textResponse(
                         `Cannot create ticket: tracking number "${args.tracking_number}" was not found for your company. ` +
@@ -107,7 +113,7 @@ export function registerCreateTicket(
             if (args.comments !== undefined) body.comments = args.comments;
             if (args.data !== undefined) body.data = args.data;
 
-            const res = await mutateTicketApi<CreateTicketResponse>(
+            const res = await mutateTicketApi<unknown>(
                 activeClient, config, '/company/tickets', body,
             );
 
@@ -125,7 +131,8 @@ export function registerCreateTicket(
                 );
             }
 
-            const ticketId = res.data?.id;
+            const validated = parseToolResponse(CreateTicketResponseSchema, res.data, 'envia_create_ticket');
+            const ticketId = validated.id;
             const linkLine = resolvedShipmentId !== undefined
                 ? `  Linked to shipment_id: ${resolvedShipmentId}` +
                     (args.tracking_number ? ` (tracking ${args.tracking_number})` : '')
