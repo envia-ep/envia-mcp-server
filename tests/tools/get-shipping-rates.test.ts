@@ -560,7 +560,7 @@ describe('envia_quote_shipment', () => {
         mockFetch.mockResolvedValue({
             ok: true,
             status: 200,
-            json: () => Promise.resolve({ message: 'Carrier not available for this route' }),
+            json: () => Promise.resolve({ meta: 'error', message: 'Carrier not available for this route' }),
         });
 
         const result = await handler({ ...VALID_QUOTE_ARGS, carriers: 'dhl' });
@@ -576,7 +576,7 @@ describe('envia_quote_shipment', () => {
         mockFetch.mockResolvedValue({
             ok: true,
             status: 200,
-            json: () => Promise.resolve({ error: 'Invalid destination' }),
+            json: () => Promise.resolve({ meta: 'error', error: 'Invalid destination' }),
         });
 
         const result = await handler({ ...VALID_QUOTE_ARGS, carriers: 'dhl' });
@@ -591,7 +591,7 @@ describe('envia_quote_shipment', () => {
         mockFetch.mockResolvedValue({
             ok: true,
             status: 200,
-            json: () => Promise.resolve({ unexpected: 'shape' }),
+            json: () => Promise.resolve({ meta: 'error', unexpected: 'shape' }),
         });
 
         const result = await handler({ ...VALID_QUOTE_ARGS, carriers: 'dhl' });

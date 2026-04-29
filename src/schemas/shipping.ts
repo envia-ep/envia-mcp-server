@@ -96,10 +96,10 @@ const RateItemSchema = z.object({
  * Success: { meta: 'rate', data: [...] }
  * Error: { meta: 'error', error: { code, description, message } }
  * Verified live 2026-04-28.
- * NOTE: meta is optional to accommodate edge-case carrier responses that omit it.
+ * Live: 'rate' on success, 'error' on carrier rejection. Always present.
  */
 export const QuoteShipmentResponseSchema = z.object({
-    meta: z.string().optional(),
+    meta: z.string(),
     data: z.array(RateItemSchema).optional(),
     /** Error can be an object or string depending on carrier. */
     error: z.union([
