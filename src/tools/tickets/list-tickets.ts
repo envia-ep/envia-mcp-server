@@ -2,8 +2,18 @@
  * Tool: envia_list_tickets
  *
  * Lists support tickets for the company with optional filters.
- * NOTE: The /company/tickets endpoint has a known bug in sandbox (returns 422).
- * The tool is implemented anyway as it works correctly in production.
+ *
+ * Known issue: GET /company/tickets has been observed to return 422 in BOTH
+ * sandbox and production (last verified 2026-04-29 against queries.envia.com).
+ * The backend service wraps internal errors as Boom.badData (HTTP 422), so a
+ * 422 here does NOT necessarily mean the request payload is invalid — it can
+ * also mask a server-side SQL/Joi failure with no actionable detail surfaced
+ * to the caller. See services/queries/services/tickets.service.js
+ * (`catch (err) { throw Boom.badData(err); }`).
+ *
+ * The auth strategy `token_user` accepts access_tokens with type_id IN (1, 2, 7)
+ * and requires a company assignment for type 2 tokens. If that constraint
+ * fails, auth raises 401 instead of 422, so 422 is not an auth signal.
  */
 
 import { z } from 'zod';
@@ -16,6 +26,80 @@ import { textResponse } from '../../utils/mcp-response.js';
 import { mapCarrierError } from '../../utils/error-mapper.js';
 import { queryTicketsApi, formatTicketSummary } from '../../services/tickets.js';
 import type { TicketListResponse } from '../../types/tickets.js';
+import type { EnviaEnvironment } from '../../config.js';
+
+const BACKEND_BODY_SNIPPET_MAX = 200;
+
+/**
+ * Build the user-facing message for an HTTP 422 response from /company/tickets.
+ *
+ * Surfaces the actual backend error (status, friendly summary, raw body snippet)
+ * instead of asserting "this only happens in sandbox". The 422 has been
+ * confirmed to occur in production too, often masking a server-side error
+ * wrapped as Boom.badData. This helper keeps the message honest: it reports
+ * what was observed and suggests next steps without making claims the caller
+ * cannot verify.
+ *
+ * @param friendlyError - Sanitised error string from the API client (`res.error`)
+ * @param rawBody       - Raw JSON body returned by the backend (`res.data`)
+ * @param environment   - "sandbox" | "production", used to tag the message
+ * @returns Multi-line string suitable for textResponse
+ */
+export function format422Error(
+    friendlyError: string | undefined,
+    rawBody: unknown,
+    environment: EnviaEnvironment,
+): string {
+    const bodySnippet = extractBodySnippet(rawBody);
+    const lines: string[] = [
+        `Failed to list tickets (HTTP 422) in ${environment}.`,
+        '',
+        `Backend message: ${friendlyError ?? 'No friendly error available.'}`,
+    ];
+    if (bodySnippet) {
+        lines.push(`Raw body snippet: ${bodySnippet}`);
+    }
+    lines.push(
+        '',
+        'Note: /company/tickets has returned 422 in both sandbox and production. ' +
+        'The backend wraps internal errors as Boom.badData, so a 422 here may not be ' +
+        'caused by the request payload.',
+        '',
+        'Suggestions:',
+        '  • Try envia_get_ticket_detail with a known ticket_id to bypass the list endpoint.',
+        '  • Retry without optional filters (carrier_id, ticket_status_id, date_from/to, tracking_number).',
+        '  • If the issue persists, share the raw body snippet above with the queries-service team.',
+    );
+    return lines.join('\n');
+}
+
+/**
+ * Extract a short, safe snippet of the backend response body for diagnostics.
+ *
+ * Prefers known fields (`message`, `error`) and falls back to a truncated JSON
+ * stringification. Returns an empty string when the body has nothing useful.
+ */
+function extractBodySnippet(rawBody: unknown): string {
+    if (!rawBody || typeof rawBody !== 'object') {
+        return '';
+    }
+    const body = rawBody as Record<string, unknown>;
+    if (typeof body.message === 'string' && body.message.length > 0) {
+        return body.message.slice(0, BACKEND_BODY_SNIPPET_MAX);
+    }
+    if (typeof body.error === 'string' && body.error.length > 0) {
+        return body.error.slice(0, BACKEND_BODY_SNIPPET_MAX);
+    }
+    try {
+        const serialized = JSON.stringify(body);
+        if (serialized && serialized !== '{}') {
+            return serialized.slice(0, BACKEND_BODY_SNIPPET_MAX);
+        }
+    } catch {
+        // Ignore circular structures — return empty snippet
+    }
+    return '';
+}
 
 /**
  * Register the envia_list_tickets tool on the MCP server.
@@ -32,8 +116,10 @@ export function registerListTickets(
                 'List support tickets for your company. Filter by status (1=Pending, 2=Accepted, 3=Declined, ' +
                 '5=Follow-up, 6=In Review), ticket type, carrier, tracking number, or date range. ' +
                 'Returns ticket ID, type, status, carrier, and creation date. ' +
-                'SANDBOX LIMITATION: the /company/tickets endpoint returns 422 in sandbox (verified bug). ' +
-                'Use a production API token to retrieve real ticket data.',
+                'KNOWN ISSUE: /company/tickets has returned HTTP 422 in both sandbox and production ' +
+                '(last seen 2026-04-29). The backend wraps internal errors as Boom.badData, so a 422 here ' +
+                'is not necessarily an input-validation failure. If you hit 422, try envia_get_ticket_detail ' +
+                'with a known ticket_id, or contact support with the surfaced error body.',
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
                 limit: z.number().int().min(1).max(100).default(20).describe('Results per page (max 100)'),
@@ -70,11 +156,7 @@ export function registerListTickets(
 
             if (!res.ok) {
                 if (res.status === 422) {
-                    return textResponse(
-                        'Failed to list tickets: The ticket list endpoint returned a validation error (422). ' +
-                        'This is a known sandbox issue — the endpoint works correctly in production. ' +
-                        'Try using envia_get_ticket_detail with a specific ticket_id instead.',
-                    );
+                    return textResponse(format422Error(res.error, res.data, config.environment));
                 }
                 const mapped = mapCarrierError(res.status, res.error ?? '');
                 return textResponse(
