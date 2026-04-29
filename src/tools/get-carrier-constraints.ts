@@ -29,14 +29,15 @@ import { textResponse } from '../utils/mcp-response.js';
 import { fetchCarrierConstraints } from '../services/carrier-constraints.js';
 import { parseToolResponse } from '../utils/response-validator.js';
 import { CarrierConstraintsResponseSchema } from '../schemas/carrier-constraints.js';
-import type {
-    CarrierConstraintsResponse,
-    ServiceConstraint,
-    AdditionalServiceRef,
-    CompanyOverride,
-    CoverageSummary,
-    ResponseMeta,
-} from '../types/carrier-constraints.js';
+
+// Schema-derived types — single source of truth for all formatters.
+type CCResponse = z.infer<typeof CarrierConstraintsResponseSchema>;
+type CCData = CCResponse['data'];
+type CCService = CCData['services'][number];
+type CCAddon = NonNullable<CCData['additional_services']>[number];
+type CCOverride = NonNullable<NonNullable<CCService['limits']>['company_override']>;
+type CCCoverage = NonNullable<CCData['coverage_summary']>;
+type CCMeta = NonNullable<CCResponse['meta']>;
 
 // ---------------------------------------------------------------------------
 // Formatters
@@ -53,7 +54,7 @@ import type {
  * @param data - Full response data block
  * @returns Formatted markdown section
  */
-function formatCarrierHeader(data: CarrierConstraintsResponse['data']): string {
+function formatCarrierHeader(data: CCData): string {
     const { carrier, pickup, tracking } = data;
     const pickupLine = pickup.supported
         ? `${pickup.start_hour}:00–${pickup.end_hour}:00 (span ${pickup.span_minutes} min${pickup.same_day ? ', same-day' : ''})`
@@ -88,7 +89,7 @@ function formatCarrierHeader(data: CarrierConstraintsResponse['data']): string {
  * @param override - Company override object from the limits block
  * @returns Human-readable override summary or empty string
  */
-function formatOverride(override: CompanyOverride): string {
+function formatOverride(override: CCOverride): string {
     if (!override.applied) return '(no company override)';
     const min = override.min_weight_kg != null ? `min ${override.min_weight_kg} kg` : null;
     const max = override.max_weight_kg != null ? `max ${override.max_weight_kg} kg` : null;
@@ -106,7 +107,7 @@ function formatOverride(override: CompanyOverride): string {
  * @param svc - Service constraint object
  * @returns Formatted table row string
  */
-function formatServiceRow(svc: ServiceConstraint): string {
+function formatServiceRow(svc: CCService): string {
     const cod = svc.cash_on_delivery.enabled
         ? `COD ✓ (min ${svc.cash_on_delivery.minimum_amount ?? '—'}, ${svc.cash_on_delivery.commission_percentage ?? '—'}%)`
         : 'COD ✗';
@@ -143,7 +144,7 @@ function formatServiceRow(svc: ServiceConstraint): string {
  * @param services - Array of service constraints
  * @returns Formatted markdown section with one sub-section per service
  */
-function formatServices(services: ServiceConstraint[]): string {
+function formatServices(services: CCData['services']): string {
     if (services.length === 0) {
         return '## Services\n\nNo active services found for this carrier.';
     }
@@ -158,7 +159,7 @@ function formatServices(services: ServiceConstraint[]): string {
  * @param addons - Array of additional service refs (may be null)
  * @returns Formatted markdown section
  */
-function formatAdditionalServices(addons: AdditionalServiceRef[] | null): string {
+function formatAdditionalServices(addons: CCAddon[] | null | undefined): string {
     if (!addons) {
         return '';
     }
@@ -188,7 +189,7 @@ function formatAdditionalServices(addons: AdditionalServiceRef[] | null): string
  * @param coverage - Coverage summary object (may be undefined)
  * @returns Formatted markdown section, or empty string if not present
  */
-function formatCoverageSummary(coverage: CoverageSummary | undefined): string {
+function formatCoverageSummary(coverage: CCCoverage | undefined): string {
     if (!coverage) {
         return '';
     }
@@ -219,7 +220,7 @@ function formatCoverageSummary(coverage: CoverageSummary | undefined): string {
  * @param meta - Response metadata block
  * @returns Formatted footer string
  */
-function formatMeta(meta: ResponseMeta): string {
+function formatMeta(meta: CCMeta): string {
     const noteSection = meta._note
         ? `\n⚠ Note: ${meta._note}\n`
         : '';
@@ -297,7 +298,7 @@ export function registerGetCarrierConstraints(
                     CarrierConstraintsResponseSchema,
                     rawResponse,
                     'envia_get_carrier_constraints',
-                ) as unknown as CarrierConstraintsResponse;
+                );
 
                 const { data, meta } = response;
                 const lines: string[] = [];

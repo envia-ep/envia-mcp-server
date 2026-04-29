@@ -37,7 +37,8 @@ const PickupConfigSchema = z.object({
     end_hour: z.number().optional(),
     span_minutes: z.number().optional(),
     daily_limit: z.number().nullable().optional(),
-    fee: z.number().optional(),
+    /** Always present in live responses. */
+    fee: z.number().default(0),
 });
 
 const TrackingConfigSchema = z.object({
@@ -55,6 +56,7 @@ const ServiceLimitsSchema = z.object({
     weight_unit: z.string().optional(),
     volumetric_factor: z.number().optional(),
     volumetric_factor_id: z.number().optional(),
+    /** Always present in live responses — formatter accesses directly. */
     company_override: z.object({
         applied: z.boolean().optional(),
         /** Override fields present only when applied=true. */
@@ -62,7 +64,7 @@ const ServiceLimitsSchema = z.object({
         max_weight_kg: z.number().nullable().optional(),
         half_slab: z.boolean().optional(),
         source: z.string().optional(),
-    }).optional(),
+    }),
 });
 
 const CodConfigSchema = z.object({
@@ -101,12 +103,13 @@ const ServiceConstraintSchema = z.object({
     international_code: z.number().optional(),
     international: z.boolean().optional(),
     international_scope: z.string().optional(),
-    limits: ServiceLimitsSchema.optional(),
-    cash_on_delivery: CodConfigSchema.optional(),
-    options: ServiceOptionsSchema.optional(),
+    /** Always present in live responses — formatter accesses sub-fields directly. */
+    limits: ServiceLimitsSchema,
+    cash_on_delivery: CodConfigSchema,
+    options: ServiceOptionsSchema,
     shipment_type: ShipmentTypeRefSchema.optional(),
     rate_type: ShipmentTypeRefSchema.optional(),
-    operational: OperationalSchema.optional(),
+    operational: OperationalSchema,
 });
 
 const AdditionalServiceRefSchema = z.object({
@@ -122,14 +125,27 @@ const AdditionalServiceRefSchema = z.object({
     front_order_index: z.number().nullable().optional(),
     visible: z.boolean().optional(),
     active: z.boolean().optional(),
-    available_for_services: z.array(z.number()).optional(),
+    /** Phase 1: always present in live responses. Required by the formatter. */
+    available_for_services: z.array(z.number()).default([]),
 });
 
-/** coverage_summary — only present when ?include=coverage_summary. */
+/**
+ * coverage_summary — only present when ?include=coverage_summary.
+ * Phase 1 placeholder: _unavailable is set, by_service is [].
+ * Phase 2 will populate by_service with postal-code counts per country.
+ */
 const CoverageSummarySchema = z.object({
+    _note: z.string().optional(),
     _unavailable: z.string().optional(),
     total_postal_codes: z.number().optional(),
     covered_postal_codes: z.number().optional(),
+    by_service: z.array(z.object({
+        service_id: z.number(),
+        countries: z.array(z.object({
+            country_code: z.string(),
+            postal_code_count: z.number(),
+        })),
+    })).default([]),
 });
 
 const HardcodedLimitsSchema = z.object({
@@ -169,7 +185,8 @@ const CarrierConstraintsDataSchema = z.object({
 export const CarrierConstraintsResponseSchema = z.object({
     status: z.string(),
     data: CarrierConstraintsDataSchema,
-    meta: ResponseMetaSchema.optional(),
+    /** Always present in live responses per spec §2.2. */
+    meta: ResponseMetaSchema,
 });
 
 export type CarrierConstraintsResponseT = z.infer<typeof CarrierConstraintsResponseSchema>;
