@@ -85,9 +85,9 @@ describe('envia_list_tickets', () => {
     });
 
     // -------------------------------------------------------------------------
-    // 3. should return friendly message for 422 sandbox bug
+    // 3. should surface honest 422 message including status, body, and environment
     // -------------------------------------------------------------------------
-    it('should return friendly message for 422 sandbox bug', async () => {
+    it('should surface honest 422 message including status, body, and environment', async () => {
         mockFetch.mockResolvedValueOnce({
             ok: false,
             status: 422,
@@ -97,8 +97,29 @@ describe('envia_list_tickets', () => {
         const result = await handler({ api_key: MOCK_CONFIG.apiKey, limit: 20, page: 1 });
         const text = result.content[0].text;
 
-        expect(text).toContain('known sandbox issue');
+        expect(text).toContain('HTTP 422');
+        expect(text).toContain('sandbox');
+        expect(text).toContain('Unprocessable Entity');
         expect(text).toContain('envia_get_ticket_detail');
+        expect(text).not.toContain('works correctly in production');
+        expect(text).not.toContain('known sandbox issue');
+    });
+
+    // -------------------------------------------------------------------------
+    // 3b. should include the raw backend body snippet when no `message` field
+    // -------------------------------------------------------------------------
+    it('should include raw body snippet when backend returns 422 without a message field', async () => {
+        mockFetch.mockResolvedValueOnce({
+            ok: false,
+            status: 422,
+            json: () => Promise.resolve({ statusCode: 422, error: 'Bad Data' }),
+        });
+
+        const result = await handler({ api_key: MOCK_CONFIG.apiKey, limit: 20, page: 1 });
+        const text = result.content[0].text;
+
+        expect(text).toContain('HTTP 422');
+        expect(text).toContain('Bad Data');
     });
 
     // -------------------------------------------------------------------------
