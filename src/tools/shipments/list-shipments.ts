@@ -121,7 +121,7 @@ export function registerListShipments(
                     `• ${s.tracking_number} — ${s.status ?? 'Unknown'} (${carrierLabel} / ${serviceLabel})`,
                 );
                 lines.push(
-                    `  From: ${formatAddressSummary(senderAddr)}  →  To: ${formatAddressSummary(consigneeAddr)}`,
+                    `  From: ${formatAddressSummary(senderAddr as Parameters<typeof formatAddressSummary>[0])}  →  To: ${formatAddressSummary(consigneeAddr as Parameters<typeof formatAddressSummary>[0])}`,
                 );
                 lines.push(
                     `  Cost: ${formatCurrency(s.grand_total as number | undefined ?? s.total as number | undefined, s.currency)}  |  Created: ${s.created_at ?? '—'}`,
