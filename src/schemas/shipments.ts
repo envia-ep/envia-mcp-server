@@ -372,10 +372,13 @@ export type ShipmentStatusStatsT = z.infer<typeof ShipmentStatusStatsSchema>;
 
 const InvoiceRecordSchema = z.object({
     id: z.number(),
-    month: z.number().optional(),
-    year: z.number().optional(),
+    /** Live shape: integer (e.g. 10). Some fixtures use string — accept both. */
+    month: z.union([z.number(), z.string()]).optional(),
+    /** Live shape: integer (e.g. 2024). Some fixtures use string — accept both. */
+    year: z.union([z.number(), z.string()]).optional(),
     total: z.union([z.number(), z.string()]).optional(),
-    invoice_id: z.number().nullable().optional(),
+    /** Live shape: null (no invoice generated yet). May be string ID in production. */
+    invoice_id: z.union([z.string(), z.number()]).nullable().optional(),
     invoice_url: z.string().nullable().optional(),
     invoice_type_amount: z.string().optional(),
     total_shipments: z.number().optional(),

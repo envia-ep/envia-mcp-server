@@ -36,7 +36,7 @@ const PickupConfigSchema = z.object({
     start_hour: z.number().optional(),
     end_hour: z.number().optional(),
     span_minutes: z.number().optional(),
-    daily_limit: z.number().optional(),
+    daily_limit: z.number().nullable().optional(),
     fee: z.number().optional(),
 });
 
@@ -49,7 +49,7 @@ const TrackingConfigSchema = z.object({
 });
 
 const ServiceLimitsSchema = z.object({
-    min_weight_kg: z.number().optional(),
+    min_weight_kg: z.number().nullable().optional(),
     max_weight_kg: z.number().nullable().optional(),
     limit_pallets: z.number().nullable().optional(),
     weight_unit: z.string().optional(),
@@ -57,13 +57,18 @@ const ServiceLimitsSchema = z.object({
     volumetric_factor_id: z.number().optional(),
     company_override: z.object({
         applied: z.boolean().optional(),
+        /** Override fields present only when applied=true. */
+        min_weight_kg: z.number().nullable().optional(),
+        max_weight_kg: z.number().nullable().optional(),
+        half_slab: z.boolean().optional(),
+        source: z.string().optional(),
     }).optional(),
 });
 
 const CodConfigSchema = z.object({
     enabled: z.boolean().optional(),
-    minimum_amount: z.number().optional(),
-    commission_percentage: z.number().optional(),
+    minimum_amount: z.number().nullable().optional(),
+    commission_percentage: z.number().nullable().optional(),
 });
 
 const ServiceOptionsSchema = z.object({
@@ -80,9 +85,10 @@ const ShipmentTypeRefSchema = z.object({
 });
 
 const OperationalSchema = z.object({
-    hour_limit: z.number().nullable().optional(),
+    /** Can be null (no daily cutoff) or a time string like "16:00". */
+    hour_limit: z.union([z.string(), z.number()]).nullable().optional(),
     timeout_seconds: z.number().optional(),
-    pickup_package_max: z.number().optional(),
+    pickup_package_max: z.number().nullable().optional(),
     return_percentage_cost: z.number().nullable().optional(),
 });
 

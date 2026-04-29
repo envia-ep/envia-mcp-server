@@ -96,15 +96,22 @@ const RateItemSchema = z.object({
  * Success: { meta: 'rate', data: [...] }
  * Error: { meta: 'error', error: { code, description, message } }
  * Verified live 2026-04-28.
+ * NOTE: meta is optional to accommodate edge-case carrier responses that omit it.
  */
 export const QuoteShipmentResponseSchema = z.object({
-    meta: z.string(),
+    meta: z.string().optional(),
     data: z.array(RateItemSchema).optional(),
-    error: z.object({
-        code: z.number().optional(),
-        description: z.string().optional(),
-        message: z.string().optional(),
-    }).optional(),
+    /** Error can be an object or string depending on carrier. */
+    error: z.union([
+        z.string(),
+        z.object({
+            code: z.number().optional(),
+            description: z.string().optional(),
+            message: z.string().optional(),
+        }),
+    ]).optional(),
+    /** Top-level message field for non-standard carrier error responses. */
+    message: z.string().optional(),
 });
 
 export type QuoteShipmentResponseT = z.infer<typeof QuoteShipmentResponseSchema>;

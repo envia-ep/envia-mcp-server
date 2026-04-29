@@ -19,7 +19,8 @@ import { requiredApiKeySchema } from '../../utils/schemas.js';
 import { textResponse } from '../../utils/mcp-response.js';
 import { mapCarrierError } from '../../utils/error-mapper.js';
 import { queryOrdersApi, formatOrderSummary } from '../../services/orders.js';
-import type { OrderListResponse } from '../../types/orders.js';
+import { parseToolResponse } from '../../utils/response-validator.js';
+import { OrderListResponseSchema } from '../../schemas/orders.js';
 
 /**
  * Register the envia_list_orders tool on the MCP server.
@@ -80,7 +81,7 @@ export function registerListOrders(
             if (args.destination_country_code) params.destination_country_code = args.destination_country_code;
             if (args.order_identifier) params.order_identifier = args.order_identifier;
 
-            const res = await queryOrdersApi<OrderListResponse>(
+            const res = await queryOrdersApi<unknown>(
                 activeClient, config, '/v4/orders', params,
             );
 
@@ -91,8 +92,9 @@ export function registerListOrders(
                 );
             }
 
-            const orders = Array.isArray(res.data?.orders_info) ? res.data.orders_info : [];
-            const total = res.data?.totals ?? orders.length;
+            const validated = parseToolResponse(OrderListResponseSchema, res.data, 'envia_list_orders');
+            const orders = Array.isArray(validated.orders_info) ? validated.orders_info : [];
+            const total = validated.totals ?? orders.length;
 
             if (orders.length === 0) {
                 return textResponse('No orders found matching the specified filters.');
@@ -104,7 +106,7 @@ export function registerListOrders(
             ];
 
             for (const order of orders) {
-                lines.push(formatOrderSummary(order));
+                lines.push(formatOrderSummary(order as Parameters<typeof formatOrderSummary>[0]));
                 lines.push('');
             }
 

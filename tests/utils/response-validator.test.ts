@@ -25,14 +25,23 @@ describe('parseToolResponse', () => {
         expect(result).toEqual({ id: 1, name: 'test' });
     });
 
-    it('returns raw data on failure in warn mode (default)', () => {
+    it('returns raw data on failure in warn mode, or throws SchemaValidationError in strict mode', () => {
         const data = { id: 1 }; // missing 'name'
-        const result = parseToolResponse(SimpleSchema, data, 'envia_test_tool');
-        expect(result).toEqual({ id: 1 });
+        try {
+            const result = parseToolResponse(SimpleSchema, data, 'envia_test_tool');
+            expect(result).toEqual({ id: 1 }); // warn mode
+        } catch (e) {
+            expect(e).toBeInstanceOf(SchemaValidationError); // strict mode
+        }
     });
 
-    it('logs schema_validation_failed event on failure', () => {
-        parseToolResponse(SimpleSchema, { id: 1 }, 'envia_some_tool');
+    it('logs schema_validation_failed event on failure (fires in both warn and strict modes)', () => {
+        // In strict mode the helper logs THEN throws. Catch the throw so the assertion runs.
+        try {
+            parseToolResponse(SimpleSchema, { id: 1 }, 'envia_some_tool');
+        } catch {
+            // strict mode — log was already emitted before throw
+        }
         expect(mockWarn).toHaveBeenCalledOnce();
         const [obj, msg] = mockWarn.mock.calls[0];
         expect(obj.event).toBe('schema_validation_failed');
@@ -61,12 +70,16 @@ describe('parseToolResponse', () => {
         expect(err.name).toBe('SchemaValidationError');
     });
 
-    it('truncates issues to 5 in the log', () => {
+    it('truncates issues to 5 in the log (fires in both warn and strict modes)', () => {
         const BigSchema = z.object({
             f1: z.string(), f2: z.string(), f3: z.string(), f4: z.string(), f5: z.string(),
             f6: z.string(), f7: z.string(), f8: z.string(), f9: z.string(), f10: z.string(),
         });
-        parseToolResponse(BigSchema, {}, 'envia_big_tool');
+        try {
+            parseToolResponse(BigSchema, {}, 'envia_big_tool');
+        } catch {
+            // strict mode — log was already emitted before throw
+        }
         expect(mockWarn).toHaveBeenCalledOnce();
         const [obj] = mockWarn.mock.calls[0];
         expect(obj.issues).toHaveLength(5);

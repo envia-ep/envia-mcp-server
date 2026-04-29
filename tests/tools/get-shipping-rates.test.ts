@@ -371,6 +371,7 @@ describe('envia_quote_shipment', () => {
                 ok: true,
                 status: 200,
                 json: () => Promise.resolve({
+                    meta: 'rate',
                     data: [{ carrier: 'fedex', service: 'overnight', totalPrice: '500.00', currency: 'MXN' }],
                 }),
             })
@@ -378,6 +379,7 @@ describe('envia_quote_shipment', () => {
                 ok: true,
                 status: 200,
                 json: () => Promise.resolve({
+                    meta: 'rate',
                     data: [{ carrier: 'dhl', service: 'ground', totalPrice: '100.00', currency: 'MXN' }],
                 }),
             });
@@ -396,6 +398,7 @@ describe('envia_quote_shipment', () => {
             ok: true,
             status: 200,
             json: () => Promise.resolve({
+                meta: 'rate',
                 data: [{
                     carrier: 'dhl',
                     service: 'express',
@@ -422,6 +425,7 @@ describe('envia_quote_shipment', () => {
             ok: true,
             status: 200,
             json: () => Promise.resolve({
+                meta: 'rate',
                 data: [{ carrier: 'dhl', service: 'standard', totalPrice: '180.00', currency: 'MXN' }],
             }),
         });
@@ -439,6 +443,7 @@ describe('envia_quote_shipment', () => {
             ok: true,
             status: 200,
             json: () => Promise.resolve({
+                meta: 'rate',
                 data: [{ carrier: 'dhl', service: 'standard', totalPrice: '180.00', currency: 'MXN' }],
             }),
         });
@@ -456,6 +461,7 @@ describe('envia_quote_shipment', () => {
             ok: true,
             status: 200,
             json: () => Promise.resolve({
+                meta: 'rate',
                 data: [{ carrier: 'dhl', service: 'express', totalPrice: '250.00' }],
             }),
         });
@@ -499,6 +505,7 @@ describe('envia_quote_shipment', () => {
             ok: true,
             status: 200,
             json: () => Promise.resolve({
+                meta: 'rate',
                 data: [{ carrier: 'dhl', service: 'express', totalPrice: '250.00', currency: 'MXN' }],
             }),
         });
@@ -522,6 +529,7 @@ describe('envia_quote_shipment', () => {
             ok: true,
             status: 200,
             json: () => Promise.resolve({
+                meta: 'rate',
                 data: [{ carrier: 'dhl', service: 'express', totalPrice: '250.00', currency: 'MXN' }],
             }),
         });
@@ -538,7 +546,7 @@ describe('envia_quote_shipment', () => {
         mockFetch.mockResolvedValue({
             ok: true,
             status: 200,
-            json: () => Promise.resolve({ data: [] }),
+            json: () => Promise.resolve({ meta: 'rate', data: [] }),
         });
 
         const result = await handler({ ...VALID_QUOTE_ARGS, carriers: 'dhl' });

@@ -71,6 +71,8 @@ export const MOCK_LABEL_RESPONSE = {
 };
 
 export const MOCK_RATES_RESPONSE = {
+    // meta field required by QuoteShipmentResponseSchema (verified live 2026-04-28)
+    meta: 'rate',
     data: [
         {
             carrier: "dhl",
@@ -92,6 +94,8 @@ export const MOCK_RATES_RESPONSE = {
 };
 
 export const MOCK_TRACKING_RESPONSE = {
+    // meta field required by TrackPackageResponseSchema (verified live 2026-04-28)
+    meta: 'generaltrack',
     data: [
         {
             trackingNumber: "7520610403",

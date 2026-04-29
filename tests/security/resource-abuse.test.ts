@@ -83,7 +83,7 @@ describe("Resource Abuse / DoS Prevention", () => {
             eventHistory: [],
         }));
 
-        vi.stubGlobal("fetch", mockFetchSuccess({ data: trackingData }));
+        vi.stubGlobal("fetch", mockFetchSuccess({ meta: 'generaltrack', data: trackingData }));
 
         const result = await callHandler("envia_track_package", {
             tracking_numbers: numbers.join(","),
@@ -101,7 +101,7 @@ describe("Resource Abuse / DoS Prevention", () => {
             eventHistory: [],
         }));
 
-        vi.stubGlobal("fetch", mockFetchSuccess({ data: trackingData }));
+        vi.stubGlobal("fetch", mockFetchSuccess({ meta: 'generaltrack', data: trackingData }));
 
         const result = await callHandler("envia_track_package", {
             tracking_numbers: numbers.join(","),
@@ -121,6 +121,7 @@ describe("Resource Abuse / DoS Prevention", () => {
             status: 200,
             json: () =>
                 Promise.resolve({
+                    meta: 'rate',
                     data: [
                         {
                             carrier: "test",
@@ -246,6 +247,7 @@ describe("Resource Abuse / DoS Prevention", () => {
         vi.stubGlobal(
             "fetch",
             mockFetchSuccess({
+                meta: 'generaltrack',
                 data: [
                     {
                         trackingNumber: "7520610403",
@@ -280,6 +282,7 @@ describe("Resource Abuse / DoS Prevention", () => {
         vi.stubGlobal(
             "fetch",
             mockFetchSuccess({
+                meta: 'generaltrack',
                 data: [
                     {
                         trackingNumber: "7520610403",

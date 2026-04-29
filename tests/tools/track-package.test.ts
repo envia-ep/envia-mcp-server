@@ -90,6 +90,7 @@ describe("envia_track_package", () => {
       status: 200,
       json: () =>
         Promise.resolve({
+          meta: 'generaltrack',
           data: [
             {
               trackingNumber: "AAA111",
@@ -154,6 +155,7 @@ describe("envia_track_package", () => {
       status: 200,
       json: () =>
         Promise.resolve({
+          meta: 'generaltrack',
           data: [
             {
               trackingNumber: "7520610403",
@@ -184,6 +186,7 @@ describe("envia_track_package", () => {
       status: 200,
       json: () =>
         Promise.resolve({
+          meta: 'generaltrack',
           data: [
             {
               trackingNumber: "7520610403",
@@ -209,6 +212,7 @@ describe("envia_track_package", () => {
       status: 200,
       json: () =>
         Promise.resolve({
+          meta: 'generaltrack',
           data: [
             {
               trackingNumber: "7520610403",
@@ -233,7 +237,7 @@ describe("envia_track_package", () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
       status: 200,
-      json: () => Promise.resolve({ data: [] }),
+      json: () => Promise.resolve({ meta: 'generaltrack', data: [] }),
     });
 
     const result = await handler({ tracking_numbers: "INVALID123" });

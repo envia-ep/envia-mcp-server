@@ -87,13 +87,20 @@ export function registerCreateTicket(
                     activeClient, config, `/guide/${tracking}`, {},
                 );
 
+                if (!lookup.ok) {
+                    return textResponse(
+                        `Cannot create ticket: tracking number "${args.tracking_number}" was not found for your company. ` +
+                        `Verify the tracking number is correct and that the shipment belongs to the authenticated company.`,
+                    );
+                }
+
                 const validatedLookup = parseToolResponse(
                     ShipmentDetailResponseSchema,
                     lookup.data,
                     'envia_create_ticket',
                 );
                 const shipmentRecord = validatedLookup.data?.[0];
-                if (!lookup.ok || !shipmentRecord?.id) {
+                if (!shipmentRecord?.id) {
                     return textResponse(
                         `Cannot create ticket: tracking number "${args.tracking_number}" was not found for your company. ` +
                         `Verify the tracking number is correct and that the shipment belongs to the authenticated company.`,

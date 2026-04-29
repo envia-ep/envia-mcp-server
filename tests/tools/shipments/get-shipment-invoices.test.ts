@@ -21,17 +21,17 @@ import { registerGetShipmentInvoices } from '../../../src/tools/shipments/get-sh
 // Factories
 // =============================================================================
 
-/** Build an invoice record matching the live sandbox shape (2026-04-27). */
+/** Build an invoice record matching the live sandbox shape (verified 2026-04-28). */
 function makeInvoice(overrides: Record<string, unknown> = {}) {
     return {
         id: 1234,
-        month: '04',
-        year: '2026',
+        month: 4,              // number (live shape: int 10)
+        year: 2026,            // number (live shape: int 2024)
         total: 1500.75,
-        invoice_id: 'INV-2026-04-001',
+        invoice_id: 'INV-2026-04-001',  // string ID when invoice exists (null in sandbox)
         invoice_url: 'https://s3.example.com/inv-2026-04-001.pdf',
         total_shipments: 87,
-        invoice_type_amount: 1450.00,
+        invoice_type_amount: 'total',   // string in live shape
         tax_intermediacio_total: 50.75,
         invoiced_by: 'Envia',
         status: 'invoiced',
@@ -90,7 +90,7 @@ describe('envia_get_shipment_invoices', () => {
         const text = result.content[0].text;
 
         expect(text).toContain('INV-2026-04-001');
-        expect(text).toContain('04/2026');
+        expect(text).toContain('4/2026');
     });
 
     // -------------------------------------------------------------------------

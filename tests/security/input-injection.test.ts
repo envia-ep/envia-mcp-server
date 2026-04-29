@@ -103,6 +103,7 @@ describe("Input Injection Resistance", () => {
             vi.stubGlobal(
                 "fetch",
                 mockFetchSuccess({
+                    meta: 'generaltrack',
                     data: [
                         {
                             trackingNumber: "7520",
@@ -256,6 +257,7 @@ describe("Input Injection Resistance", () => {
             vi.stubGlobal(
                 "fetch",
                 mockFetchSuccess({
+                    meta: 'generaltrack',
                     data: [
                         {
                             trackingNumber: "7520",
@@ -312,6 +314,7 @@ describe("Input Injection Resistance", () => {
             vi.stubGlobal(
                 "fetch",
                 mockFetchSuccess({
+                    meta: 'generaltrack',
                     data: [
                         {
                             trackingNumber: "7520610403",
@@ -417,6 +420,7 @@ describe("Input Injection Resistance", () => {
             vi.stubGlobal(
                 "fetch",
                 mockFetchSuccess({
+                    meta: 'generaltrack',
                     data: [
                         {
                             trackingNumber: "D".repeat(10_000),
