@@ -116,7 +116,8 @@ const AdditionalServiceRefSchema = z.object({
     id: z.number(),
     name: z.string().optional(),
     translation_tag: z.string().optional(),
-    category_id: z.number().optional(),
+    /** Live: nullable for carrier-agnostic add-ons (e.g. usa_import_processing). */
+    category_id: z.number().nullable().optional(),
     address_type_id: z.number().nullable().optional(),
     description: z.string().optional(),
     shipment_type_id: z.number().optional(),

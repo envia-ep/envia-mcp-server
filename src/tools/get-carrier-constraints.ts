@@ -171,7 +171,8 @@ function formatAdditionalServices(addons: CCAddon[] | null | undefined): string 
     const sep = '|---|---|---|---|';
     const rows = addons.map((a) => {
         const svcs = a.available_for_services.length > 0 ? a.available_for_services.join(', ') : '—';
-        return `| ${a.id} | ${a.name} | ${a.category_id} | ${svcs} |`;
+        const category = a.category_id != null ? a.category_id : '—';
+        return `| ${a.id} | ${a.name} | ${category} | ${svcs} |`;
     });
 
     return `## Additional Services (${addons.length})\n\n${header}\n${sep}\n${rows.join('\n')}`;
