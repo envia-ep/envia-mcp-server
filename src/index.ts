@@ -144,13 +144,19 @@ import {
 // checkout rules has no V1/V2 UI; portal users cannot see, edit, or act on these
 // rules from the portal, so a "list my checkout rules" question is not a typical
 // portal-user request (L-S2). Module export stays for potential internal use.
+// Config tools — only `getNotificationSettings` stays LLM-visible. The rest of
+// the config module is reclassified to internal-only by the Tool Consolidation
+// audit (Pase 1, 2026-04-29):
+//   - registerListCompanyUsers: team-roster lookup is admin/setup territory.
+//   - registerListCompanyShops: duplicate of `list_shops` from orders module.
+//   - registerGetCarrierConfig: per-company carrier credentials, admin/onboarding.
+//   - registerListApiTokens: developer-integration setup, not a chat-user task.
+//   - registerListWebhooks: webhook CRUD already reclassified (Sprint 0); the
+//     read-only list is also admin-territory by L-S2 / L-S6.
+// All five remain importable from the module barrel so other internal helpers
+// can call them; they are simply not registered with the MCP server.
 import {
-    registerListCompanyUsers,
-    registerListCompanyShops,
-    registerGetCarrierConfig,
     registerGetNotificationSettings,
-    registerListApiTokens,
-    registerListWebhooks,
 } from './tools/config/index.js';
 
 // Analytics tools
@@ -169,12 +175,17 @@ import {
     registerGetNotificationConfig,
 } from './tools/notifications/index.js';
 
-// Products, Billing & DCe tools
+// Products & Billing tools.
+// Pase 1 (2026-04-29) reclassified two helpers to internal-only:
+//   - registerCheckBillingInfo: lightweight presence check duplicates the
+//     "is anything missing?" signal already surfaced by registerGetBillingInfo
+//     when the company has not configured billing.
+//   - registerGetDceStatus: Brazil-only DCe (Declaração de Conteúdo eletrônica)
+//     compliance check — niche operational lookup, not a typical portal-user
+//     question (L-S2). Module exports retained for internal reuse.
 import {
     registerListProducts,
     registerGetBillingInfo,
-    registerCheckBillingInfo,
-    registerGetDceStatus,
 } from './tools/products/index.js';
 
 // Account tools (portal agent — reads own user/company context)
@@ -349,15 +360,9 @@ function createEnviaServer(logContext: { correlationId?: string; sessionId?: str
     registerSearchBranchesBulk(server, client, config);
     registerFindDropOff(server, client, config);
 
-    // Config tools (read-only for portal agent; CRUD kept as internal helpers only).
-    registerListCompanyUsers(server, client, config);
-    registerListCompanyShops(server, client, config);
-    registerGetCarrierConfig(server, client, config);
+    // Config tools — see header comment on config imports for which calls are
+    // LLM-visible vs internal-only after the Pase 1 consolidation.
     registerGetNotificationSettings(server, client, config);
-    registerListApiTokens(server, client, config);
-    registerListWebhooks(server, client, config);
-    // Webhook CRUD + Checkout Rule CRUD (incl. list_checkout_rules) removed — see header
-    // comment on config imports.
 
     // Analytics tools
     registerGetMonthlyAnalytics(server, client, config);
@@ -371,11 +376,9 @@ function createEnviaServer(logContext: { correlationId?: string; sessionId?: str
     registerListNotifications(server, client, config);
     registerGetNotificationConfig(server, client, config);
 
-    // Products, Billing & DCe tools
+    // Products & Billing tools — see header comment for what's LLM-visible.
     registerListProducts(server, client, config);
     registerGetBillingInfo(server, client, config);
-    registerCheckBillingInfo(server, client, config);
-    registerGetDceStatus(server, client, config);
 
     // Account tools — share a single GET /user-information call under the hood.
     registerGetCompanyInfo(server, client, config);
