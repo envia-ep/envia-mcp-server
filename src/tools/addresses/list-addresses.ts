@@ -28,9 +28,17 @@ export function registerListAddresses(
         'envia_list_addresses',
         {
             description:
-                'List saved addresses for your company. ' +
-                'Filter by type (origin/destination), search by name/street/city, ' +
-                'sort by name, street, city, or full_address. Returns paginated results.',
+                'List saved addresses (the company address book). Use whenever the user asks ' +
+                '"show my saved addresses", "list my origin/destination addresses", ' +
+                '"what is my default origin?" (the default flag is surfaced with a ★ marker), ' +
+                'or "find my address in <city>". Filter by type_id (1=origin, 2=destination), ' +
+                'free-text search across name/street/city, sort, and paginate. ' +
+                'When NOT to use: ' +
+                '(a) creating, editing, or deleting an address → use envia_create_address / ' +
+                'envia_update_address / envia_delete_address; ' +
+                '(b) live address validation against postal-code databases → use ' +
+                'envia_validate_address; ' +
+                '(c) one-shot address parsing from a free-text string → use envia_ai_parse_address.',
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
                 type: z.enum(['origin', 'destination']).describe('Address type to list'),

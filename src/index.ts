@@ -73,14 +73,20 @@ import {
     registerGetShipmentInvoices,
 } from './tools/shipments/index.js';
 
-// Address tools
+// Address tools — Pase 2 cluster 5 (2026-04-29) consolidated 6 → 4.
+//   - registerListAddresses: surfaces `is_default` flag via ★ marker, so
+//     "what is my default origin?" can be answered without a dedicated tool.
+//   - registerCreateAddress / registerUpdateAddress / registerDeleteAddress:
+//     primary CRUD, kept LLM-visible.
+//   - registerGetDefaultAddress: reclassified to internal — derivable from
+//     list_addresses (filter by is_default=true).
+//   - registerSetDefaultAddress: reclassified to internal — rare admin-flavour
+//     action; users typically configure defaults during onboarding.
 import {
     registerListAddresses,
     registerCreateAddress,
     registerUpdateAddress,
     registerDeleteAddress,
-    registerSetDefaultAddress,
-    registerGetDefaultAddress,
 } from './tools/addresses/index.js';
 
 // Package tools
@@ -90,14 +96,19 @@ import {
     registerDeletePackage,
 } from './tools/packages/index.js';
 
-// Client tools
+// Client tools — Pase 2 cluster 6 (2026-04-29) consolidated 6 → 4.
+//   - registerListClients: list with filters, surfaces totals counts.
+//   - registerCreateClient / registerUpdateClient / registerDeleteClient:
+//     primary CRUD.
+//   - registerGetClientDetail: reclassified to internal — list_clients already
+//     returns enough fields for common chat answers; deep-detail view is rare.
+//   - registerGetClientsSummary: reclassified to internal — aggregate counters
+//     are admin/analytics flavour, not a typical chat-user question.
 import {
     registerListClients,
-    registerGetClientDetail,
     registerCreateClient,
     registerUpdateClient,
     registerDeleteClient,
-    registerGetClientsSummary,
 } from './tools/clients/index.js';
 
 // Order tools
@@ -167,11 +178,19 @@ import {
     registerGetNotificationSettings,
 } from './tools/config/index.js';
 
-// Analytics tools
+// Analytics tools — Pase 2 cluster 4 (2026-04-29) consolidated 5 → 3.
+//   - registerGetMonthlyAnalytics: monthly volume + revenue per carrier — the
+//     canonical KPI dashboard.
+//   - registerGetIssuesAnalytics: issue-type / carrier issue rate — distinct
+//     problem-focused intent.
+//   - registerGetShipmentsByStatus: status-bucket counts for a date range —
+//     distinct status-focused intent.
+//   - registerGetCarriersStats: reclassified to internal — carrier comparison
+//     (volume / delivery time / top regions) overlaps with monthly_analytics.
+//   - registerGetPackagesModule: reclassified to internal — per-carrier
+//     performance metrics overlap with monthly_analytics.
 import {
     registerGetMonthlyAnalytics,
-    registerGetCarriersStats,
-    registerGetPackagesModule,
     registerGetIssuesAnalytics,
     registerGetShipmentsByStatus,
 } from './tools/analytics/index.js';
@@ -328,26 +347,22 @@ function createEnviaServer(logContext: { correlationId?: string; sessionId?: str
     registerGetShipmentsNdr(server, client, config);
     registerGetShipmentInvoices(server, client, config);
 
-    // Address tools
+    // Address tools — see header comment for cluster 5 consolidation.
     registerListAddresses(server, client, config);
     registerCreateAddress(server, client, config);
     registerUpdateAddress(server, client, config);
     registerDeleteAddress(server, client, config);
-    registerSetDefaultAddress(server, client, config);
-    registerGetDefaultAddress(server, client, config);
 
     // Package tools
     registerListPackages(server, client, config);
     registerCreatePackage(server, client, config);
     registerDeletePackage(server, client, config);
 
-    // Client tools
+    // Client tools — see header comment for cluster 6 consolidation.
     registerListClients(server, client, config);
-    registerGetClientDetail(server, client, config);
     registerCreateClient(server, client, config);
     registerUpdateClient(server, client, config);
     registerDeleteClient(server, client, config);
-    registerGetClientsSummary(server, client, config);
 
     // Order tools
     registerListOrders(server, client, config);
@@ -380,10 +395,8 @@ function createEnviaServer(logContext: { correlationId?: string; sessionId?: str
     // LLM-visible vs internal-only after the Pase 1 consolidation.
     registerGetNotificationSettings(server, client, config);
 
-    // Analytics tools
+    // Analytics tools — see header comment for cluster 4 consolidation.
     registerGetMonthlyAnalytics(server, client, config);
-    registerGetCarriersStats(server, client, config);
-    registerGetPackagesModule(server, client, config);
     registerGetIssuesAnalytics(server, client, config);
     registerGetShipmentsByStatus(server, client, config);
 

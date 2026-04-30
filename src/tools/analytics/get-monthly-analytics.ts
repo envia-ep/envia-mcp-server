@@ -28,9 +28,20 @@ export function registerGetMonthlyAnalytics(
         'envia_get_monthly_analytics',
         {
             description:
-                'Get monthly shipment volume and revenue breakdown by carrier. ' +
-                'Shows total shipments, total revenue, and per-carrier contribution ' +
-                'for the specified date range.',
+                'Monthly shipment volume + revenue dashboard, broken down by carrier. ' +
+                'Use whenever the user asks "how many shipments did I send last month", ' +
+                '"compare carrier volumes / revenue", "what is my carrier mix", "which carrier ' +
+                'do I use most", or wants a month-over-month trend across the company. ' +
+                'Returns total shipments, total revenue, per-carrier contribution, and the ' +
+                'time series for the selected date range. ' +
+                'When NOT to use: ' +
+                '(a) issues / problem rates by carrier → use envia_get_issues_analytics; ' +
+                '(b) shipment count grouped by current status (Created / Delivered / Lost / ' +
+                'etc.) → use envia_get_shipments_by_status; ' +
+                '(c) ecommerce-order analytics (paid / fulfilled / pending payment) → use ' +
+                'envia_get_orders_analytics; ' +
+                '(d) date-range invoice listing for billing reconciliation → use ' +
+                'envia_get_shipment_invoices.',
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
                 start_date: z.string().describe('Start date (YYYY-MM-DD)'),

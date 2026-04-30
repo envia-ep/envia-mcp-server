@@ -28,9 +28,16 @@ export function registerListClients(
         'envia_list_clients',
         {
             description:
-                'List clients for your company. ' +
-                'Filter by type (independent/business/distributor), search by name/email/phone. ' +
-                'Returns paginated results with contact and address summaries.',
+                'List the company client book. Use whenever the user asks "show my clients", ' +
+                '"list customers", "find my client named X", "filter clients by business/distributor", ' +
+                'or needs the client_id required to create a shipment for a saved client. Filter by ' +
+                'client_type (independent / business / distributor), search by name / email / phone / ' +
+                'external_ref, sort, and paginate. Returns contact and address summaries per client. ' +
+                'When NOT to use: ' +
+                '(a) creating, editing, or deleting a client → use envia_create_client / ' +
+                'envia_update_client / envia_delete_client; ' +
+                '(b) ecommerce orders linked to a client (different concept — an order is a purchase, ' +
+                'a client is a saved person/company) → use envia_list_orders.',
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
                 search: z.string().optional().describe('Search by name, company, contact email/phone, or external ref'),
