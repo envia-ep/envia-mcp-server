@@ -239,6 +239,14 @@ import {
     registerAiAddressRequirements,
 } from './tools/ai-shipping/index.js';
 
+// Wizards — composed multi-step tools (Pase 3 of the Tool Consolidation Audit).
+// `envia_create_international_shipment` runs a single pre-flight pass that
+// fetches address requirements + auto-classifies HS codes, returning a
+// ready-to-call payload for envia_create_shipment so the LLM does not iterate.
+import {
+    registerCreateInternationalShipment,
+} from './tools/wizards/index.js';
+
 // Carriers advanced tools
 // NOTE(sprint-0): Removed from portal agent:
 //   - registerTrackAuthenticated: duplicate of track_package, confused LLM agent.
@@ -418,6 +426,9 @@ function createEnviaServer(logContext: { correlationId?: string; sessionId?: str
     // AI Shipping tools — see header comment for ai_rate reclassification.
     registerAiParseAddress(server, client, config);
     registerAiAddressRequirements(server, client, config);
+
+    // Wizards — composed multi-step tools (Pase 3 of the Tool Consolidation Audit).
+    registerCreateInternationalShipment(server, client, config);
 
     // Carriers advanced tools (track-authenticated removed; locate-city + generate-bill-of-lading
     // reclassified as internal helpers — see header comment on carriers-advanced imports).
