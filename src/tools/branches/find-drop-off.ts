@@ -84,10 +84,23 @@ export function registerFindDropOff(
         'envia_find_drop_off',
         {
             description:
-                'Find carrier branch locations (drop-off points, lockers, warehouses) for dropping off or '
-                + 'picking up shipments. Supports filtering by country, postal code, city, capacity type, '
-                + 'and package dimensions. More powerful than envia_search_branches — use this when you need '
-                + 'to filter by capacity (receiving vs delivering) or validate package size limits.',
+                'Find carrier branch locations (drop-off points, lockers, warehouses, third-party pickup ' +
+                'sites) for a specific carrier. Use whenever the user asks "where can I drop off a package", ' +
+                '"find a FedEx near zip 11560", "list DHL pickup points in Bogota", "is there a drop-off ' +
+                'that accepts 50cm boxes nearby", or needs the branch_code required by some carriers when ' +
+                'creating a shipment. Filter by carrier + country (mandatory) and any of: postal code, city, ' +
+                'state, GPS, capacity type (receiving / delivering / both), shipment type, and package ' +
+                'dimensions to validate size limits. Returns name, branch code, full address, distance, ' +
+                'capacity, schedule, and phone for each match. ' +
+                'When NOT to use: ' +
+                '(a) you want the hierarchical map of all states/localities a carrier serves (no concrete ' +
+                'branches yet) → use envia_get_branches_catalog; ' +
+                '(b) the carrier requires a HOME pickup, not a drop-off → use envia_schedule_pickup; ' +
+                '(c) you only need carrier-level constraints (weight, COD, add-ons) → use ' +
+                'envia_get_carrier_constraints. ' +
+                'This is the consolidated branches-search tool — `envia_search_branches` and ' +
+                '`envia_search_branches_bulk` were retired into this one (see ' +
+                '_docs/TOOL_CONSOLIDATION_BREAKING_CHANGES.md).',
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
                 carrier: z.string().min(1).describe(

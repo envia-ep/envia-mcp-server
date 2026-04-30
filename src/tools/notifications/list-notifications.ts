@@ -28,9 +28,18 @@ export function registerListNotifications(
         'envia_list_notifications',
         {
             description:
-                'List company notifications grouped by category (payments, returns, etc.). ' +
-                'Shows unread counters per category and overall. ' +
-                'Use the limit parameter to control how many notifications are returned.',
+                'List the company notification inbox grouped by category (payments, returns, ' +
+                'shipment events, system alerts, etc.). Returns unread counters per category and ' +
+                'overall, plus the most recent N entries per category with parsed details ' +
+                '(tracking number, carrier, amount, etc.) extracted from each event payload. ' +
+                'Use whenever the user asks "what notifications do I have", "any new alerts", ' +
+                '"what happened with my shipments today", or "show me my COD payments". ' +
+                'Use the limit parameter to control how many notifications are returned per category. ' +
+                'When NOT to use: ' +
+                '(a) "are my email/WhatsApp notifications enabled?" → use envia_get_notification_settings; ' +
+                '(b) "is there a problem with a specific tracking number?" → use envia_track_package ' +
+                'or envia_get_shipments_ndr (non-delivery reports); ' +
+                '(c) per-channel notification pricing → admin/billing territory, not exposed in chat.',
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
                 limit: z.number().int().min(1).max(100).optional().describe('Max notifications to return per category (default: 5)'),

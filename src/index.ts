@@ -128,10 +128,18 @@ import {
 } from './tools/tickets/index.js';
 
 // Branch tools
+// Branches tools — Pase 2 cluster 1 (2026-04-29) consolidated 4 → 2.
+//   - registerFindDropOff: now the canonical branches-search tool (super-set
+//     of search_branches + capacity / package-dimension filters).
+//   - registerGetBranchesCatalog: distinct intent — returns the hierarchical
+//     state → localities map for coverage discovery, not concrete branches.
+//   - registerSearchBranches: reclassified to internal — overlaps with
+//     find_drop_off, which is strictly more capable.
+//   - registerSearchBranchesBulk: reclassified to internal — its compact
+//     output format is a perf optimisation that is not chat-relevant.
+// Module exports retained so internal callers can still use them.
 import {
-    registerSearchBranches,
     registerGetBranchesCatalog,
-    registerSearchBranchesBulk,
     registerFindDropOff,
 } from './tools/branches/index.js';
 
@@ -168,11 +176,16 @@ import {
     registerGetShipmentsByStatus,
 } from './tools/analytics/index.js';
 
-// Notification tools
+// Notification tools — Pase 2 cluster 9 (2026-04-29) consolidated 4 → 2.
+//   - registerListNotifications: user-facing inbox feed grouped by category.
+//   - registerGetNotificationSettings (imported above from config): channel
+//     toggles (email/SMS/WhatsApp/COD/POD).
+//   - registerGetNotificationConfig: reclassified to internal — overlaps with
+//     list_notifications (both return notification feeds grouped by category).
+//   - registerGetNotificationPrices: reclassified to internal — pricing per
+//     channel is admin/billing curiosity, not a typical chat-user question.
 import {
-    registerGetNotificationPrices,
     registerListNotifications,
-    registerGetNotificationConfig,
 } from './tools/notifications/index.js';
 
 // Products & Billing tools.
@@ -195,10 +208,15 @@ import {
     registerGetBalanceInfo,
 } from './tools/account/index.js';
 
-// AI Shipping tools — NLP + multi-carrier rate comparison + address requirements
+// AI Shipping tools — NLP address parsing + international address requirements.
+// Pase 2 cluster 2 (2026-04-29) reclassified `registerAiRate` to internal-only:
+// its multi-carrier comparison is already the default behaviour of
+// `envia_quote_shipment` (returns services sorted by price across all carriers).
+// The only unique capability of ai_rate was an optional `carriers: string[]`
+// filter — that capability is currently DEFERRED (see
+// _docs/TOOL_CONSOLIDATION_BREAKING_CHANGES.md). Module export retained.
 import {
     registerAiParseAddress,
-    registerAiRate,
     registerAiAddressRequirements,
 } from './tools/ai-shipping/index.js';
 
@@ -354,10 +372,8 @@ function createEnviaServer(logContext: { correlationId?: string; sessionId?: str
     registerRateTicket(server, client, config);
     registerGetTicketTypes(server, client, config);
 
-    // Branch tools
-    registerSearchBranches(server, client, config);
+    // Branch tools — see header comment for cluster 1 consolidation.
     registerGetBranchesCatalog(server, client, config);
-    registerSearchBranchesBulk(server, client, config);
     registerFindDropOff(server, client, config);
 
     // Config tools — see header comment on config imports for which calls are
@@ -371,10 +387,8 @@ function createEnviaServer(logContext: { correlationId?: string; sessionId?: str
     registerGetIssuesAnalytics(server, client, config);
     registerGetShipmentsByStatus(server, client, config);
 
-    // Notification tools
-    registerGetNotificationPrices(server, client, config);
+    // Notification tools — see header comment for cluster 9 consolidation.
     registerListNotifications(server, client, config);
-    registerGetNotificationConfig(server, client, config);
 
     // Products & Billing tools — see header comment for what's LLM-visible.
     registerListProducts(server, client, config);
@@ -388,9 +402,8 @@ function createEnviaServer(logContext: { correlationId?: string; sessionId?: str
     // Queue / balance tools
     registerCheckBalance(server, client, config);
 
-    // AI Shipping tools
+    // AI Shipping tools — see header comment for ai_rate reclassification.
     registerAiParseAddress(server, client, config);
-    registerAiRate(server, client, config);
     registerAiAddressRequirements(server, client, config);
 
     // Carriers advanced tools (track-authenticated removed; locate-city + generate-bill-of-lading

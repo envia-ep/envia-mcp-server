@@ -65,14 +65,21 @@ export function registerGetShippingRates(
         'envia_quote_shipment',
         {
             description:
-                'Get shipping rates for a parcel shipment. ' +
-                'For MX, US, CA, BR and most countries: provide postal codes — city and state are resolved automatically. ' +
-                'For CO, CL, GT, PA, HN, PE, BO: provide city and state instead (no postal code needed). ' +
-                'Colombia example: origin_city="Bogota", origin_state="DC", origin_country="CO" — ' +
-                'city names are translated to DANE codes automatically. ' +
-                'Returns available services sorted by price (cheapest first). ' +
-                'To add insurance, COD, or other add-ons to the quote, use envia_list_additional_services ' +
-                'first to see which services are available for your route.',
+                'Get shipping rates for a parcel shipment across ALL available carriers and services. ' +
+                'Use this whenever the user asks "how much does it cost", "compare carriers", ' +
+                '"what is the cheapest option to ship from X to Y", or "quote a shipment". ' +
+                'Returns every service the company has access to, sorted by price (cheapest first), ' +
+                'with delivery estimates and a per-service cost breakdown. ' +
+                'Country handling: for MX, US, CA, BR and most countries provide postal codes ' +
+                '(city and state are resolved automatically). For CO, CL, GT, PA, HN, PE, BO ' +
+                'provide city and state instead — postal code optional. Colombia example: ' +
+                'origin_city="Bogota", origin_state="DC", origin_country="CO" — DANE codes auto-resolve. ' +
+                'When NOT to use: ' +
+                '(a) capability discovery for a single carrier (weight limits, COD support, allowed add-ons) ' +
+                '→ use envia_get_carrier_constraints; ' +
+                '(b) listing global add-ons available for a route (insurance, COD, etc.) ' +
+                '→ use envia_list_additional_services first, then re-quote with the add-on; ' +
+                '(c) creating the actual label after the user picks an option → use envia_create_shipment.',
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
                 origin_postal_code: z.string().optional().describe(
