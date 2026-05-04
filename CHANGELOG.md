@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0](https://github.com/envia-ep/envia-mcp-server/compare/v1.1.0...v1.2.0) (2026-05-04)
+
+
+### Features
+
+* **tools:** Pase 3 — add envia_create_international_shipment wizard ([fb8221e](https://github.com/envia-ep/envia-mcp-server/commit/fb8221e38a29099895f502bf9186b15406a74eee))
+
+
+### Bug Fixes
+
+* **list-tickets:** surface real 422 error instead of falsely claiming sandbox-only ([4e3ca4b](https://github.com/envia-ep/envia-mcp-server/commit/4e3ca4b4f36aee8d53aacbf42481f79773741c9d))
+* **list-tickets:** surface real 422 error instead of falsely claiming sandbox-only ([6c3338c](https://github.com/envia-ep/envia-mcp-server/commit/6c3338cd9e9cd10aaf4c3d27f8118aebf715f1c0))
+
 ## [1.1.0](https://github.com/envia-ep/envia-mcp-server/compare/v1.0.0...v1.1.0) (2026-04-29)
 
 
