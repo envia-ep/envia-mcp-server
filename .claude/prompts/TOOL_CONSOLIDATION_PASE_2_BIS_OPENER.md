@@ -33,6 +33,30 @@ necesaria.
 
 Duración: 6-8 horas, fragmentable en 2 días con commits checkpoint.
 
+OVERRIDE EXPLÍCITO DEL SPEC ORIGINAL (RE-AUTORIZADO):
+
+El spec `_docs/specs/TOOL_CONSOLIDATION_AUDIT_SPEC.md` §Audience dice:
+"This spec depends on Datadog dashboard ≥30 days of usage data...
+If you reach this spec without that data, STOP and report."
+
+JOSE VIDRIO (CTO) AUTORIZÓ EXPLÍCITAMENTE proceder sin esa data el
+2026-04-29. Esa autorización SIGUE ACTIVA para esta sesión bajo las
+mismas restricciones:
+
+1. NO retiras tools por "no se usan" sin data — esa decisión queda
+   para sesión Pase 4 cuando Datadog acumule ≥30 días.
+2. SÍ consolidas por overlap qualitative (clusters de mi opener).
+3. SÍ reclasificas tools admin/operational a internal (L-S6).
+4. NO eliminas tools del codebase — solo des-registras (mueves a
+   internal). Implementación queda re-promotable.
+5. El refinamiento final a ~40 queda EXPLÍCITAMENTE FUERA DE
+   SCOPE. Tu meta es ~54.
+
+NO te detengas leyendo el spec por la cláusula "STOP and report" —
+fue diseñada cuando data estaba disponible; sin data, las
+reclassifications + qualitative consolidations procedan como
+autorizadas.
+
 CONTEXTO DE LA SESIÓN ANTERIOR (LEER PRIMERO):
 
 La sesión Opus 1M previa (2026-05-04, commits `a899743..e75a6bd`,
@@ -112,6 +136,17 @@ PRE-FLIGHT (en orden, antes de cualquier otro paso):
 4. Verificar baseline: `npm run build` exit 0, `npx vitest run`
    con 1654+ tests verde. Si no, surface y no procedas.
 5. Confirma modelo Opus 4.7 (1M context).
+6. **Verificar consistencia de baseline esperado:**
+   - `git log --oneline 005014e..HEAD` debe contener al menos los
+     commits de Pase 1+2+3 (`a899743..e75a6bd`) + el commit del
+     opener (`304fc7a` o posterior).
+   - Conteo de tools registradas:
+     `grep -rh "server.registerTool('envia_" src/ -o | sort -u | wc -l`
+     debe devolver **73**. Si difiere materialmente (>2 diferencia),
+     surface QUÉ cambió antes de continuar — el plan de pases asume
+     ese baseline numérico.
+   - Si encuentras commits adicionales no documentados, leer sus
+     mensajes para entender qué cambió, antes de proceder.
 
 LECTURA OBLIGATORIA, en este orden exacto:
 
@@ -276,6 +311,12 @@ Esperado: 57 → ~54 tools.
 ESTE PASE ES OPCIONAL — solo ejecutar si los pases A-D te dejan
 tiempo dentro de las 8h presupuestadas.
 
+⚠ **ATENCIÓN: ALTO IMPACTO.** Pase E refactoriza `create-label.ts`
+— THE most critical revenue tool del MCP. Un bug aquí afecta el
+critical path de revenue (rate→generate). Por eso este pase tiene
+SAFETY PROTOCOL OBLIGATORIO antes del commit, no solo "verificar
+que funciona":
+
 Issue: el wizard `envia_create_international_shipment` actual
 (commit `fb8221e`) es pre-flight only — devuelve un payload listo
 para `envia_create_shipment` pero no hace el create. Esto deja
@@ -286,16 +327,38 @@ a `src/services/shipment-creation.ts`, y que el wizard llame ese
 service internamente. NO duplicar código.
 
 Pasos:
-E.1 Identificar las funciones puras dentro de create-label.ts
-    que pueden moverse a un service.
-E.2 Crear `src/services/shipment-creation.ts` con esas funciones.
-E.3 `create-label.ts` (la tool) ahora solo wrapea el service.
-E.4 Wizard llama el service después del pre-flight.
-E.5 Tests: agregar test al wizard cubriendo end-to-end MX→US.
-E.6 Verificar que `envia_create_shipment` sigue funcionando idéntico.
+E.1 **Pre-refactor capture (obligatorio):** ejecuta el flow
+    `envia_create_shipment` con el payload del SMOKE_TEST_PLAYBOOK
+    §2.2 contra sandbox. Captura el response shape COMPLETO en un
+    archivo temporal (`/tmp/create-shipment-pre-refactor.json`).
+    Este es tu baseline para comparar post-refactor.
+E.2 Identificar las funciones puras dentro de create-label.ts que
+    pueden moverse a un service.
+E.3 Crear `src/services/shipment-creation.ts` con esas funciones.
+E.4 `create-label.ts` (la tool) ahora solo wrapea el service.
+E.5 Wizard llama el service después del pre-flight.
+E.6 Tests: agregar test al wizard cubriendo end-to-end MX→US.
+E.7 **SAFETY PROTOCOL OBLIGATORIO antes del commit:**
+    - Re-ejecutar el flow `envia_create_shipment` con el MISMO
+      payload de E.1, capturar nuevo response.
+    - Comparar shapes byte-por-byte contra
+      `/tmp/create-shipment-pre-refactor.json`.
+    - **Si shapes NO son idénticas (diferencias en field names,
+      tipos, nullability, orden) → NO COMMIT. Surface a Jose
+      con el diff exacto.**
+    - Si shapes idénticas → continuar.
+    - `npm run build` exit 0.
+    - `npx vitest run` con TODOS los 1654+ tests verde (no solo
+      los nuevos).
+    - Si ALGÚN test pre-existente regresa, NO COMMIT.
 
-Si el refactor es más grande de 200 LOC, surface y deja como
-follow-up — no fuerces la complejidad.
+Si el refactor es más grande de 200 LOC moved entre archivos,
+surface y deja como follow-up — no fuerces la complejidad. La
+meta primaria es count reduction (Pases A-D). Pase E es bonus.
+
+Si en cualquier paso del safety protocol hay duda: Pase E se
+aborta, Pase 2-bis cierra sin él. Wizard-as-mutation queda como
+follow-up. Mejor honesto-incompleto que prematuro-roto.
 
 CHECKPOINT E: commit `feat(tools): wizard now executes shipment
 creation end-to-end (Observation B fully mitigated)`.
@@ -319,6 +382,92 @@ patrón que Pase 1+2+3).
 
 F.3 Document en BREAKING_CHANGES.md el rewrite si es material.
 
+CODE QUALITY GUARDRAILS — código simple, limpio, seguro y mantenible:
+
+Estos no son "guidelines aspiracionales" — son criterios de aceptación.
+Código que viole estos guardrails se rechaza en revisión y obliga
+re-trabajo. Son el bar honesto para el repo.
+
+**Simplicidad:**
+- Función nueva > 30 líneas: revisar si debe partirse en 2.
+- Función > 60 líneas: NUNCA. Refactor obligatorio antes del commit.
+- Anidación > 3 niveles: usar early returns / guard clauses.
+- Si necesitas un comentario explicando QUÉ hace una sección de
+  código, esa sección quiere ser su propia función con un nombre
+  descriptivo.
+- DAMP > DRY (per CLAUDE.md): repetir código por claridad es
+  preferible a abstracciones prematuras. NO extraer helpers para
+  ≤2 usos a menos que el helper tenga semántica independiente.
+- NO añadir parámetros opcionales por "futureproofing". Cada param
+  opcional debe tener uso real en este commit.
+
+**Limpieza:**
+- Cumplir CLAUDE.md al pie de la letra: single quotes, 4 spaces,
+  trailing commas ES5, semicolons, 130-width, JSDoc en cada
+  función pública, kebab-case files / PascalCase classes /
+  camelCase functions, todo en inglés.
+- JSDoc con `@param`, `@returns`, y `@throws` cuando aplique. NO
+  JSDoc vacío que solo repita el nombre de la función.
+- Comentarios explican el PORQUÉ, no el QUÉ. El código mismo dice
+  qué hace; los comentarios capturan razones, decisiones de diseño,
+  trade-offs, links a issues/specs cuando aplique.
+- NO dejar `console.log`, debug code, comentarios `// TODO`,
+  `// FIXME` sin issue link, ni código comentado para "después".
+  Si está deshabilitado, eliminar (git history lo preserva).
+- Variable naming: `xs`, `tmp`, `data`, `obj` están PROHIBIDOS para
+  variables non-trivial. Cada nombre debe leer como inglés.
+
+**Seguridad:**
+- L-S6: NO exponer endpoints admin/internal a LLM. Verificar contra
+  cada tool que sobreviva.
+- NUNCA hardcodear tokens, API keys, credentials, URLs de prod.
+  Solo env vars (per `BETA_DUMMY_TOKENS_SPEC` §3.1 ya establecido).
+- Logs estructurados (pino) NUNCA incluyen: token values, headers
+  de Authorization, payloads de request con direcciones/teléfonos,
+  PII de cliente. Solo IDs sintéticos (correlationId), tool name,
+  status, duration_ms.
+- Input validation con Zod en tools (patrón existente). NO `any` en
+  inputs ni outputs públicos.
+- NO `as unknown as` casts en código nuevo (lección de la sesión
+  2026-04-29 — schema-derived types son source of truth).
+- Error handling explícito: cada `try/catch` o promise rejection
+  decide entre (a) re-throw, (b) recovery con valor seguro, (c)
+  surface al usuario con mensaje claro. NUNCA `catch (_) { }` ni
+  swallow silencioso.
+- SI un tool acepta input que fluye al backend como query/body:
+  asume que el LLM puede inyectar valores hostiles. Backend debe
+  ser quien valide; no nuestra job pasar mal-intentioned input.
+
+**Mantenibilidad:**
+- Single Responsibility per file/function. Si un archivo hace 3
+  cosas distintas, partir en 3 archivos.
+- Tests cubren BEHAVIOR, no implementation (per CLAUDE.md). Si tu
+  test rompe cuando refactorizas internals sin cambiar contracto,
+  el test está mal.
+- Edge cases explícitos en tests: null, undefined, empty array,
+  zero, negative, very large, special chars, all required fields
+  missing. Per CLAUDE.md: "Edge Case Coverage: Go beyond the
+  happy path."
+- AAA pattern (per CLAUDE.md): Arrange / Act / Assert visible en
+  cada test. NO mezclar las 3 fases.
+- One logical assertion per test. Tests que asserten 5 cosas a la
+  vez son testing implementation.
+- Tests determinísticos: mock `Date.now()`, seed randoms, fix
+  timestamps. NUNCA dependes de hora actual real.
+- DAMP en tests: repetir setup obvio en cada test es preferible a
+  un beforeEach() que oculta dependencias.
+- NO control flow en tests (if, for, while, try/catch). Si lo
+  necesitas, el test está mal estructurado.
+
+**Conservación + reversibilidad:**
+- NO eliminar archivos de tools reclassified — services preservados
+  con marker `@internal` en JSDoc para indicar no-exposure.
+- NO romper backward compatibility de internal helpers que otros
+  tools/services consumen. Si necesitas cambiar la signature de un
+  helper, primero verifica los call sites con `grep`.
+- Cada commit reversible independientemente. Si el commit X depende
+  de Y, hazlos juntos en un solo commit.
+
 DISCIPLINA NO NEGOCIABLE:
 
 Idéntica a Pase 1+2+3. Resumido:
@@ -329,6 +478,39 @@ Idéntica a Pase 1+2+3. Resumido:
   agregar tests nuevos)
 - L-T4: cross-check antes del último commit
 - Conservación: services se preservan, NO se eliminan archivos
+
+ANTI-PATTERN: forced merges con union schemas inflados:
+
+El agente anterior se detuvo en 73 (no 49) precisamente porque
+NO forzó merges que comprometieran clarity. Esa decisión fue
+CORRECTA. Tú debes respetarla:
+
+- Si un merge propuesto requiere un input schema con >5 fields
+  condicionalmente requeridos según un discriminator, ESA ES SEÑAL
+  DE NO-MERGE. Mantener tools separadas con descriptions
+  diferenciadoras es preferible.
+- Si una description consolidada necesita >500 palabras para
+  comunicar todos los casos de uso, el cluster es demasiado amplio
+  — re-divide o mantén separadas.
+- Si dos tools en un cluster usan endpoints distintos del backend
+  con response shapes materialmente distintas (no solo subset
+  vs full), el merge es lossy — keep separate.
+
+El bar es: **una tool consolidada debe ser MÁS clara que las N
+originales, no menos.** Si no lo es, no la consolides.
+
+ANTI-CREATIVITY: scope estrictamente limitado:
+
+NO inventar nuevos wizards más allá del de Pase B
+(`envia_generate_document`). NO inventar tools nuevas no listadas.
+NO refactorizar arquitectura general (file structure, naming
+conventions, patterns existentes en el repo). NO reescribir tools
+no listadas en Pases A-D.
+
+Si ves oportunidades adicionales durante el trabajo: documentar
+como follow-up en handoff (sección "Recommendations for next
+session"), NO ejecutar unilateralmente. Tu job es cerrar el gap
+de Pase 1+2+3, no expandir el scope.
 
 COORDINATION CON AGENTIC-AI TEAM:
 
