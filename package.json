@@ -1,6 +1,6 @@
 {
   "name": "@envia/envia-mcp",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "MCP server for Envia shipping APIs — quote rates, create labels, track packages, and more from your AI assistant.",
   "keywords": [
     "mcp",
