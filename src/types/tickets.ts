@@ -161,9 +161,16 @@ export interface TicketType {
     name: string;
     /** Human-readable description e.g. "Overweight", "Delayed Package". */
     description: string;
-    /** Stringified JSON with eligibility conditions — parse before use. */
+    /**
+     * Stringified JSON with eligibility rules — parse before use.
+     * Known fields: reference, inputs, files, conditions, comment_template.
+     */
     rules: string | null;
-    type: null;
+    /**
+     * Higher-level classification extracted from rules->$.type in the DB query.
+     * Examples: 'claim', 'request'. May be null if the rules JSON has no `type` key.
+     */
+    type: string | null;
     /** 0 = inactive, 1 = active. */
     active: number;
 }
