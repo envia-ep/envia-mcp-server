@@ -29,7 +29,9 @@ import { z } from 'zod';
 import { McpError, ErrorCode } from '@modelcontextprotocol/sdk/types.js';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { EnviaApiClient } from '../../utils/api-client.js';
+import { resolveClient } from '../../utils/api-client.js';
 import type { EnviaConfig } from '../../config.js';
+import { requiredApiKeySchema } from '../../utils/schemas.js';
 import { textResponse } from '../../utils/mcp-response.js';
 import { mapCarrierError } from '../../utils/error-mapper.js';
 import { queryShipmentsApi } from '../../services/shipments.js';
@@ -45,6 +47,7 @@ import type { ShipmentStatusesCache } from '../../services/shipment-statuses.cac
 // ---------------------------------------------------------------------------
 
 const inputSchema = z.object({
+    api_key: requiredApiKeySchema,
     type_id: z
         .number()
         .int()
@@ -122,6 +125,7 @@ function validateRules(rules: TicketTypeRule, input: CreateTicketV2Input): void 
                 'This ticket type requires a credit reference. Provide credit_id.',
             );
         }
+
     }
 
     if (Array.isArray(rules.inputs)) {
@@ -212,6 +216,8 @@ export async function handleCreateTicketV2(
     config: EnviaConfig,
     statusesCache: ShipmentStatusesCache,
 ): Promise<string> {
+    const activeClient = resolveClient(client, input.api_key, config);
+
     // Step 1: Pre-flight validation via cache
     const rules = await cache.getRulesForType(input.type_id);
 
@@ -232,7 +238,7 @@ export async function handleCreateTicketV2(
         resolvedShipmentId = await resolveAndValidateShipment(
             input.tracking_number,
             rules,
-            client,
+            activeClient,
             config,
             statusesCache,
         );
@@ -252,14 +258,14 @@ export async function handleCreateTicketV2(
     }
 
     // Step 4: Create ticket
-    const res = await mutateTicketApi<unknown>(client, config, '/company/tickets', body);
+    const res = await mutateTicketApi<unknown>(activeClient, config, '/company/tickets', body);
 
     if (!res.ok) {
         if (res.status === 409) {
             return (
                 'Cannot create ticket: an active ticket already exists for this shipment and type. ' +
-                'Use envia_list_tickets with the tracking number to find the existing ticket, ' +
-                'or use envia_add_ticket_comment to add more information.'
+                'Use envia_list_tickets_v2 with the tracking number to find the existing ticket, ' +
+                'or use envia_add_ticket_comment_v2 to add more information.'
             );
         }
         const mapped = mapCarrierError(res.status, res.error ?? '');
@@ -279,7 +285,7 @@ export async function handleCreateTicketV2(
         `  Ticket ID: ${ticketId}`,
         linkLine,
         '',
-        'Use envia_get_ticket_detail to view full details or envia_add_ticket_comment to add more information.',
+        'Use envia_list_tickets_v2 with ticket_id to view full details or envia_add_ticket_comment_v2 to add more information.',
     ].join('\n');
 }
 

@@ -213,7 +213,7 @@ describe('handleCreateTicketV2', () => {
         const cache = makeCacheWith(null);
 
         await expect(
-            handleCreateTicketV2({ type_id: 22, comments: 'test' }, cache, client, MOCK_CONFIG, makeStatusesCache()),
+            handleCreateTicketV2({ api_key: MOCK_CONFIG.apiKey, type_id: 22, comments: 'test' }, cache, client, MOCK_CONFIG, makeStatusesCache()),
         ).rejects.toMatchObject({ code: ErrorCode.InvalidParams });
     });
 
@@ -221,7 +221,7 @@ describe('handleCreateTicketV2', () => {
         const cache = makeCacheWith(makeBlockedRules());
 
         await expect(
-            handleCreateTicketV2({ type_id: 10, comments: 'test' }, cache, client, MOCK_CONFIG, makeStatusesCache()),
+            handleCreateTicketV2({ api_key: MOCK_CONFIG.apiKey, type_id: 10, comments: 'test' }, cache, client, MOCK_CONFIG, makeStatusesCache()),
         ).rejects.toMatchObject({ code: ErrorCode.InvalidParams });
     });
 
@@ -233,7 +233,7 @@ describe('handleCreateTicketV2', () => {
         const cache = makeCacheWith(makeRules({ reference: 'guide' }));
 
         await expect(
-            handleCreateTicketV2({ type_id: 3, comments: 'overweight' }, cache, client, MOCK_CONFIG, makeStatusesCache()),
+            handleCreateTicketV2({ api_key: MOCK_CONFIG.apiKey, type_id: 3, comments: 'overweight' }, cache, client, MOCK_CONFIG, makeStatusesCache()),
         ).rejects.toMatchObject({ code: ErrorCode.InvalidParams });
     });
 
@@ -241,15 +241,15 @@ describe('handleCreateTicketV2', () => {
         const cache = makeCacheWith(makeRules({ reference: 'credit' }));
 
         await expect(
-            handleCreateTicketV2({ type_id: 7, comments: 'refund' }, cache, client, MOCK_CONFIG, makeStatusesCache()),
+            handleCreateTicketV2({ api_key: MOCK_CONFIG.apiKey, type_id: 7, comments: 'refund' }, cache, client, MOCK_CONFIG, makeStatusesCache()),
         ).rejects.toMatchObject({ code: ErrorCode.InvalidParams });
     });
 
-    it('should throw McpError when warehouse-package type receives no warehouse_package_id', async () => {
-        const cache = makeCacheWith(makeRules({ reference: 'warehouse-package' }));
+    it('should throw McpError when type has reference="warehouse-package" (not available through MCP)', async () => {
+        const cache = makeCacheWith({ ...makeRules({ reference: 'warehouse-package' }), mcp_context: undefined });
 
         await expect(
-            handleCreateTicketV2({ type_id: 15, comments: 'package issue' }, cache, client, MOCK_CONFIG, makeStatusesCache()),
+            handleCreateTicketV2({ api_key: MOCK_CONFIG.apiKey, type_id: 15, comments: 'package issue' }, cache, client, MOCK_CONFIG, makeStatusesCache()),
         ).rejects.toMatchObject({ code: ErrorCode.InvalidParams });
     });
 
@@ -267,7 +267,7 @@ describe('handleCreateTicketV2', () => {
         const cache = makeCacheWith(rules);
 
         await expect(
-            handleCreateTicketV2({ type_id: 9, comments: 'pending' }, cache, client, MOCK_CONFIG, makeStatusesCache()),
+            handleCreateTicketV2({ api_key: MOCK_CONFIG.apiKey, type_id: 9, comments: 'pending' }, cache, client, MOCK_CONFIG, makeStatusesCache()),
         ).rejects.toMatchObject({ code: ErrorCode.InvalidParams });
     });
 
@@ -289,7 +289,7 @@ describe('handleCreateTicketV2', () => {
 
         const result = await handleCreateTicketV2(
             {
-                type_id: 9,
+                api_key: MOCK_CONFIG.apiKey, type_id: 9,
                 comments: 'payment pending',
                 shipment_id: 170633,
                 variables: { payment_method_id: '3' },
@@ -402,7 +402,7 @@ describe('handleCreateTicketV2', () => {
 
         await handleCreateTicketV2(
             {
-                type_id: 9,
+                api_key: MOCK_CONFIG.apiKey, type_id: 9,
                 comments: 'payment issue',
                 variables: { payment_method_id: '3', bank_account: '123456' },
             },
@@ -445,7 +445,7 @@ describe('handleCreateTicketV2', () => {
 
         await handleCreateTicketV2(
             {
-                type_id: 7,
+                api_key: MOCK_CONFIG.apiKey, type_id: 7,
                 comments: 'refund request',
                 credit_id: 55,
                 carrier_id: 2,
@@ -571,7 +571,7 @@ describe('registerCreateTicketV2', () => {
         registerCreateTicketV2(server, cache, client, MOCK_CONFIG, makeStatusesCache());
 
         const handler = handlers.get('envia_create_ticket_v2') as ToolHandler;
-        const result = await handler({ type_id: 9, comments: 'test issue' });
+        const result = await handler({ api_key: MOCK_CONFIG.apiKey, type_id: 9, comments: 'test issue' });
 
         expect(result.content[0].type).toBe('text');
         expect(result.content[0].text).toContain('Ticket ID: 999');
