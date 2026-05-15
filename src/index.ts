@@ -139,8 +139,9 @@ import {
 // } from './tools/tickets/index.js';
 
 // Ticket tools — v2 (cache-backed)
-import { registerGetTicketTypesV2 } from './tools/tickets/index.js';
+import { registerGetTicketTypesV2, registerCreateTicketV2 } from './tools/tickets/index.js';
 import { TicketTypesCache } from './services/ticket-types.cache.js';
+import { ShipmentStatusesCache } from './services/shipment-statuses.cache.js';
 
 // Branch tools
 // Branches tools — Pase 2 cluster 1 (2026-04-29) consolidated 4 → 2.
@@ -401,7 +402,9 @@ function createEnviaServer(logContext: { correlationId?: string; sessionId?: str
 
     // Ticket tools — v2 (cache-backed, shared per server instance)
     const ticketTypesCache = new TicketTypesCache(client, config);
+    const shipmentStatusesCache = new ShipmentStatusesCache(client, config);
     registerGetTicketTypesV2(server, ticketTypesCache);
+    registerCreateTicketV2(server, ticketTypesCache, client, config, shipmentStatusesCache);
 
     // Branch tools — see header comment for cluster 1 consolidation.
     registerGetBranchesCatalog(server, client, config);

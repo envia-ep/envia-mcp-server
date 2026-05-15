@@ -247,18 +247,14 @@ describe('handleGetTicketTypesV2', () => {
             expect((parsed.optional_variables[0] as Record<string, unknown>).name).toBe('bank_account');
         });
 
-        it('should include required_files with name and description only', async () => {
+        // required_files is not yet exposed — pending envia_upload_ticket_evidence tool implementation
+        it('should not include required_files in the response (file upload not yet implemented)', async () => {
             const cache = makeCacheWith([makeOverweightType()]);
 
             const result = await handleGetTicketTypesV2({ type_id: 3 }, cache);
-            const parsed = JSON.parse(result) as Record<string, unknown[]>;
-            const file = parsed.required_files[0] as Record<string, unknown>;
+            const parsed = JSON.parse(result) as Record<string, unknown>;
 
-            expect(file.name).toBe('Sobrepeso desconocido');
-            expect(file.description).toBe('overweight-evidence');
-            // Internal fields should not be exposed
-            expect('path' in file).toBe(false);
-            expect('comment' in file).toBe(false);
+            expect('required_files' in parsed).toBe(false);
         });
 
         it('should include eligible_shipment_status_ids from conditions', async () => {

@@ -12,8 +12,9 @@
  *   Use this to explore available types and match the user's intent to one.
  *
  * MODE 2 — Pass type_id or type_name: returns the full requirements for that specific type.
- *   Returns: required_variables (fields to collect), optional_variables, required_files,
+ *   Returns: required_variables (fields to collect), optional_variables,
  *   eligible_shipment_status_ids, agent_notes, and comment_template.
+ *   NOTE: required_files is available in the data but not yet exposed (file upload not yet implemented).
  *   Use this once the user's intent has been matched to a type from MODE 1.
  *
  * Recommended workflow before envia_create_ticket:
@@ -217,9 +218,10 @@ export async function handleGetTicketTypesV2(
         requires: describeReference(matched.rules?.reference),
         required_variables,
         optional_variables,
-        ...(matched.rules?.files?.length
-            ? { required_files: matched.rules.files.map((f) => ({ name: f.name, description: f.description })) }
-            : {}),
+        // required_files: file upload not yet implemented — pending envia_upload_ticket_evidence tool
+        // ...(matched.rules?.files?.length
+        //     ? { required_files: matched.rules.files.map((f) => ({ name: f.name, description: f.description })) }
+        //     : {}),
         ...(matched.rules?.conditions?.avaliable_status?.length
             ? { eligible_shipment_status_ids: matched.rules.conditions.avaliable_status }
             : {}),
@@ -254,7 +256,7 @@ export function registerGetTicketTypesV2(
                 'requires_guide, and the reference entity required (e.g. guide = tracking number, credit = credit ID). ' +
                 'Use this to match the user\'s intent to the correct type. ' +
                 'MODE 2 — pass type_id or type_name: returns full requirements for that type including ' +
-                'required_variables (fields to collect from user), optional_variables, required_files, ' +
+                'required_variables (fields to collect from user), optional_variables, ' +
                 'eligible_shipment_status_ids, agent_notes, and comment_template. ' +
                 'Workflow: (1) call without args → match user intent to use_case, ' +
                 '(2) call with type_id or type_name → get exact requirements, ' +
