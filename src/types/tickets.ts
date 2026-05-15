@@ -11,9 +11,13 @@
 
 /** A file attachment on a ticket. */
 export interface TicketFile {
-    id: number;
-    ticket_id: number;
-    file_url: string;
+    id: string;
+    name: string;
+    description: string;
+    url: string;
+    active: string;
+    visible: string;
+    created_by: string;
     created_at: string;
 }
 
@@ -76,7 +80,12 @@ export interface TicketRecord {
     carrier_description: string | null;
     file_quantity: number;
     files: TicketFile[];
-    last_comment: Record<string, unknown>;
+    last_comment: {
+        comment_text: string;
+        comment_type: string;
+        comment_status_id: number;
+        comment_created_at: string;
+    } | null;
     /** Only populated when getComments=true is sent. */
     allComments: TicketComment[];
     /** Stringified JSON with ticket-specific variables. */
@@ -107,7 +116,10 @@ export interface TicketRecord {
         consignee_postal_code: string | null;
         consignee_country: string | null;
     };
-    payment_method: Record<string, unknown>;
+    payment_method: {
+        name: string;
+        description: string;
+    } | null;
     /**
      * CSAT rating block.
      * `evaluated` is 1 only when ticket_status_id is 2 (Accepted) or 3 (Declined).

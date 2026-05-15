@@ -105,7 +105,7 @@ export function registerGetTicketDetail(
             if (t.file_quantity > 0) {
                 lines.push(`--- Files (${t.file_quantity}) ---`);
                 for (const f of t.files) {
-                    lines.push(`  ${f.file_url}`);
+                    lines.push(`  ${f.url}`);
                 }
                 lines.push('');
             }
