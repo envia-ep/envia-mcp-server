@@ -20,4 +20,5 @@ export { registerGetTicketTypes } from './get-ticket-types.js';*/
 export { registerGetTicketTypesV2 } from './get-ticket-types-v2.js';
 export { registerCreateTicketV2 } from './create-ticket-v2.js';
 export { registerListTicketsV2 } from './list-tickets-v2.js';
+export { registerAddTicketCommentV2 } from './add-ticket-comment-v2.js';
 
