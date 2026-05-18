@@ -14,7 +14,7 @@
  * MODE 2 — Pass type_id or type_name: returns the full requirements for that specific type.
  *   Returns: required_variables (fields to collect), optional_variables,
  *   eligible_shipment_status_ids, agent_notes, and comment_template.
- *   NOTE: required_files is available in the data but not yet exposed (file upload not yet implemented).
+ *   required_files: list of file attachments required for this ticket type (name + description).
  *   Use this once the user's intent has been matched to a type from MODE 1.
  *
  * Recommended workflow before envia_create_ticket:
@@ -218,10 +218,9 @@ export async function handleGetTicketTypesV2(
         requires: describeReference(matched.rules?.reference),
         required_variables,
         optional_variables,
-        // required_files: file upload not yet implemented — pending envia_upload_ticket_evidence tool
-        // ...(matched.rules?.files?.length
-        //     ? { required_files: matched.rules.files.map((f) => ({ name: f.name, description: f.description })) }
-        //     : {}),
+        ...(matched.rules?.files?.length
+            ? { required_files: matched.rules.files.map((f) => ({ name: f.name, description: f.description })) }
+            : {}),
         ...(matched.rules?.conditions?.avaliable_status?.length
             ? { eligible_shipment_status_ids: matched.rules.conditions.avaliable_status }
             : {}),

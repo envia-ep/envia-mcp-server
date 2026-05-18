@@ -180,7 +180,7 @@ describe('renderTicketDetail', () => {
     it('should include files section when file_quantity > 0', () => {
         const ticket = makeTicket({
             file_quantity: 1,
-            files: [{ file_url: 'https://s3.example.com/photo.jpg' }] as never,
+            files: [{ id: '1', name: 'photo.jpg', description: 'Evidence', url: 'https://s3.example.com/photo.jpg', active: '1', visible: '1', created_by: '0', created_at: '2026-04-10 10:00:00' }],
         });
         const result = renderTicketDetail(ticket);
 

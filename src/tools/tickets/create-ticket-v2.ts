@@ -21,8 +21,9 @@
  *
  * Recommended workflow:
  *   1. envia_get_ticket_types_v2 (no args) → find type by use_case.
- *   2. envia_get_ticket_types_v2 (type_id) → get required_variables, required_files, agent_notes.
- *   3. Collect fields from user → call envia_create_ticket_v2.
+ *   2. envia_get_ticket_types_v2 (type_id) → get required_variables, required_files, and agent_notes.
+ *   3. Collect fields and files (base64) from user → call envia_create_ticket_v2.
+ *      Files passed in the `files` array are uploaded automatically after ticket creation.
  */
 
 import { z } from 'zod';
@@ -38,9 +39,10 @@ import { queryShipmentsApi } from '../../services/shipments.js';
 import { mutateTicketApi } from '../../services/tickets.js';
 import { parseToolResponse } from '../../utils/response-validator.js';
 import { ShipmentDetailResponseSchema } from '../../schemas/shipments.js';
-import { CreateTicketResponseSchema } from '../../schemas/tickets.js';
+import { CreateTicketResponseSchema, UploadTicketFileResponseSchema } from '../../schemas/tickets.js';
 import type { TicketTypesCache, TicketTypeRule } from '../../services/ticket-types.cache.js';
 import type { ShipmentStatusesCache } from '../../services/shipment-statuses.cache.js';
+import { fetchUserInfo } from '../../services/user-info.js';
 
 // ---------------------------------------------------------------------------
 // Schema
@@ -97,6 +99,24 @@ const inputSchema = z.object({
             'Type-specific input variables as a key-value object. ' +
             'Use the field names from required_variables / optional_variables returned by envia_get_ticket_types_v2. ' +
             'Example: { "payment_method_id": "3", "bank_account": "123456789" }',
+        ),
+    files: z
+        .array(
+            z.object({
+                name: z.string().min(1).describe('File name including extension, e.g. "evidence.jpg".'),
+                content_base64: z.string().min(1).describe('File content encoded as a base64 string.'),
+                content_type: z
+                    .enum(['image/jpeg', 'image/png', 'application/pdf'])
+                    .describe('MIME type. Allowed: image/jpeg, image/png, application/pdf.'),
+                description: z.string().optional().describe('Optional description of the file purpose.'),
+            }),
+        )
+        .optional()
+        .describe(
+            'Files to attach to the ticket after creation. ' +
+            'Pass them here and the tool uploads them automatically once the ticket is created. ' +
+            'Required for ticket types that demand evidence (e.g. damage, loss, overweight). ' +
+            'Call envia_get_ticket_types_v2 with the type_id to see required_files for the selected type.',
         ),
 });
 
@@ -265,7 +285,7 @@ export async function handleCreateTicketV2(
             return (
                 'Cannot create ticket: an active ticket already exists for this shipment and type. ' +
                 'Use envia_list_tickets_v2 with the tracking number to find the existing ticket, ' +
-                'or use envia_add_ticket_comment_v2 to add more information.'
+                'or use envia_update_ticket_v2 to add more information.'
             );
         }
         const mapped = mapCarrierError(res.status, res.error ?? '');
@@ -275,18 +295,69 @@ export async function handleCreateTicketV2(
     const validated = parseToolResponse(CreateTicketResponseSchema, res.data, 'envia_create_ticket_v2');
     const ticketId = validated.id;
 
+    // Step 5: Upload files if provided
+    const uploadResults: Array<{ name: string; url: string; error?: string }> = [];
+
+    if (input.files && input.files.length > 0) {
+        const userInfo = await fetchUserInfo(activeClient, config);
+        const companyId = userInfo.ok ? userInfo.payload?.company_id : undefined;
+
+        if (!companyId) {
+            uploadResults.push({ name: '(all files)', url: '', error: 'Could not resolve company_id — files were not uploaded.' });
+        } else {
+            const uploads = await Promise.allSettled(
+                input.files.map((file) =>
+                    mutateTicketApi<unknown>(activeClient, config, `/company/tickets/${ticketId}/files`, {
+                        company_id: companyId,
+                        name: file.name,
+                        content_base64: file.content_base64,
+                        content_type: file.content_type,
+                        ...(file.description ? { description: file.description } : {}),
+                    }),
+                ),
+            );
+
+            for (let i = 0; i < uploads.length; i++) {
+                const result = uploads[i];
+                const fileName = input.files[i].name;
+                if (result.status === 'fulfilled' && result.value.ok) {
+                    const fileData = parseToolResponse(UploadTicketFileResponseSchema, result.value.data, 'envia_create_ticket_v2');
+                    uploadResults.push({ name: fileName, url: fileData.data.url });
+                } else {
+                    const errMsg = result.status === 'rejected'
+                        ? String(result.reason)
+                        : (result.value.error ?? 'Upload failed');
+                    uploadResults.push({ name: fileName, url: '', error: errMsg });
+                }
+            }
+        }
+    }
+
     const linkLine = resolvedShipmentId !== undefined
         ? `  Linked to shipment_id: ${resolvedShipmentId}` +
             (input.tracking_number ? ` (tracking: ${input.tracking_number})` : '')
         : '  Not linked to any shipment.';
 
-    return [
+    const lines: string[] = [
         'Ticket created successfully.',
         `  Ticket ID: ${ticketId}`,
         linkLine,
-        '',
-        'Use envia_list_tickets_v2 with ticket_id to view full details or envia_add_ticket_comment_v2 to add more information.',
-    ].join('\n');
+    ];
+
+    if (uploadResults.length > 0) {
+        lines.push('', 'File uploads:');
+        for (const f of uploadResults) {
+            if (f.error) {
+                lines.push(`  ✗ ${f.name} — ${f.error}`);
+            } else {
+                lines.push(`  ✓ ${f.name} — ${f.url}`);
+            }
+        }
+    }
+
+    lines.push('', 'Use envia_list_tickets_v2 with ticket_id to view full details or envia_add_ticket_comment_v2 to add more information.');
+
+    return lines.join('\n');
 }
 
 // ---------------------------------------------------------------------------
@@ -315,8 +386,9 @@ export function registerCreateTicketV2(
             description:
                 'Creates a new support ticket after pre-flight validation via the ticket types cache. ' +
                 'STEP 1 — Call envia_get_ticket_types_v2 (no args) to identify the correct type by use_case. ' +
-                'STEP 2 — Call envia_get_ticket_types_v2 (type_id) to get required_variables and agent_notes. ' +
-                'STEP 3 — Collect fields from the user and call this tool. ' +
+                'STEP 2 — Call envia_get_ticket_types_v2 (type_id) to get required_variables, required_files, and agent_notes. ' +
+                'STEP 3 — Collect fields and files (base64-encoded) from the user and call this tool. ' +
+                'Files passed in the `files` array are uploaded automatically after the ticket is created. ' +
                 'When the ticket relates to a shipment, ALWAYS pass tracking_number — ' +
                 'the tool resolves it to shipment_id automatically and validates the shipment status. ' +
                 'Tickets without a tracking number become orphaned and cannot be found by shipment search later.',

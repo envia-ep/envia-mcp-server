@@ -202,6 +202,32 @@ export interface CreateTicketResponse {
 }
 
 // ---------------------------------------------------------------------------
+// Upload Ticket File
+// ---------------------------------------------------------------------------
+
+/** Input shape for a single file to attach to a ticket (base64-encoded). */
+export interface TicketFileUpload {
+    /** File name including extension, e.g. "evidence.jpg". */
+    name: string;
+    /** Raw file content encoded as a base64 string. */
+    content_base64: string;
+    /** MIME type. Allowed: image/jpeg, image/png, application/pdf. */
+    content_type: 'image/jpeg' | 'image/png' | 'application/pdf';
+    /** Optional description of the file purpose. */
+    description?: string;
+}
+
+/** Response from POST /company/tickets/:ticket_id/files. */
+export interface UploadTicketFileResponse {
+    success: boolean;
+    data: {
+        id: number;
+        name: string;
+        url: string;
+    };
+}
+
+// ---------------------------------------------------------------------------
 // Add Comment / Rate
 // ---------------------------------------------------------------------------
 

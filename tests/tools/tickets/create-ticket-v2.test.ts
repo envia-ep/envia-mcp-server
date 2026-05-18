@@ -94,6 +94,31 @@ function makeApiErrorResponse(status: number) {
     };
 }
 
+/**
+ * Builds a minimal fake JWT so fetchUserInfo can decode company_id without real crypto.
+ */
+function makeUserInfoJwt(companyId: number, userId: number = 1): string {
+    const header = Buffer.from('{"alg":"HS256","typ":"JWT"}').toString('base64');
+    const payload = Buffer.from(JSON.stringify({ data: { company_id: companyId, user_id: userId } })).toString('base64');
+    return `${header}.${payload}.fakesig`;
+}
+
+function makeUserInfoApiResponse(companyId: number) {
+    return {
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ token: makeUserInfoJwt(companyId) }),
+    };
+}
+
+function makeFileUploadApiResponse(id: number, name: string, url: string) {
+    return {
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ success: true, data: { id, name, url } }),
+    };
+}
+
 // =============================================================================
 // Suite: resolveAndValidateShipment
 // =============================================================================
@@ -532,6 +557,146 @@ describe('handleCreateTicketV2', () => {
         );
 
         expect(result).toContain('Failed to create ticket');
+    });
+
+    // -------------------------------------------------------------------------
+    // File uploads
+    // -------------------------------------------------------------------------
+
+    it('should upload files after ticket creation and include URLs in the response', async () => {
+        const cache = makeCacheWith(makeRules({ reference: '', conditions: {} }));
+
+        mockFetch = vi
+            .fn()
+            .mockResolvedValueOnce(makeCreateTicketApiResponse(500))       // POST /company/tickets
+            .mockResolvedValueOnce(makeUserInfoApiResponse(42))             // GET /user-information
+            .mockResolvedValueOnce(makeFileUploadApiResponse(1, 'ev.jpg', 'https://s3.example.com/ev.jpg')); // POST .../files
+        vi.stubGlobal('fetch', mockFetch);
+
+        const result = await handleCreateTicketV2(
+            {
+                api_key: MOCK_CONFIG.apiKey,
+                type_id: 9,
+                comments: 'damage claim',
+                files: [{ name: 'ev.jpg', content_base64: 'aGVsbG8=', content_type: 'image/jpeg' }],
+            },
+            cache,
+            client,
+            MOCK_CONFIG,
+            makeStatusesCache(),
+        );
+
+        expect(result).toContain('Ticket created successfully');
+        expect(result).toContain('File uploads:');
+        expect(result).toContain('ev.jpg');
+        expect(result).toContain('https://s3.example.com/ev.jpg');
+    });
+
+    it('should report upload error gracefully when file upload API call fails', async () => {
+        const cache = makeCacheWith(makeRules({ reference: '', conditions: {} }));
+
+        mockFetch = vi
+            .fn()
+            .mockResolvedValueOnce(makeCreateTicketApiResponse(501))       // POST /company/tickets
+            .mockResolvedValueOnce(makeUserInfoApiResponse(42))             // GET /user-information
+            .mockResolvedValueOnce(makeApiErrorResponse(422));              // POST .../files — fails
+        vi.stubGlobal('fetch', mockFetch);
+
+        const result = await handleCreateTicketV2(
+            {
+                api_key: MOCK_CONFIG.apiKey,
+                type_id: 9,
+                comments: 'damage claim',
+                files: [{ name: 'bad.jpg', content_base64: 'aGVsbG8=', content_type: 'image/jpeg' }],
+            },
+            cache,
+            client,
+            MOCK_CONFIG,
+            makeStatusesCache(),
+        );
+
+        expect(result).toContain('Ticket created successfully');
+        expect(result).toContain('bad.jpg');
+        // The error line uses ✗ prefix to indicate failure
+        expect(result).toContain('✗ bad.jpg');
+    });
+
+    it('should not attempt file upload when no files are provided', async () => {
+        const cache = makeCacheWith(makeRules({ reference: '', conditions: {} }));
+
+        mockFetch = vi.fn().mockResolvedValue(makeCreateTicketApiResponse(502));
+        vi.stubGlobal('fetch', mockFetch);
+
+        const result = await handleCreateTicketV2(
+            { api_key: MOCK_CONFIG.apiKey, type_id: 9, comments: 'no files' },
+            cache,
+            client,
+            MOCK_CONFIG,
+            makeStatusesCache(),
+        );
+
+        // Only one fetch call: the ticket creation itself
+        expect(mockFetch).toHaveBeenCalledOnce();
+        expect(result).not.toContain('File uploads:');
+    });
+
+    it('should report error when fetchUserInfo fails and files were provided', async () => {
+        const cache = makeCacheWith(makeRules({ reference: '', conditions: {} }));
+
+        mockFetch = vi
+            .fn()
+            .mockResolvedValueOnce(makeCreateTicketApiResponse(503))       // POST /company/tickets
+            .mockResolvedValueOnce(makeApiErrorResponse(401));              // GET /user-information — fails
+        vi.stubGlobal('fetch', mockFetch);
+
+        const result = await handleCreateTicketV2(
+            {
+                api_key: MOCK_CONFIG.apiKey,
+                type_id: 9,
+                comments: 'damage claim',
+                files: [{ name: 'ev.jpg', content_base64: 'aGVsbG8=', content_type: 'image/jpeg' }],
+            },
+            cache,
+            client,
+            MOCK_CONFIG,
+            makeStatusesCache(),
+        );
+
+        expect(result).toContain('Ticket created successfully');
+        expect(result).toContain('Could not resolve company_id');
+    });
+
+    it('should upload multiple files and report all results independently', async () => {
+        const cache = makeCacheWith(makeRules({ reference: '', conditions: {} }));
+
+        mockFetch = vi
+            .fn()
+            .mockResolvedValueOnce(makeCreateTicketApiResponse(504))       // POST /company/tickets
+            .mockResolvedValueOnce(makeUserInfoApiResponse(42))             // GET /user-information
+            .mockResolvedValueOnce(makeFileUploadApiResponse(10, 'a.jpg', 'https://s3.example.com/a.jpg'))  // file 1
+            .mockResolvedValueOnce(makeFileUploadApiResponse(11, 'b.pdf', 'https://s3.example.com/b.pdf')); // file 2
+        vi.stubGlobal('fetch', mockFetch);
+
+        const result = await handleCreateTicketV2(
+            {
+                api_key: MOCK_CONFIG.apiKey,
+                type_id: 9,
+                comments: 'damage claim',
+                files: [
+                    { name: 'a.jpg', content_base64: 'aGVsbG8=', content_type: 'image/jpeg' },
+                    { name: 'b.pdf', content_base64: 'd29ybGQ=', content_type: 'application/pdf' },
+                ],
+            },
+            cache,
+            client,
+            MOCK_CONFIG,
+            makeStatusesCache(),
+        );
+
+        expect(result).toContain('a.jpg');
+        expect(result).toContain('b.pdf');
+        expect(result).toContain('https://s3.example.com/a.jpg');
+        expect(result).toContain('https://s3.example.com/b.pdf');
     });
 });
 
