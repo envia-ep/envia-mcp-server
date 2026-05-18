@@ -65,7 +65,7 @@ export function registerGetTicketDetail(
 
             const lines: string[] = [
                 `Ticket #${t.id} — ${t.ticket_type_name}`,
-                `Status: ${status} (ID ${t.ticket_status_id})`,
+                `Status: ${status}`,
                 `Created: ${t.created_at} | Updated: ${t.updated_at}`,
                 '',
             ];

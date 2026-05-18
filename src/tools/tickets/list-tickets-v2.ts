@@ -177,14 +177,13 @@ export function renderTicketDetail(t: TicketRecord): string {
 
     const lines: string[] = [
         `Ticket #${t.id} — ${t.ticket_type_name}`,
-        `Status: ${status} (ID ${t.ticket_status_id})`,
+        `Status: ${status}`,
         `Created: ${t.created_at} | Updated: ${t.updated_at}`,
         '',
     ];
 
     if (t.shipment_id || t.tracking_number || t.carrier) {
         lines.push('--- Shipment ---');
-        if (t.shipment_id) lines.push(`  Shipment ID:     ${t.shipment_id}`);
         if (t.tracking_number) lines.push(`  Tracking:        ${t.tracking_number}`);
         if (t.carrier) lines.push(`  Carrier:         ${t.carrier}`);
         if (t.service) lines.push(`  Service:         ${t.service.trim()}`);

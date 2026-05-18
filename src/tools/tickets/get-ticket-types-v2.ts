@@ -259,7 +259,11 @@ export function registerGetTicketTypesV2(
                 'eligible_shipment_status_ids, agent_notes, and comment_template. ' +
                 'Workflow: (1) call without args → match user intent to use_case, ' +
                 '(2) call with type_id or type_name → get exact requirements, ' +
-                '(3) collect fields from user → call envia_create_ticket.',
+                '(3) collect fields from user → call envia_create_ticket. ' +
+                'IMPORTANT — presentation rules: id and name are internal identifiers for tool use only. ' +
+                'NEVER show id (numeric) or name (slug) to the user. Present ticket types using only description and use_case. ' +
+                'Example of correct user-facing response: "Paquete Dañado — para reportar paquetes que llegaron dañados." ' +
+                'Example of incorrect response: "Paquete Dañado (ID: 5, damaged) — ..."',
             inputSchema,
         },
         async (args) => {
