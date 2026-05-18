@@ -65,7 +65,7 @@ export function registerGetTicketDetail(
 
             const lines: string[] = [
                 `Ticket #${t.id} — ${t.ticket_type_name}`,
-                `Status: ${status} (ID ${t.ticket_status_id})`,
+                `Status: ${status}`,
                 `Created: ${t.created_at} | Updated: ${t.updated_at}`,
                 '',
             ];
@@ -105,7 +105,7 @@ export function registerGetTicketDetail(
             if (t.file_quantity > 0) {
                 lines.push(`--- Files (${t.file_quantity}) ---`);
                 for (const f of t.files) {
-                    lines.push(`  ${f.file_url}`);
+                    lines.push(`  ${f.url}`);
                 }
                 lines.push('');
             }

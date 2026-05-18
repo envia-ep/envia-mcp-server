@@ -75,7 +75,7 @@ export function registerGetShipmentDetail(
                 `Shipment Detail: ${s.tracking_number}`,
                 '═'.repeat(50),
                 '',
-                `Status:    ${s.status ?? 'Unknown'} (ID: ${s.status_id})`,
+                `Status:    ${s.status ?? 'Unknown'}`,
                 `Carrier:   ${s.name ?? '—'} / ${s.service ?? '—'}`,
                 `Folio:     ${s.folio ?? '—'}`,
                 '',

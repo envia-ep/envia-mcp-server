@@ -127,16 +127,21 @@ import {
     registerGetOrdersAnalytics,
 } from './tools/orders/index.js';
 
-// Ticket tools
-import {
-    registerListTickets,
-    registerGetTicketDetail,
-    registerGetTicketComments,
-    registerCreateTicket,
-    registerAddTicketComment,
-    registerRateTicket,
-    registerGetTicketTypes,
-} from './tools/tickets/index.js';
+// Ticket tools — v1 imports removed (tools deprecated, kept in src for reference only)
+// import {
+//     registerListTickets,
+//     registerGetTicketDetail,
+//     registerGetTicketComments,
+//     registerCreateTicket,
+//     registerAddTicketComment,
+//     registerRateTicket,
+//     registerGetTicketTypes,
+// } from './tools/tickets/index.js';
+
+// Ticket tools — v2 (cache-backed)
+import { registerCreateTicketV2, registerGetTicketTypesV2, registerListTicketsV2, registerUpdateTicketV2, registerRateTicketV2 } from './tools/tickets/index.js';
+import { TicketTypesCache } from './services/ticket-types.cache.js';
+import { ShipmentStatusesCache } from './services/shipment-statuses.cache.js';
 
 // Branch tools
 // Branches tools — Pase 2 cluster 1 (2026-04-29) consolidated 4 → 2.
@@ -386,14 +391,23 @@ function createEnviaServer(logContext: { correlationId?: string; sessionId?: str
     registerGeneratePickingList(server, client, config);
     registerGetOrdersAnalytics(server, client, config);
 
-    // Ticket tools
-    registerListTickets(server, client, config);
-    registerGetTicketDetail(server, client, config);
-    registerGetTicketComments(server, client, config);
-    registerCreateTicket(server, client, config);
-    registerAddTicketComment(server, client, config);
-    registerRateTicket(server, client, config);
-    registerGetTicketTypes(server, client, config);
+    // Ticket tools — v1 registrations removed (deprecated, kept in src for reference)
+    // registerListTickets(server, client, config);
+    // registerGetTicketDetail(server, client, config);
+    // registerGetTicketComments(server, client, config);
+    // registerCreateTicket(server, client, config);
+    // registerAddTicketComment(server, client, config);
+    // registerRateTicket(server, client, config);
+    // registerGetTicketTypes(server, client, config);
+
+    // Ticket tools — v2 (cache-backed, shared per server instance)
+    const ticketTypesCache = new TicketTypesCache(client, config);
+    const shipmentStatusesCache = new ShipmentStatusesCache(client, config);
+    registerGetTicketTypesV2(server, ticketTypesCache);
+    registerCreateTicketV2(server, ticketTypesCache, client, config, shipmentStatusesCache);
+    registerListTicketsV2(server, client, config);
+    registerUpdateTicketV2(server, client, config);
+    registerRateTicketV2(server, client, config);
 
     // Branch tools — see header comment for cluster 1 consolidation.
     registerGetBranchesCatalog(server, client, config);
