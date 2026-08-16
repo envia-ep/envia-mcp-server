@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "chatgpt-apps": {
+      "source": "openai/skills",
+      "sourceType": "github",
+      "skillPath": "skills/.curated/chatgpt-apps/SKILL.md",
+      "computedHash": "71759cbfd2e81141e962584fe14ac158d2ce404383460513b5b01c638068a568"
+    }
+  }
+}
