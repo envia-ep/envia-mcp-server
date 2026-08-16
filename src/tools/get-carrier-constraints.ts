@@ -257,6 +257,11 @@ export function registerGetCarrierConstraints(
                 'Use envia_list_carriers to find carrier IDs. ' +
                 'Note: if the backend returns "Endpoint not yet available", backend ticket C11 ' +
                 'has not shipped yet — the tool will work automatically once it does.',
+            annotations: {
+                readOnlyHint: true,
+                openWorldHint: false,
+                destructiveHint: false,
+            },
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
                 carrier_id: z

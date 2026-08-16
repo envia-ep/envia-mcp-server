@@ -33,6 +33,11 @@ export function registerGenerateManifest(
                 'Shipments must be in "Created" status (not yet picked up). ' +
                 'The carrier is inferred from the tracking number automatically. ' +
                 'Returns PDF URLs grouped by carrier.',
+            annotations: {
+                readOnlyHint: false,
+                openWorldHint: true,
+                destructiveHint: false,
+            },
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
                 tracking_numbers: z.array(z.string().min(1)).min(1)

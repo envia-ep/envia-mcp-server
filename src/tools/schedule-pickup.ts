@@ -36,6 +36,11 @@ export function registerSchedulePickup(
                 "Schedule a carrier pickup at a specific address and date/time window. " +
                 "You must have already created labels with envia_create_shipment — provide the tracking numbers. " +
                 "The carrier will arrive between time_from and time_to on the chosen date.",
+            annotations: {
+                readOnlyHint: false,
+                openWorldHint: true,
+                destructiveHint: false,
+            },
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
                 // Origin address for pickup

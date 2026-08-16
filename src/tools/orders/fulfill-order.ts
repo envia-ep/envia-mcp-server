@@ -36,6 +36,11 @@ export function registerFulfillOrder(
                 '⚠️ When all packages in the order receive fulfillment, the order is automatically ' +
                 'marked as COMPLETED. This cannot be undone. ' +
                 'fulfillment_method: normal=standard carrier, manual=manual tracking, automatic=auto-detect.',
+            annotations: {
+                readOnlyHint: false,
+                openWorldHint: true,
+                destructiveHint: false,
+            },
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
                 shop_id: z.number().int().min(1).describe('Store ID (from envia_list_shops)'),

@@ -120,6 +120,11 @@ export function registerListTickets(
                 '(last seen 2026-04-29). The backend wraps internal errors as Boom.badData, so a 422 here ' +
                 'is not necessarily an input-validation failure. If you hit 422, try envia_get_ticket_detail ' +
                 'with a known ticket_id, or contact support with the surfaced error body.',
+            annotations: {
+                readOnlyHint: true,
+                openWorldHint: false,
+                destructiveHint: false,
+            },
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
                 limit: z.number().int().min(1).max(100).default(20).describe('Results per page (max 100)'),

@@ -34,6 +34,11 @@ export function registerGetOrdersAnalytics(
                 'Includes: unfulfilled orders, ready to fulfill, ready to ship, pickup/in-transit, ' +
                 'out for delivery, delivered, with incidents, and returned. ' +
                 'Optionally filter by date range or store to analyze a specific period or shop.',
+            annotations: {
+                readOnlyHint: true,
+                openWorldHint: false,
+                destructiveHint: false,
+            },
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
                 date_from: z.string().optional()

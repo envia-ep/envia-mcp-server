@@ -31,6 +31,11 @@ export function registerGetTicketDetail(
                 'Get complete details for a support ticket by ID. Includes: ticket type and status, ' +
                 'linked shipment and carrier info, consignee address, file attachments, comment thread ' +
                 '(if requested), CSAT rating, and additional services.',
+            annotations: {
+                readOnlyHint: true,
+                openWorldHint: false,
+                destructiveHint: false,
+            },
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
                 ticket_id: z.number().int().min(1).describe('Ticket ID to retrieve'),

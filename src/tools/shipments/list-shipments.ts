@@ -34,6 +34,11 @@ export function registerListShipments(
                 'Filter by status (1=Created, 2=Transit, 3=Delivered, 4=Cancelled, 5=Incident, 6=Returned, 10=Delivery attempt, 14=Lost, 15=Damaged), ' +
                 'carrier name, tracking number, date range, and more. ' +
                 'Returns paginated results sorted newest first.',
+            annotations: {
+                readOnlyHint: true,
+                openWorldHint: false,
+                destructiveHint: false,
+            },
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
                 status_id: z.number().int().optional().describe(

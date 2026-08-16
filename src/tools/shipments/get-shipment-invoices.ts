@@ -33,6 +33,11 @@ export function registerGetShipmentInvoices(
                 'List shipping invoices for your company. ' +
                 'Filter by month, year, and invoice status (invoiced or not). ' +
                 'Returns invoice totals, PDF download URLs, shipment counts, and billing details.',
+            annotations: {
+                readOnlyHint: true,
+                openWorldHint: false,
+                destructiveHint: false,
+            },
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
                 month: z.number().int().min(1).max(12).optional().describe('Filter by month (1-12)'),

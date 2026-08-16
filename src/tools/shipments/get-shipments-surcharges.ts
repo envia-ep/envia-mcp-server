@@ -31,6 +31,11 @@ export function registerGetShipmentsSurcharges(
                 'List shipments with surcharges (overweight/oversize). ' +
                 'Shows declared vs revised weight, extra cost, and dispute ticket status. ' +
                 'Filter by tracking number, dates, or ticket status.',
+            annotations: {
+                readOnlyHint: true,
+                openWorldHint: false,
+                destructiveHint: false,
+            },
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
                 tracking_number: z.string().optional().describe('Filter by tracking number'),

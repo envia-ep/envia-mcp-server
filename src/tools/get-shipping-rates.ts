@@ -80,6 +80,11 @@ export function registerGetShippingRates(
                 '(b) listing global add-ons available for a route (insurance, COD, etc.) ' +
                 '→ use envia_list_additional_services first, then re-quote with the add-on; ' +
                 '(c) creating the actual label after the user picks an option → use envia_create_shipment.',
+            annotations: {
+                readOnlyHint: true,
+                openWorldHint: true,
+                destructiveHint: false,
+            },
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
                 origin_postal_code: z.string().optional().describe(

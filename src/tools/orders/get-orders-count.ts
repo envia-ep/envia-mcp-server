@@ -33,6 +33,11 @@ export function registerGetOrdersCount(
                 'Payment Pending, Label Pending, Pickup Pending, Shipped, Canceled, Other, and Completed. ' +
                 'Use this to get a dashboard overview before diving into specific order lists. ' +
                 'The "other" category includes orders en route, with incidents, or returned.',
+            annotations: {
+                readOnlyHint: true,
+                openWorldHint: false,
+                destructiveHint: false,
+            },
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
             }),

@@ -31,6 +31,11 @@ export function registerListPackages(
                 'List saved package presets for your company. ' +
                 'Packages are reusable templates with dimensions, weight, and content. ' +
                 'Use these when creating shipments to avoid re-entering package details.',
+            annotations: {
+                readOnlyHint: true,
+                openWorldHint: false,
+                destructiveHint: false,
+            },
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
                 search: z.string().optional().describe('Search by package name or content'),

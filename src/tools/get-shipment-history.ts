@@ -40,6 +40,11 @@ export function registerGetShipmentHistory(
                 "List all shipments created in a given month. " +
                 "Returns tracking numbers, carriers, statuses, and route summaries. " +
                 "Useful for reports and reconciliation.",
+            annotations: {
+                readOnlyHint: true,
+                openWorldHint: true,
+                destructiveHint: false,
+            },
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
                 month: z

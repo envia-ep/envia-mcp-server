@@ -40,6 +40,11 @@ export function registerListNotifications(
                 '(b) "is there a problem with a specific tracking number?" → use envia_track_package ' +
                 'or envia_get_shipments_ndr (non-delivery reports); ' +
                 '(c) per-channel notification pricing → admin/billing territory, not exposed in chat.',
+            annotations: {
+                readOnlyHint: true,
+                openWorldHint: false,
+                destructiveHint: false,
+            },
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
                 limit: z.number().int().min(1).max(100).optional().describe('Max notifications to return per category (default: 5)'),

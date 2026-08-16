@@ -30,6 +30,11 @@ export function registerGetTicketComments(
             description:
                 'Get the comment thread for a support ticket. Each comment shows who wrote it ' +
                 '(client or admin), the text, and when it was created.',
+            annotations: {
+                readOnlyHint: true,
+                openWorldHint: false,
+                destructiveHint: false,
+            },
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
                 ticket_id: z.number().int().min(1).describe('Ticket ID whose comments to retrieve'),

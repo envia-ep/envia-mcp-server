@@ -50,6 +50,11 @@ export function registerListAdditionalServices(
                 '(e.g. FedEx, DHL, UPS specific), use `envia_get_carrier_constraints` with the ' +
                 'carrier_id instead — that tool returns the list of add-ons that are actually ' +
                 'available for the given carrier on this account.',
+            annotations: {
+                readOnlyHint: true,
+                openWorldHint: false,
+                destructiveHint: false,
+            },
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
                 origin_country: countrySchema.describe(

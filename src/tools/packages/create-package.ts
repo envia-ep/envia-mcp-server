@@ -30,6 +30,11 @@ export function registerCreatePackage(
                 'Create a new saved package preset with dimensions, weight, and content description. ' +
                 'Package types: 1=Box, 2=Envelope, 3=Pallet, 4=Tube. ' +
                 'Saved packages can be reused when creating shipments.',
+            annotations: {
+                readOnlyHint: false,
+                openWorldHint: false,
+                destructiveHint: false,
+            },
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
                 name: z.string().min(1).max(255).describe('Package preset name'),

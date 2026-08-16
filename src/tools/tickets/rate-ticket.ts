@@ -31,6 +31,11 @@ export function registerRateTicket(
             description:
                 'Rate a support ticket (CSAT). Score 1-5 with optional comment. ' +
                 'Rating is ONE-TIME — cannot be changed after submission.',
+            annotations: {
+                readOnlyHint: false,
+                openWorldHint: false,
+                destructiveHint: false,
+            },
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
                 ticket_id: z.number().int().min(1).describe('Ticket ID to rate'),

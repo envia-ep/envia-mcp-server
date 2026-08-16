@@ -33,6 +33,11 @@ export function registerGeneratePackingSlip(
                 'The packing slip includes order details, package information, and tracking numbers. ' +
                 'Note: the PDF cannot be delivered directly through MCP (text-only protocol). ' +
                 'This tool confirms whether generation succeeded. Download the result from the Envia dashboard.',
+            annotations: {
+                readOnlyHint: false,
+                openWorldHint: false,
+                destructiveHint: false,
+            },
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
                 order_ids: z.array(z.number().int().min(1)).min(1)

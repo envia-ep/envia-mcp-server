@@ -33,6 +33,11 @@ export function registerTrackPickup(
                 'Use the confirmation numbers returned when the pickup was originally scheduled. ' +
                 'Returns current pickup status and details from the carrier. ' +
                 'SANDBOX LIMITATION: no pickups are pre-created in sandbox — use production tokens or schedule a pickup first.',
+            annotations: {
+                readOnlyHint: true,
+                openWorldHint: true,
+                destructiveHint: false,
+            },
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
                 carrier: z.string().describe("Carrier code (e.g. 'dhl', 'fedex', 'estafeta')"),

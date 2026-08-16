@@ -32,6 +32,11 @@ export function registerGetShipmentsCod(
                 'List Cash on Delivery (COD) shipments. ' +
                 'Filter by shipment status, payment status, and date range. ' +
                 'Returns COD amounts, payment info, and delivery details.',
+            annotations: {
+                readOnlyHint: true,
+                openWorldHint: false,
+                destructiveHint: false,
+            },
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
                 startDate: z.string().optional().describe('Start date filter (YYYY-MM-DD)'),

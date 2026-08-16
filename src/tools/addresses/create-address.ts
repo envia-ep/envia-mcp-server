@@ -33,6 +33,11 @@ export function registerCreateAddress(
                 'For Brazil: include identification_number (CPF/CNPJ). ' +
                 'For Colombia: include identification_number (NIT). ' +
                 'State must be max 4 characters (state code, e.g. "CX" for CDMX).',
+            annotations: {
+                readOnlyHint: false,
+                openWorldHint: false,
+                destructiveHint: false,
+            },
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
                 type: z.number().int().min(1).max(2).describe('1=Origin, 2=Destination'),

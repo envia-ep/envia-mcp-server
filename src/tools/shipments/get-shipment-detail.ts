@@ -37,6 +37,11 @@ export function registerGetShipmentDetail(
             description:
                 'Get complete details for a single shipment by tracking number. ' +
                 'Returns sender/consignee addresses, costs, dates, label URL, and creator info.',
+            annotations: {
+                readOnlyHint: true,
+                openWorldHint: false,
+                destructiveHint: false,
+            },
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
                 tracking_number: z.string().min(1).describe('The tracking number of the shipment to retrieve'),

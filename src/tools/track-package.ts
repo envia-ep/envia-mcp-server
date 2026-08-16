@@ -45,6 +45,11 @@ export function registerTrackPackage(
             description:
                 "Track one or more packages by their tracking numbers. " +
                 "Returns the current status and event history for each shipment.",
+            annotations: {
+                readOnlyHint: true,
+                openWorldHint: true,
+                destructiveHint: false,
+            },
             inputSchema: z.object({
                 api_key: optionalApiKeySchema,
                 tracking_numbers: z

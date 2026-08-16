@@ -123,6 +123,11 @@ export function registerCancelShipment(
                 + '(when posted), refund date, and any daily-limit or COD chargeback information. '
                 + 'Not all carriers support cancellation — best results within the first 24 hours '
                 + 'after label generation.',
+            annotations: {
+                readOnlyHint: false,
+                openWorldHint: false,
+                destructiveHint: true,
+            },
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
                 carrier: carrierSchema.describe("Carrier code (e.g. 'dhl', 'fedex')"),

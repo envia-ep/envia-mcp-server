@@ -27,6 +27,11 @@ export function registerDeletePackage(
         'envia_delete_package',
         {
             description: 'Delete a saved package preset by ID (soft delete).',
+            annotations: {
+                readOnlyHint: false,
+                openWorldHint: false,
+                destructiveHint: true,
+            },
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
                 package_id: z.number().int().describe('ID of the package to delete'),

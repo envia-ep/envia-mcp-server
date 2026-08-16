@@ -48,6 +48,11 @@ export function registerValidateAddress(
                 "Validate a postal code or look up a city to get the correct city, state, and country values. " +
                 "Use this before creating labels to prevent address-related errors. " +
                 "Provide either postal_code or city (or both). Country is always required (2-letter ISO code, e.g. MX, US, CO).",
+            annotations: {
+                readOnlyHint: true,
+                openWorldHint: true,
+                destructiveHint: false,
+            },
             inputSchema: z.object({
                 api_key: optionalApiKeySchema,
                 country: countrySchema.describe("ISO 3166-1 alpha-2 country code (e.g. MX, US, CO, BR)"),

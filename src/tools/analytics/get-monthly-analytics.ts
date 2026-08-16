@@ -42,6 +42,11 @@ export function registerGetMonthlyAnalytics(
                 'envia_get_orders_analytics; ' +
                 '(d) date-range invoice listing for billing reconciliation → use ' +
                 'envia_get_shipment_invoices.',
+            annotations: {
+                readOnlyHint: true,
+                openWorldHint: false,
+                destructiveHint: false,
+            },
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
                 start_date: z.string().describe('Start date (YYYY-MM-DD)'),

@@ -34,6 +34,11 @@ export function registerGetShipmentsStatus(
                 'Returns counts and percentages for each status: pending, pickup, in transit, ' +
                 'out for delivery, delivered, issues, and returned. ' +
                 'Useful for dashboards and performance monitoring.',
+            annotations: {
+                readOnlyHint: true,
+                openWorldHint: false,
+                destructiveHint: false,
+            },
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
                 date_from: z.string().describe('Start date (YYYY-MM-DD) — required'),

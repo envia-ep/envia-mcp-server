@@ -33,6 +33,11 @@ export function registerGetShipmentsByStatus(
                 'Get a count of shipments grouped by status (Created, Shipped, Delivered, ' +
                 'Canceled, Lost, Damaged, etc.) for a date range. ' +
                 'Only statuses with at least one shipment are shown, sorted by volume.',
+            annotations: {
+                readOnlyHint: true,
+                openWorldHint: false,
+                destructiveHint: false,
+            },
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
                 start_date: z.string().describe('Start date (YYYY-MM-DD)'),

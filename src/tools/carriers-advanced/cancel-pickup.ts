@@ -31,6 +31,11 @@ export function registerCancelPickup(
                 'Cancel a previously scheduled carrier pickup by confirmation number. ' +
                 'Use this when a pickup was scheduled but is no longer needed. ' +
                 'Requires the carrier code and the confirmation number from the original pickup schedule.',
+            annotations: {
+                readOnlyHint: false,
+                openWorldHint: false,
+                destructiveHint: true,
+            },
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
                 carrier: z.string().describe("Carrier code (e.g. 'fedex', 'dhl', 'estafeta')"),

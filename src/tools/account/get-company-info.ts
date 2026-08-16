@@ -65,6 +65,11 @@ export function registerGetCompanyInfo(
                 'Get the caller company profile: name, country, currency, tier, international status, '
                 + 'verification state (KYB), creation date, owner, and connected integrations '
                 + '(Shopify, WooCommerce, etc.). Equivalent to the "Mi Compañia" page in the portal.',
+            annotations: {
+                readOnlyHint: true,
+                openWorldHint: false,
+                destructiveHint: false,
+            },
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
             }),

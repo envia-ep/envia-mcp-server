@@ -35,6 +35,11 @@ export function registerGenerateComplement(
                 'Required by the SAT (tax authority) for domestic road freight. ' +
                 'Only supported by carriers with Carta Porte integration (DHL MX, FedEx MX). ' +
                 'Provide SAT product codes, weight units, and packaging types per item.',
+            annotations: {
+                readOnlyHint: false,
+                openWorldHint: true,
+                destructiveHint: false,
+            },
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
                 shipments: z.array(z.object({

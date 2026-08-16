@@ -46,6 +46,11 @@ export function registerCreateTicket(
                 'number become orphan and cannot be found by tracking-number search later. ' +
                 'Common types: 3=Overweight, 5=Damaged, 6=Wrong delivery, 7=Refund, 8=Delay, 13=Theft, ' +
                 '14=Redirection, 25=Delivery attempt.',
+            annotations: {
+                readOnlyHint: false,
+                openWorldHint: false,
+                destructiveHint: false,
+            },
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
                 type_id: z.number().int().min(1)

@@ -35,6 +35,11 @@ export function registerListProducts(
                 'Supports pagination with limit and page. ' +
                 'Pass product_identifier to look up a specific product ' +
                 '(the /products/envia/{id} endpoint is unavailable — use this workaround instead).',
+            annotations: {
+                readOnlyHint: true,
+                openWorldHint: false,
+                destructiveHint: false,
+            },
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
                 limit: z

@@ -44,6 +44,11 @@ export function registerClassifyHscode(
                 "Returns the recommended HS/NCM code and alternatives. " +
                 "Use the code as productCode in items when calling envia_quote_shipment or envia_create_shipment " +
                 "for international shipments and BR-to-BR domestic shipments (required for DCe authorization).",
+            annotations: {
+                readOnlyHint: true,
+                openWorldHint: true,
+                destructiveHint: false,
+            },
             inputSchema: z.object({
                 api_key: optionalApiKeySchema,
                 description: z

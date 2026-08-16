@@ -260,6 +260,11 @@ export function registerGetEcommerceOrder(
                 'Returns order details, origin/destination addresses, package dimensions, and carrier info ' +
                 'formatted for use with envia_quote_shipment and envia_create_shipment. ' +
                 'Use this when the user provides an order number from their ecommerce platform (Shopify, Tiendanube, WooCommerce, etc.).',
+            annotations: {
+                readOnlyHint: true,
+                openWorldHint: true,
+                destructiveHint: false,
+            },
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
                 order_identifier: z.string().min(1).describe(

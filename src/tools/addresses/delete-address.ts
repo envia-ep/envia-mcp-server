@@ -30,6 +30,11 @@ export function registerDeleteAddress(
                 'Delete a saved address by ID. ' +
                 'This also removes the address from defaults, favorites, and carrier branch relations. ' +
                 'Cannot delete addresses that are set as a shop favorite.',
+            annotations: {
+                readOnlyHint: false,
+                openWorldHint: false,
+                destructiveHint: true,
+            },
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
                 address_id: z.number().int().describe('ID of the address to delete'),

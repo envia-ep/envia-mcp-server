@@ -34,6 +34,11 @@ export function registerGetShipmentsNdr(
                 '"rto" (returned to origin). Also filter by status_id and date range. ' +
                 'KNOWN BACKEND BUG: the "type" filter parameter returns 422 (MySQL 8 HAVING clause issue). ' +
                 'Omit "type" to list all NDR shipments and filter the result client-side.',
+            annotations: {
+                readOnlyHint: true,
+                openWorldHint: false,
+                destructiveHint: false,
+            },
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
                 type: z.enum(['attention', 'requested', 'rto']).optional().describe(

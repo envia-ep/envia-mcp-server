@@ -57,6 +57,11 @@ export function registerGetMySalesman(
                 'Get the contact details (name, email, phone) of the Envia salesman / account '
                 + 'manager assigned to the caller\'s company. Returns a clear "unassigned" message '
                 + 'when no salesman is linked, so the agent can suggest opening a ticket instead.',
+            annotations: {
+                readOnlyHint: true,
+                openWorldHint: false,
+                destructiveHint: false,
+            },
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
             }),

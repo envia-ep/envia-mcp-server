@@ -68,6 +68,11 @@ export function registerGetAdditionalServicePrices(
                 'Returns standard prices and any company-level custom overrides. ' +
                 'Use envia_list_carriers to find service IDs, or use the service_id from a quote response. ' +
                 'Useful for showing the cost of insurance, COD, or signature services before creating a shipment.',
+            annotations: {
+                readOnlyHint: true,
+                openWorldHint: true,
+                destructiveHint: false,
+            },
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
                 service_id: z.number().int().min(1).describe(

@@ -32,6 +32,11 @@ export function registerGetBranchesCatalog(
                 'Get the full hierarchical catalog of states and localities where a carrier has branches. ' +
                 'Returns a map of state → [localities] so you can discover coverage before searching. ' +
                 'Use this before envia_search_branches to find the exact locality/state names.',
+            annotations: {
+                readOnlyHint: true,
+                openWorldHint: true,
+                destructiveHint: false,
+            },
             inputSchema: z.object({
                 api_key: z.string().optional().describe(
                     'Envia API key. Optional — branches catalog is a public endpoint. Uses server key if omitted.',

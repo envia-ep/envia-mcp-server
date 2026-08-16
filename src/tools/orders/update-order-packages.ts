@@ -55,6 +55,11 @@ export function registerUpdateOrderPackages(
                 'Requires shop_id, order_id, and the package_id(s) to update. ' +
                 'insurance and declared_value are required (pass 0 when there is no insurance). ' +
                 'dimensions and length_unit are required for box and envelope types (package_type_id 1 or 2).',
+            annotations: {
+                readOnlyHint: false,
+                openWorldHint: true,
+                destructiveHint: false,
+            },
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
                 shop_id: z.number().int().min(1).describe('Store ID (from envia_list_shops)'),

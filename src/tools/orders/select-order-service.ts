@@ -38,6 +38,11 @@ export function registerSelectOrderService(
                 'Requires shop_id, order_id, package_id, service_id, and price. ' +
                 'To get available services and prices, use envia_get_ecommerce_order + envia_get_shipping_rates. ' +
                 'Pass service_id=null and price=null to deselect a previously assigned service.',
+            annotations: {
+                readOnlyHint: false,
+                openWorldHint: true,
+                destructiveHint: false,
+            },
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
                 shop_id: z.number().int().min(1).describe('Store ID (from envia_list_shops)'),

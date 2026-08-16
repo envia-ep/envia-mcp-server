@@ -62,6 +62,11 @@ export function registerGetBalanceInfo(
                 'Get the caller company account balance, currency, credit line (if configured), and '
                 + 'auto-billing/auto-payment settings. Use this when the user asks about their '
                 + 'current balance, credit limit, or payment configuration.',
+            annotations: {
+                readOnlyHint: true,
+                openWorldHint: false,
+                destructiveHint: false,
+            },
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
             }),

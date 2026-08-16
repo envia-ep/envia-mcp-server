@@ -32,6 +32,11 @@ export function registerUpdateClient(
                 'To update the existing contact, include contact.id. ' +
                 'To update addresses, include billing_address.config_address_id. ' +
                 'Setting use_billing_as_shipping=true deletes the shipping address.',
+            annotations: {
+                readOnlyHint: false,
+                openWorldHint: false,
+                destructiveHint: false,
+            },
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
                 client_id: z.number().int().describe('Client ID to update'),

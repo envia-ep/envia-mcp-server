@@ -31,6 +31,11 @@ export function registerGetIssuesAnalytics(
                 'Analyze shipment issues: issue types ranked by frequency (damaged, lost, delay, etc.), ' +
                 'per-carrier monthly issue breakdown, and monthly issue rate trend. ' +
                 'Useful for identifying quality problems with specific carriers.',
+            annotations: {
+                readOnlyHint: true,
+                openWorldHint: false,
+                destructiveHint: false,
+            },
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
                 start_date: z.string().describe('Start date (YYYY-MM-DD)'),

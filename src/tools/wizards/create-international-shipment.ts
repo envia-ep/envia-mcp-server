@@ -138,6 +138,11 @@ export function registerCreateInternationalShipment(
                 '(c) you only need to classify a product description → use envia_classify_hscode; ' +
                 '(d) you only need address requirements for a country → use ' +
                 'envia_ai_address_requirements.',
+            annotations: {
+                readOnlyHint: false,
+                openWorldHint: true,
+                destructiveHint: false,
+            },
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
                 origin_country: countrySchema.describe(

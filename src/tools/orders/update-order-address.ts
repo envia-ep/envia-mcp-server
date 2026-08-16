@@ -34,6 +34,11 @@ export function registerUpdateOrderAddress(
                 'address_type_id: 1=Billing, 2=Shipping (most common), 3=Origin. ' +
                 'Fields address2, address3, phone_code, identification_number, and references ' +
                 'are required by the backend but accept an empty string.',
+            annotations: {
+                readOnlyHint: false,
+                openWorldHint: true,
+                destructiveHint: false,
+            },
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
                 shop_id: z.number().int().min(1).describe('Store ID (from envia_list_shops)'),

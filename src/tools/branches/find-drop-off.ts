@@ -101,6 +101,11 @@ export function registerFindDropOff(
                 'This is the consolidated branches-search tool — `envia_search_branches` and ' +
                 '`envia_search_branches_bulk` were retired into this one (see ' +
                 '_docs/TOOL_CONSOLIDATION_BREAKING_CHANGES.md).',
+            annotations: {
+                readOnlyHint: true,
+                openWorldHint: true,
+                destructiveHint: false,
+            },
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
                 carrier: z.string().min(1).describe(

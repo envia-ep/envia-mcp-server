@@ -32,6 +32,11 @@ export function registerAddTicketComment(
                 'Add a comment to an existing ticket. Only works on tickets with status ' +
                 'Pending(1), Incomplete(4), Follow-up(5), or In Review(6). ' +
                 'Cannot comment on Accepted or Declined tickets.',
+            annotations: {
+                readOnlyHint: false,
+                openWorldHint: false,
+                destructiveHint: false,
+            },
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
                 ticket_id: z.number().int().min(1).describe('Ticket ID to comment on'),

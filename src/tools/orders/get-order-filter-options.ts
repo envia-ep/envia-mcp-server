@@ -31,6 +31,11 @@ export function registerGetOrderFilterOptions(
                 'Get available filter options for order lists. ' +
                 'Returns destination countries present in the company\'s orders, ' +
                 'which can be passed to envia_list_orders as destination_country_code.',
+            annotations: {
+                readOnlyHint: true,
+                openWorldHint: false,
+                destructiveHint: false,
+            },
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
             }),

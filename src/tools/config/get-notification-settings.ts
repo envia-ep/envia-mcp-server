@@ -33,6 +33,11 @@ export function registerGetNotificationSettings(
                 'Get the company notification channel settings. ' +
                 'Shows which channels are enabled: email (general + label), SMS, WhatsApp, ' +
                 'and event notifications (COD payment, POD confirmation, fulfillment).',
+            annotations: {
+                readOnlyHint: true,
+                openWorldHint: false,
+                destructiveHint: false,
+            },
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
             }),

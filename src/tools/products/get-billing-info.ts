@@ -33,6 +33,11 @@ export function registerGetBillingInfo(
             description:
                 'Get the company billing information: legal name, RFC/tax ID, ' +
                 'billing address, email, and phone. Used for invoice generation.',
+            annotations: {
+                readOnlyHint: true,
+                openWorldHint: false,
+                destructiveHint: false,
+            },
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
             }),

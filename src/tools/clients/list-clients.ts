@@ -38,6 +38,11 @@ export function registerListClients(
                 'envia_update_client / envia_delete_client; ' +
                 '(b) ecommerce orders linked to a client (different concept — an order is a purchase, ' +
                 'a client is a saved person/company) → use envia_list_orders.',
+            annotations: {
+                readOnlyHint: true,
+                openWorldHint: false,
+                destructiveHint: false,
+            },
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
                 search: z.string().optional().describe('Search by name, company, contact email/phone, or external ref'),

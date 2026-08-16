@@ -33,6 +33,11 @@ export function registerManageOrderTags(
                 'action="add": provide order_ids and tags (strings) to assign new labels. ' +
                 'action="remove": provide order_ids and tag_ids (numbers) to remove existing tags. ' +
                 'Tags appear in envia_list_orders results and can be used for filtering.',
+            annotations: {
+                readOnlyHint: false,
+                openWorldHint: false,
+                destructiveHint: false,
+            },
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
                 action: z.enum(['add', 'remove']).describe('Action to perform: add or remove tags'),

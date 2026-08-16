@@ -115,6 +115,11 @@ export function registerCheckBalance(
                 + 'Use when the user asks "¿tengo saldo suficiente para enviar?" or '
                 + '"do I have enough balance for a shipment that costs X?". '
                 + 'Reads balance from the account — no charges are created.',
+            annotations: {
+                readOnlyHint: true,
+                openWorldHint: false,
+                destructiveHint: false,
+            },
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
                 amount: z

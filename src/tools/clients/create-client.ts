@@ -49,6 +49,11 @@ export function registerCreateClient(
                 'Create a new client. Requires name and contact.full_name. ' +
                 'Client types: independent (persona fisica), business (empresa), distributor. ' +
                 'Optionally include billing_address, shipping_address, and use_billing_as_shipping.',
+            annotations: {
+                readOnlyHint: false,
+                openWorldHint: false,
+                destructiveHint: false,
+            },
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
                 name: z.string().min(1).max(255).describe('Client name'),

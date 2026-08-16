@@ -60,6 +60,11 @@ export function registerAiParseAddress(
                 'Parse a free-form address string into structured fields (name, street, number, '
                 + 'city, state, postal code, country, etc.) using Envia\'s AI extraction service. '
                 + 'Use when the user pastes a raw address or provides it in natural language.',
+            annotations: {
+                readOnlyHint: true,
+                openWorldHint: false,
+                destructiveHint: false,
+            },
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
                 text: z.string().min(1).describe('Raw address text to parse, in any human-readable format.'),

@@ -31,6 +31,11 @@ export function registerGetCodCounters(
                 'Get aggregated Cash on Delivery (COD) statistics. ' +
                 'Returns total COD amounts, delivered count, paid vs pending amounts, ' +
                 'and reported shipments. Useful for financial reconciliation.',
+            annotations: {
+                readOnlyHint: true,
+                openWorldHint: false,
+                destructiveHint: false,
+            },
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
                 type: z.enum(['counters', 'tabs']).default('counters').describe(

@@ -135,6 +135,11 @@ export function registerCreateLabel(
                 'is performed automatically — items with productCode (NCM) and identificationNumber (CPF/CNPJ) ' +
                 'on both addresses are required. Pass xml_data to skip auto-authorization if you already have it. ' +
                 'Returns: tracking number, label PDF URL, and tracking URL.',
+            annotations: {
+                readOnlyHint: false,
+                openWorldHint: true,
+                destructiveHint: false,
+            },
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
                 // Ecommerce shortcut

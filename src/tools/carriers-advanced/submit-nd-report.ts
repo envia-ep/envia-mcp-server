@@ -32,6 +32,11 @@ export function registerSubmitNdReport(
                 "Action codes: 'RD' (reschedule delivery), 'DM' (damaged), 'RE' (return to sender), " +
                 "'AC' (address correction), 'CP' (customer pickup at branch). " +
                 'Shipment must be in an NDR/exception status for this to succeed.',
+            annotations: {
+                readOnlyHint: false,
+                openWorldHint: false,
+                destructiveHint: false,
+            },
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
                 carrier: z.string().describe("Carrier code (e.g. 'dhl', 'fedex', 'estafeta')"),

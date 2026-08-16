@@ -30,6 +30,11 @@ export function registerUpdateAddress(
             description:
                 'Update an existing saved address. Provide address_id and any fields to change. ' +
                 'Only provided fields are updated — omitted fields remain unchanged.',
+            annotations: {
+                readOnlyHint: false,
+                openWorldHint: false,
+                destructiveHint: false,
+            },
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
                 address_id: z.number().int().describe('ID of the address to update'),

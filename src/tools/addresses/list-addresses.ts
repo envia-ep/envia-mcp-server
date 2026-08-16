@@ -39,6 +39,11 @@ export function registerListAddresses(
                 '(b) live address validation against postal-code databases → use ' +
                 'envia_validate_address; ' +
                 '(c) one-shot address parsing from a free-text string → use envia_ai_parse_address.',
+            annotations: {
+                readOnlyHint: true,
+                openWorldHint: false,
+                destructiveHint: false,
+            },
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
                 type: z.enum(['origin', 'destination']).describe('Address type to list'),

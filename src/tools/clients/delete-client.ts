@@ -29,6 +29,11 @@ export function registerDeleteClient(
             description:
                 'Delete a client by ID (soft delete). ' +
                 'The client record is marked as deleted but contacts and addresses are preserved.',
+            annotations: {
+                readOnlyHint: false,
+                openWorldHint: false,
+                destructiveHint: true,
+            },
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
                 client_id: z.number().int().describe('Client ID to delete'),

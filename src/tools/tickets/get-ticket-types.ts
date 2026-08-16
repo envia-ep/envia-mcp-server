@@ -30,6 +30,11 @@ export function registerGetTicketTypes(
             description:
                 'List available ticket types with their conditions and requirements. Each type has rules ' +
                 'defining which shipment statuses are eligible, required files, and input fields.',
+            annotations: {
+                readOnlyHint: true,
+                openWorldHint: false,
+                destructiveHint: false,
+            },
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
                 id: z.number().int().min(1).optional()

@@ -45,6 +45,11 @@ export function registerAiAddressRequirements(
                 'for the selected country, helping pre-validate addresses before creating a shipment. ' +
                 'Results are authoritative — sourced from the same rules the carriers API enforces. ' +
                 'SANDBOX LIMITATION: chains through the carriers MCP; may return an error in sandbox.',
+            annotations: {
+                readOnlyHint: true,
+                openWorldHint: false,
+                destructiveHint: false,
+            },
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
                 country: countrySchema.describe(
