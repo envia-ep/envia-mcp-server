@@ -552,6 +552,13 @@ function startHttpMode(): void {
                 return;
             }
 
+            // The MCP SDK transport requires Accept to include text/event-stream.
+            // Some clients (e.g. ChatGPT) omit it — patch the header so the SDK
+            // doesn't return 406 before the request is processed.
+            if (!req.headers['accept']?.includes('text/event-stream')) {
+                req.headers['accept'] = 'application/json, text/event-stream';
+            }
+
             const server = createEnviaServer({ correlationId }, bearerKey);
             const transport = new StreamableHTTPServerTransport({
                 sessionIdGenerator: undefined,
