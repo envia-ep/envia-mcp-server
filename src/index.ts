@@ -598,6 +598,10 @@ function startHttpMode(): void {
         res.status(405).set('Allow', 'POST').send('Method Not Allowed');
     });
 
+    app.get('/.well-known/openai-apps-challenge', (_req: Request, res: Response) => {
+        res.type('text/plain').send(process.env.OPENAI_APPS_CHALLENGE_TOKEN ?? '');
+    });
+
     app.delete('/mcp', (_req: Request, res: Response) => {
         res.status(405).set('Allow', 'POST').send('Method Not Allowed');
     });
