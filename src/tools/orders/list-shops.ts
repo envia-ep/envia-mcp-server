@@ -33,6 +33,11 @@ export function registerListShops(
                 'Returns store IDs needed for order management tools like envia_update_order_address. ' +
                 'By default shows only active stores; set include_inactive=true to see all. ' +
                 'Supported platforms: Shopify, WooCommerce, MercadoLibre, Tiendanube, and more.',
+            annotations: {
+                readOnlyHint: true,
+                openWorldHint: true,
+                destructiveHint: false,
+            },
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
                 include_inactive: z.boolean().default(false)

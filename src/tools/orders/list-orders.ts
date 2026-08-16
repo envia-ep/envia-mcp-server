@@ -39,6 +39,11 @@ export function registerListOrders(
                 'payment status (Paid, Pending, COD), and fulfillment/preparation status. ' +
                 'Use filters like status_id, shop_id, date_from/date_to, destination, or search to narrow results. ' +
                 'For shipping a specific order, use envia_get_ecommerce_order instead.',
+            annotations: {
+                readOnlyHint: true,
+                openWorldHint: true,
+                destructiveHint: false,
+            },
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
                 page: z.number().int().min(1).default(1).describe('Page number (1-based)'),
