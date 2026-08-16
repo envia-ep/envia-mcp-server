@@ -311,8 +311,8 @@ const MIME: Record<string, string> = {
  * not yet known — the decorator still runs and produces useful events
  * with just the tool name + duration.
  */
-function createEnviaServer(logContext: { correlationId?: string; sessionId?: string } = {}): McpServer {
-    const config = loadConfig();
+function createEnviaServer(logContext: { correlationId?: string; sessionId?: string } = {}, apiKey?: string): McpServer {
+    const config = loadConfig(apiKey);
     const client = new EnviaApiClient(config);
 
     const server = new McpServer(
@@ -504,7 +504,7 @@ function startHttpMode(): void {
     app.use((_req: Request, res: Response, next: NextFunction) => {
         res.setHeader('Access-Control-Allow-Origin', '*');
         res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
-        res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Accept, mcp-session-id');
+        res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Accept, mcp-session-id, Authorization');
         res.setHeader('Access-Control-Expose-Headers', 'mcp-session-id');
         next();
     });
@@ -526,7 +526,19 @@ function startHttpMode(): void {
         reqLog.debug({ event: 'mcp_request_received' }, 'POST /mcp received');
 
         try {
-            const server = createEnviaServer({ correlationId });
+            const authHeader = req.header('Authorization') ?? '';
+            const bearerKey = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : undefined;
+
+            if (!bearerKey && !process.env.ENVIA_API_KEY?.trim()) {
+                res.status(401).json({
+                    jsonrpc: '2.0',
+                    error: { code: -32000, message: 'Missing Envia API key. Set Authorization: Bearer <your-api-key>.' },
+                    id: null,
+                });
+                return;
+            }
+
+            const server = createEnviaServer({ correlationId }, bearerKey);
             const transport = new StreamableHTTPServerTransport({
                 sessionIdGenerator: undefined,
             });

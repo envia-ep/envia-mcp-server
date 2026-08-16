@@ -48,8 +48,8 @@ const GEOCODES_BASE = "https://geocodes.envia.com";
  * Optional:
  *   ENVIA_ENVIRONMENT — "sandbox" (default) | "production"
  */
-export function loadConfig(): EnviaConfig {
-    const apiKey = process.env.ENVIA_API_KEY?.trim();
+export function loadConfig(apiKeyOverride?: string): EnviaConfig {
+    const apiKey = apiKeyOverride?.trim() || process.env.ENVIA_API_KEY?.trim();
     if (!apiKey) {
         throw new Error(
             "ENVIA_API_KEY is required. Set it as an environment variable.\n" +
@@ -60,7 +60,9 @@ export function loadConfig(): EnviaConfig {
         );
     }
 
-    const raw = (process.env.ENVIA_ENVIRONMENT ?? "sandbox").toLowerCase();
+    // Per-request keys always target production — only local/stdio dev sets sandbox via env var.
+    const defaultEnv = apiKeyOverride?.trim() ? "production" : "sandbox";
+    const raw = (process.env.ENVIA_ENVIRONMENT ?? defaultEnv).toLowerCase();
     const environment: EnviaEnvironment = raw === "production" ? "production" : "sandbox";
 
     const urls = BASES[environment];
