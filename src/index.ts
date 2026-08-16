@@ -38,7 +38,10 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { createMcpExpressApp } from '@modelcontextprotocol/sdk/server/express.js';
+import { mcpAuthRouter } from '@modelcontextprotocol/sdk/server/auth/router.js';
+import { requireBearerAuth } from '@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js';
 
+import { createEnviaOAuthProvider } from './auth/provider.js';
 import { loadConfig } from './config.js';
 import { EnviaApiClient } from './utils/api-client.js';
 import { childLogger, getLogger } from './utils/logger.js';
@@ -492,14 +495,68 @@ async function startStdioMode(): Promise<void> {
  * Start the MCP server in HTTP mode with an Express app.
  *
  * Each POST /mcp request gets an isolated server + transport pair.
- * Also serves a browser chat UI at the root path.
+ * OAuth 2.0 + RFC 7591 DCR is provided by mcpAuthRouter; the /mcp endpoint
+ * requires a valid Bearer token issued by that OAuth flow.
  */
 function startHttpMode(): void {
+    const oauthProvider = createEnviaOAuthProvider();
+
+    // The MCP server's own public URL — used in OAuth discovery metadata.
+    // OAUTH_SERVER_URL should be set to where this MCP server is reachable
+    // (e.g. https://mcp.envia.com). Falls back to localhost for local dev.
+    const issuerUrl = new URL(
+        process.env.OAUTH_SERVER_URL ?? `http://${HOST}:${PORT}`,
+    );
+
     // Pass HOST to createMcpExpressApp so its host-header validation matches our bind address.
     // When HOST=127.0.0.1 (local dev), DNS-rebinding protection is enabled automatically.
     // When HOST=0.0.0.0 (Heroku / deployed), the SDK disables localhost-only validation,
     // allowing the Heroku router to forward requests with external Host headers.
     const app = createMcpExpressApp({ host: HOST });
+
+    // OAuth 2.0 relay endpoints — mcpAuthRouter wires /.well-known/*, /oauth/*.
+    // The ProxyOAuthServerProvider delegates all auth to the queries OAuth AS.
+    const mcpScopes = [
+        'mcp:read',
+        'mcp:ship',
+        'shipments:read',
+        'shipments:write',
+        'shipments:cancel',
+        'rates:read',
+        'labels:read',
+        'company:read',
+        'orders:read',
+        'orders:write',
+        'pickups:read',
+        'pickups:write',
+        'addresses:read',
+        'addresses:write',
+        'packages:read',
+        'packages:write',
+        'tickets:read',
+        'tickets:write',
+    ];
+
+    app.use(mcpAuthRouter({
+        provider: oauthProvider,
+        issuerUrl,
+        serviceDocumentationUrl: new URL('https://docs.envia.com/docs/mcp-overview'),
+        scopesSupported: mcpScopes,
+        resourceName: 'Envia Shipping MCP',
+    }));
+
+    const resourceUri = issuerUrl.href.replace(/\/$/, '');
+    const queriesIssuer = (process.env.ENVIA_QUERIES_HOSTNAME ?? '').replace(/\/$/, '');
+    const resourceMetadataUrl = `${resourceUri}/.well-known/oauth-protected-resource`;
+
+    app.get('/.well-known/oauth-protected-resource', (_req: Request, res: Response) => {
+        res.json({
+            resource: resourceUri,
+            authorization_servers: queriesIssuer ? [queriesIssuer] : [],
+            bearer_methods_supported: ['header'],
+            scopes_supported: mcpScopes,
+        });
+    });
 
     app.use((_req: Request, res: Response, next: NextFunction) => {
         res.setHeader('Access-Control-Allow-Origin', '*');
@@ -513,7 +570,24 @@ function startHttpMode(): void {
         res.status(204).end();
     });
 
-    app.post('/mcp', async (req: Request, res: Response) => {
+    // Bearer-auth middleware — validates OAuth access tokens and populates req.auth.
+    const bearerAuth = requireBearerAuth({ verifier: oauthProvider });
+
+    app.use('/mcp', (_req: Request, res: Response, next: NextFunction) => {
+        const originalStatus = res.status.bind(res);
+        res.status = ((code: number) => {
+            if (code === 401 && !res.getHeader('WWW-Authenticate')) {
+                res.setHeader(
+                    'WWW-Authenticate',
+                    `Bearer realm="mcp", resource_metadata="${resourceMetadataUrl}"`,
+                );
+            }
+            return originalStatus(code);
+        }) as Response['status'];
+        next();
+    });
+
+    app.post('/mcp', bearerAuth, async (req: Request, res: Response) => {
         // Honour an upstream-provided correlation ID (portal embedding,
         // load balancer, etc.) so traces stitch across services. Fall
         // back to a fresh UUID per request when absent.
@@ -526,31 +600,9 @@ function startHttpMode(): void {
         reqLog.debug({ event: 'mcp_request_received' }, 'POST /mcp received');
 
         try {
-            const authHeader = req.header('Authorization') ?? '';
-            const rawKey = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : undefined;
-
-            // Validate token characters (JWT/API-key alphabet only) and length
-            // to prevent header injection into outgoing Envia API requests.
-            const KEY_RE = /^[\w\-.=]{1,2048}$/;
-            if (rawKey !== undefined && !KEY_RE.test(rawKey)) {
-                res.status(400).json({
-                    jsonrpc: '2.0',
-                    error: { code: -32000, message: 'Invalid API key format.' },
-                    id: null,
-                });
-                return;
-            }
-
-            const bearerKey = rawKey;
-
-            if (!bearerKey && !process.env.ENVIA_API_KEY?.trim()) {
-                res.status(401).json({
-                    jsonrpc: '2.0',
-                    error: { code: -32000, message: 'Missing Envia API key. Set Authorization: Bearer <your-api-key>.' },
-                    id: null,
-                });
-                return;
-            }
+            // OAuth token verified by bearerAuth middleware; Envia API key retrieved
+            // via token exchange from the queries OAuth AS and cached in provider.
+            const enviaApiKey = req.auth?.extra?.['enviaApiKey'] as string | undefined;
 
             // The MCP SDK transport requires Accept to include text/event-stream.
             // Some clients (e.g. ChatGPT) omit it — patch the header so the SDK
@@ -559,7 +611,7 @@ function startHttpMode(): void {
                 req.headers['accept'] = 'application/json, text/event-stream';
             }
 
-            const server = createEnviaServer({ correlationId }, bearerKey);
+            const server = createEnviaServer({ correlationId }, enviaApiKey);
             const transport = new StreamableHTTPServerTransport({
                 sessionIdGenerator: undefined,
             });

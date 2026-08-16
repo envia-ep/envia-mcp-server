@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "envia": {
+      "command": "npx",
+      "args": ["-y", "@envia/envia-mcp"],
+      "env": {
+        "MCP_TRANSPORT": "stdio",
+        "ENVIA_API_KEY": "${ENVIA_API_KEY}",
+        "ENVIA_ENVIRONMENT": "${ENVIA_ENVIRONMENT:-sandbox}"
+      }
+    }
+  }
+}

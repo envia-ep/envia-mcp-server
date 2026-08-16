@@ -1,0 +1,13 @@
+{
+  "name": "envia",
+  "description": "Connect Claude to Envia's shipping platform — quote rates, create labels, track packages, schedule pickups, and manage ecommerce orders across 250+ carriers worldwide.",
+  "version": "1.1.0",
+  "author": {
+    "name": "Envia",
+    "email": "sales@envia.com",
+    "url": "https://envia.com"
+  },
+  "homepage": "https://docs.envia.com/docs/mcp-overview",
+  "repository": "https://github.com/envia-ep/envia-mcp-server",
+  "license": "MIT"
+}
