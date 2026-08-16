@@ -527,7 +527,21 @@ function startHttpMode(): void {
 
         try {
             const authHeader = req.header('Authorization') ?? '';
-            const bearerKey = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : undefined;
+            const rawKey = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : undefined;
+
+            // Validate token characters (JWT/API-key alphabet only) and length
+            // to prevent header injection into outgoing Envia API requests.
+            const KEY_RE = /^[\w\-.=]{1,2048}$/;
+            if (rawKey !== undefined && !KEY_RE.test(rawKey)) {
+                res.status(400).json({
+                    jsonrpc: '2.0',
+                    error: { code: -32000, message: 'Invalid API key format.' },
+                    id: null,
+                });
+                return;
+            }
+
+            const bearerKey = rawKey;
 
             if (!bearerKey && !process.env.ENVIA_API_KEY?.trim()) {
                 res.status(401).json({
