@@ -44,8 +44,10 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 const ALLOWED_HOSTS = new Set([
     "api.envia.com",
     "api-test.envia.com",
+    "api.test.envia.com",
     "queries.envia.com",
     "queries-test.envia.com",
+    "queries.test.envia.com",
     // Geocodes API only has a production endpoint — no sandbox version exists.
     "geocodes.envia.com",
 ]);

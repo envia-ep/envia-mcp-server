@@ -24,8 +24,8 @@ export interface EnviaConfig {
 
 const BASES: Record<EnviaEnvironment, { shipping: string; queries: string }> = {
     sandbox: {
-        shipping: "https://api-test.envia.com",
-        queries: "https://queries-test.envia.com",
+        shipping: "https://api.test.envia.com",
+        queries: "https://queries.test.envia.com",
     },
     production: {
         shipping: "https://api.envia.com",

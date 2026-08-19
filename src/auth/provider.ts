@@ -25,7 +25,72 @@ export function createEnviaOAuthProvider(): ProxyOAuthServerProvider {
         },
         verifyAccessToken: (token: string) => verifyAccessToken(token, issuer, jwtKey, resource),
         getClient: (clientId: string) => fetchClient(clientId, issuer),
+        fetch: proxyOAuthFetch,
     });
+}
+
+const DCR_PAYLOAD_KEYS = [
+    'client_name',
+    'redirect_uris',
+    'grant_types',
+    'scope',
+    'token_endpoint_auth_method',
+    'client_uri',
+    'logo_uri',
+    'contacts',
+    'description',
+    'software_id',
+    'software_version',
+] as const;
+
+/**
+ * Queries `POST /oauth/v2/register` rejects unknown keys (Joi). The MCP SDK
+ * forwards `response_types`, `client_id`, and `client_id_issued_at`.
+ *
+ * @param payload - Full DCR body from the MCP SDK
+ * @returns Payload limited to queries' register schema
+ */
+export function sanitizeDcrPayload(payload: Record<string, unknown>): Record<string, unknown> {
+    const sanitized: Record<string, unknown> = {};
+    for (const key of DCR_PAYLOAD_KEYS) {
+        if (payload[key] !== undefined) sanitized[key] = payload[key];
+    }
+    return sanitized;
+}
+
+/**
+ * Proxies MCP SDK OAuth fetches to queries. DCR bodies are sanitized because
+ * the SDK forwards keys queries' register schema rejects.
+ *
+ * @param input - Upstream URL
+ * @param init - Fetch init
+ * @returns Upstream response
+ */
+async function proxyOAuthFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+    const url = String(input);
+    let nextInit = init;
+    if (url.includes('/oauth/v2/register') && typeof init?.body === 'string') {
+        nextInit = { ...init, body: sanitizeDcrRequestBody(init.body) };
+    }
+    return fetch(input, nextInit);
+}
+
+/**
+ * Strips MCP SDK DCR keys queries rejects. Malformed JSON is left unchanged
+ * so a bad body still reaches queries instead of throwing in the proxy.
+ *
+ * @param body - Raw POST body
+ * @returns Sanitized JSON, or the original string when it is not a JSON object
+ */
+export function sanitizeDcrRequestBody(body: string): string {
+    const trimmed = body.trim();
+    if (!trimmed.startsWith('{')) return body;
+    try {
+        const original = JSON.parse(trimmed) as Record<string, unknown>;
+        return JSON.stringify(sanitizeDcrPayload(original));
+    } catch {
+        return body;
+    }
 }
 
 /**
@@ -52,12 +117,15 @@ async function verifyAccessToken(
         const { payload: p } = await jwtVerify(token, secret, {
             algorithms: ['HS256'],
             issuer,
-            audience: resource,
         });
         payload = p as Record<string, unknown>;
     } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         throw new Error(`Invalid or expired access token: ${msg}`);
+    }
+
+    if (!audiencesMatch(payload['aud'], resource)) {
+        throw new Error('Invalid or expired access token: unexpected audience');
     }
 
     const jti = String(payload['jti'] ?? '');
@@ -106,15 +174,22 @@ async function fetchClient(clientId: string, issuer: string): Promise<OAuthClien
     };
 }
 
+/**
+ * Queries OAuth issuer. Hostnames without a scheme are treated as https
+ * so Node fetch does not throw `Failed to parse URL`.
+ *
+ * @returns Absolute issuer URL, no trailing slash
+ */
 function getOAuthIssuer(): string {
-    const issuer = process.env['ENVIA_QUERIES_HOSTNAME']?.trim();
-    if (!issuer) {
+    const raw = process.env['ENVIA_QUERIES_HOSTNAME']?.trim();
+    if (!raw) {
         throw new Error(
             'ENVIA_QUERIES_HOSTNAME is required. Set it to the queries API base URL.\n' +
             '  Example: ENVIA_QUERIES_HOSTNAME=https://queries.envia.com',
         );
     }
-    return issuer.replace(/\/$/, '');
+    const withScheme = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+    return withScheme.replace(/\/$/, '');
 }
 
 function getJwtKey(): string {
@@ -125,9 +200,38 @@ function getJwtKey(): string {
     return key;
 }
 
+/**
+ * Canonical MCP resource URI used as JWT `aud` (OAUTH_SERVER_URL, no trailing slash).
+ *
+ * @returns Resource URI
+ */
 function getResourceUri(): string {
     const raw = process.env['OAUTH_SERVER_URL']?.trim() || `http://127.0.0.1:${process.env['PORT'] ?? '3000'}`;
-    return raw.replace(/\/$/, '');
+    return normalizeResourceUri(raw);
+}
+
+/**
+ * Strips a trailing slash so `http://host:3000` and `http://host:3000/` compare equal.
+ *
+ * @param uri - Absolute URI
+ * @returns URI without a trailing slash
+ */
+export function normalizeResourceUri(uri: string): string {
+    return uri.replace(/\/$/, '');
+}
+
+/**
+ * JWT `aud` may be a string or array; MCP metadata often appends a trailing slash
+ * while queries stores the RFC 8707 resource without one.
+ *
+ * @param tokenAud - `aud` claim
+ * @param expected - This MCP server's canonical URI
+ * @returns True when any audience matches after slash-normalization
+ */
+export function audiencesMatch(tokenAud: unknown, expected: string): boolean {
+    const want = normalizeResourceUri(expected);
+    const values = Array.isArray(tokenAud) ? tokenAud : [tokenAud];
+    return values.some((value) => typeof value === 'string' && normalizeResourceUri(value) === want);
 }
 
 export { createEnviaOAuthProvider as EnviaOAuthProvider };
