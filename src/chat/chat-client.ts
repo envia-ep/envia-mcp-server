@@ -101,14 +101,28 @@ export class McpClient {
     private baseUrl: string;
     private sessionId: string | null;
     private nextId: number;
+    private accessToken: string | null;
     public tools: McpTool[];
 
-    /** @param baseUrl — e.g. "http://localhost:3100" */
-    constructor(baseUrl: string) {
+    /**
+     * @param baseUrl — e.g. "http://127.0.0.1:3100"
+     * @param accessToken — OAuth access token sent as Authorization: Bearer
+     */
+    constructor(baseUrl: string, accessToken?: string) {
         this.baseUrl = baseUrl.replace(/\/$/, '');
         this.sessionId = null;
         this.nextId = 1;
+        this.accessToken = accessToken?.trim() || null;
         this.tools = [];
+    }
+
+    /**
+     * Replace the Bearer token used on subsequent /mcp calls.
+     *
+     * @param token - OAuth access token, or null to clear
+     */
+    setAccessToken(token: string | null): void {
+        this.accessToken = token?.trim() || null;
     }
 
     /** Build common headers for MCP requests */
@@ -118,6 +132,7 @@ export class McpClient {
             'Accept': 'application/json, text/event-stream',
         };
         if (this.sessionId) h['mcp-session-id'] = this.sessionId;
+        if (this.accessToken) h['Authorization'] = `Bearer ${this.accessToken}`;
         return h;
     }
 
@@ -130,6 +145,10 @@ export class McpClient {
             headers: this._headers(),
             body: JSON.stringify({ jsonrpc: '2.0', id, method, params }),
         });
+
+        if (res.status === 401) {
+            throw new Error('MCP rejected the access token (401). Sign in with Envia again.');
+        }
 
         const sid = res.headers.get('mcp-session-id');
         if (sid) this.sessionId = sid;
