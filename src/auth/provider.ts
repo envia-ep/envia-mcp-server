@@ -69,11 +69,28 @@ export function sanitizeDcrPayload(payload: Record<string, unknown>): Record<str
 async function proxyOAuthFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
     const url = String(input);
     let nextInit = init;
-    if (url.includes('/oauth/v2/register') && typeof init?.body === 'string' && init.body.startsWith('{')) {
-        const original = JSON.parse(init.body) as Record<string, unknown>;
-        nextInit = { ...init, body: JSON.stringify(sanitizeDcrPayload(original)) };
+    if (url.includes('/oauth/v2/register') && typeof init?.body === 'string') {
+        nextInit = { ...init, body: sanitizeDcrRequestBody(init.body) };
     }
     return fetch(input, nextInit);
+}
+
+/**
+ * Strips MCP SDK DCR keys queries rejects. Malformed JSON is left unchanged
+ * so a bad body still reaches queries instead of throwing in the proxy.
+ *
+ * @param body - Raw POST body
+ * @returns Sanitized JSON, or the original string when it is not a JSON object
+ */
+export function sanitizeDcrRequestBody(body: string): string {
+    const trimmed = body.trim();
+    if (!trimmed.startsWith('{')) return body;
+    try {
+        const original = JSON.parse(trimmed) as Record<string, unknown>;
+        return JSON.stringify(sanitizeDcrPayload(original));
+    } catch {
+        return body;
+    }
 }
 
 /**

@@ -53,6 +53,10 @@ describe('isAllowedRedirectOrigin', () => {
     it('should accept https when the host is a public stage URL', () => {
         expect(isAllowedRedirectOrigin('https://mcp-test.envia.com')).toBe(true);
     });
+
+    it('should accept IPv6 loopback http when URL.hostname is ::1 without brackets', () => {
+        expect(isAllowedRedirectOrigin('http://[::1]:3000')).toBe(true);
+    });
 });
 
 describe('redirectUriForOrigin', () => {
@@ -186,6 +190,19 @@ describe('ChatOAuthSession', () => {
 
         expect(fetchImpl).toHaveBeenCalledTimes(1);
         expect(navigate.mock.calls[0][0]).toContain('client_id=cached');
+    });
+
+    it('should reuse a stored client when the registered redirect_uri has a trailing slash', async () => {
+        persistent.setItem(
+            OAUTH_CLIENT_STORAGE_KEY,
+            JSON.stringify({ client_id: 'cached-slash', redirect_uris: ['http://127.0.0.1:3000/'] }),
+        );
+        fetchImpl.mockResolvedValueOnce(jsonResponse(AS_METADATA));
+
+        await makeOauth().startLogin();
+
+        expect(fetchImpl).toHaveBeenCalledTimes(1);
+        expect(navigate.mock.calls[0][0]).toContain('client_id=cached-slash');
     });
 
     it('should store tokens and drop PKCE state when the callback code is valid', async () => {

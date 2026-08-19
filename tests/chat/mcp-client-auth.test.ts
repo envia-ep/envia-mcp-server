@@ -51,6 +51,20 @@ describe('McpClient OAuth bearer', () => {
         );
 
         const client = new McpClient('http://127.0.0.1:3000', 'expired');
-        await expect(client.callTool('envia_list_carriers', {})).rejects.toThrow('Sign in with Envia');
+        await expect(client.callTool('envia_list_carriers', {})).rejects.toThrow('rejected the access token');
+    });
+
+    it('should not blame a missing token when /mcp returns 401 without Authorization', async () => {
+        vi.stubGlobal(
+            'fetch',
+            vi.fn().mockResolvedValue({
+                ok: false,
+                status: 401,
+                headers: { get: () => null },
+            }),
+        );
+
+        const client = new McpClient('http://127.0.0.1:3000');
+        await expect(client.callTool('envia_list_carriers', {})).rejects.toThrow('paste a token');
     });
 });

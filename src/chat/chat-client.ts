@@ -147,7 +147,11 @@ export class McpClient {
         });
 
         if (res.status === 401) {
-            throw new Error('MCP rejected the access token (401). Sign in with Envia again.');
+            throw new Error(
+                this.accessToken
+                    ? 'MCP rejected the access token (401). Sign in with Envia again.'
+                    : 'MCP returned 401 Unauthorized. Sign in with Envia or paste a token.',
+            );
         }
 
         const sid = res.headers.get('mcp-session-id');

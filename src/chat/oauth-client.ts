@@ -12,7 +12,7 @@ export const OAUTH_TOKENS_STORAGE_KEY = 'envia_mcp_oauth_tokens';
 export const DEFAULT_OAUTH_SCOPE = 'mcp:ship';
 export const DEFAULT_CLIENT_NAME = 'Envia MCP Chat Demo';
 
-const LOOPBACK_HOSTS = new Set(['127.0.0.1', '[::1]']);
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', '::1']);
 
 export interface OAuthStorage {
     getItem(key: string): string | null;
@@ -236,7 +236,8 @@ export class ChatOAuthSession {
     }
 
     /**
-     * @returns Stored access token, or null when signed out / expired with no refresh token
+     * @returns Stored access token when it is still unexpired; otherwise null.
+     * Does not refresh. Call {@link ChatOAuthSession.refreshIfNeeded} for a usable token.
      */
     getAccessToken(): string | null {
         const tokens = this.readTokens();
@@ -403,7 +404,11 @@ export class ChatOAuthSession {
         scope: string,
     ): Promise<OAuthClientRegistration> {
         const existing = this.readClient();
-        if (existing?.client_id && existing.redirect_uris?.includes(redirectUri)) {
+        const wantRedirect = stripTrailingSlash(redirectUri);
+        if (
+            existing?.client_id &&
+            existing.redirect_uris?.some((uri) => stripTrailingSlash(uri) === wantRedirect)
+        ) {
             return existing;
         }
         if (!metadata.registration_endpoint) {
