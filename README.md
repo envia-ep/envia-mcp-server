@@ -7,7 +7,10 @@
 
 MCP server for [Envia](https://envia.com) shipping APIs. Quote rates, create labels, track packages, schedule pickups, manage ecommerce orders, and more — directly from your AI assistant.
 
-> **Deployment model (v1):** This MCP is designed to run **embedded inside the Envia portal's authenticated session**. The HTTP transport is intended for server-to-server calls from the portal backend, not for public multi-tenant access. The stdio transport is the standard path for IDE integrations (Claude Desktop, Cursor, VS Code) and supports per-request `api_key` overrides for local developer workflows. See [Transport modes](#transport-modes) and [Authentication](#authentication) below.
+> **Deployment model:** HTTP mode is mixed-auth. Tracking and catalog tools can
+> run without the end user signing in; quoting, labels, and other account
+> actions require OAuth (or an `api_key`). See [Authentication](#authentication)
+> and [documentation/tool-access.md](documentation/tool-access.md).
 
 ## Quick start
 
@@ -97,8 +100,24 @@ The server supports two transport modes, controlled by the `MCP_TRANSPORT` envir
 
 ### Authentication
 
-- **HTTP / portal-embedded (v1):** the MCP uses the server-level `ENVIA_API_KEY` for every request. Per-request `api_key` overrides are accepted by the schema for compatibility with stdio hosts, but the portal-embedded deployment is expected to rely on the server key plus network-level isolation. Hardening of the HTTP surface (origin allow-list, shared-secret header) is tracked as a Sprint 4 item.
-- **stdio / IDE:** set `ENVIA_API_KEY` in the MCP host config. Passing `api_key` inline per tool call is supported for multi-account local workflows.
+HTTP mode is **mixed-auth**. `POST /mcp` verifies a Bearer token when one is
+sent and allows requests without `Authorization` so clients can initialize,
+list tools, and call public tools.
+
+| Access | User OAuth | Uses `ENVIA_API_KEY` | Tools |
+|--------|------------|----------------------|-------|
+| **Anonymous** | Optional | No | `envia_track_package` |
+| **Public catalog** | Optional | Yes, when the user has no credential | Carriers, add-ons, address validation, HS codes, branches |
+| **Authenticated** | Required | No (never inherited on anonymous HTTP) | Quotes, labels, orders, pickups, cancellations |
+
+- **HTTP:** unauthenticated calls to authenticated tools do **not** inherit
+  `ENVIA_API_KEY`. Catalog tools do, because those Envia APIs still require a
+  server-side token. Invalid Bearer tokens still receive `401`.
+- **stdio / IDE:** set `ENVIA_API_KEY` in the MCP host config. Passing `api_key`
+  inline per tool call is supported for multi-account local workflows.
+
+How to mark a new catalog tool (ChatGPT `noauth` + inherit `ENVIA_API_KEY`):
+see [documentation/tool-access.md](documentation/tool-access.md).
 
 ```bash
 # HTTP mode (default)
@@ -133,29 +152,38 @@ route that serves `src/chat/` is tracked as a Sprint 4 item.
 
 ## Available tools
 
-| Tool | `api_key` | Description |
-|------|-----------|-------------|
-| `envia_validate_address` | optional | Validate postal codes, look up cities, and surface country-specific required fields |
-| `envia_list_carriers` | **required** | List available carriers and services for a country |
-| `envia_list_additional_services` | **required** | List optional add-ons (insurance, COD, signatures) for a route |
-| `envia_quote_shipment` | **required** | Compare rates across carriers with auto-resolved addresses |
-| `envia_create_shipment` | **required** | Purchase a shipping label with dynamic address validation and BR DCe support |
-| `envia_get_ecommerce_order` | **required** | Fetch ecommerce order details and build shipment payloads |
-| `envia_track_package` | optional | Track one or more shipments |
-| `envia_cancel_shipment` | **required** | Void a label and reclaim balance |
-| `envia_schedule_pickup` | **required** | Schedule carrier pickup |
-| `envia_get_shipment_history` | **required** | List shipments by month |
-| `envia_classify_hscode` | optional | Classify product HS/NCM code for customs and BR DCe |
-| `envia_create_commercial_invoice` | **required** | Generate customs invoice PDF |
+| Tool | Access | Description |
+|------|--------|-------------|
+| `envia_validate_address` | catalog | Validate postal codes, look up cities, and surface country-specific required fields |
+| `envia_list_carriers` | catalog | List available carriers and services for a country |
+| `envia_list_additional_services` | catalog | List optional add-ons (insurance, COD, signatures) for a route |
+| `envia_quote_shipment` | authenticated | Compare rates across carriers with auto-resolved addresses |
+| `envia_create_shipment` | authenticated | Purchase a shipping label with dynamic address validation and BR DCe support |
+| `envia_get_ecommerce_order` | authenticated | Fetch ecommerce order details and build shipment payloads |
+| `envia_track_package` | anonymous | Track one or more shipments (no API key or OAuth required) |
+| `envia_cancel_shipment` | authenticated | Void a label and reclaim balance |
+| `envia_schedule_pickup` | authenticated | Schedule carrier pickup |
+| `envia_get_shipment_history` | authenticated | List shipments by month |
+| `envia_classify_hscode` | catalog | Classify product HS/NCM code for customs and BR DCe |
+| `envia_create_commercial_invoice` | authenticated | Generate customs invoice PDF |
 
 ### Authentication
 
-Every tool accepts an `api_key` parameter that overrides the server-level `ENVIA_API_KEY`. This enables multi-tenant setups where different users provide their own credentials per request.
+Every tool accepts an optional `api_key` that overrides the request credential.
+This enables multi-tenant stdio setups where developers pass their own key.
 
-- **Required tools** (9) — `api_key` must be provided. These operate on user-specific data (rates, labels, orders, pickups, history).
-- **Optional tools** (3) — `api_key` is optional. `envia_validate_address`, `envia_track_package`, and `envia_classify_hscode` work with the server default but accept an override.
+- **Anonymous** — `envia_track_package`. Works with no API key and no OAuth
+  token. Envia `POST /ship/generaltrack` is public.
+- **Public catalog** — `envia_validate_address`, `envia_list_carriers`,
+  `envia_list_additional_services`, `envia_get_carrier_constraints`,
+  `envia_get_additional_service_prices`, `envia_classify_hscode`,
+  `envia_get_branches_catalog`, `envia_find_drop_off`,
+  `envia_ai_address_requirements`. Callable without user login; the server
+  uses `ENVIA_API_KEY` against Envia catalog APIs that require auth.
+- **Authenticated** — quotes, labels, orders, pickups, history, and other
+  account-specific tools. HTTP callers must send a user OAuth token.
 
-When no override is provided, the server falls back to `ENVIA_API_KEY` from the environment.
+Developer guide: [documentation/tool-access.md](documentation/tool-access.md).
 
 ### Additional services
 
@@ -298,7 +326,11 @@ AI:  [fetches order with envia_create_shipment(order_identifier="1062")]
 ```
 src/
 ├── index.ts               # Entry point — transport selection (stdio / HTTP)
-├── config.ts              # Environment configuration
+├── config.ts              # Environment configuration (request apiKey + serverApiKey)
+├── auth/                  # OAuth provider, optional Bearer, public-catalog access
+│   ├── provider.ts        #   Queries OAuth proxy
+│   ├── optional-bearer.ts #   Skip Bearer verification when the header is absent
+│   └── tool-access.ts     #   asPublicCatalogTool + resolvePublicCatalogClient
 ├── builders/              # Domain-specific payload constructors
 │   ├── address.ts         #   Address objects for rate and generate APIs
 │   ├── package.ts         #   Package objects with items and additional services
@@ -329,7 +361,7 @@ src/
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `ENVIA_API_KEY` | Yes | — | Default Envia JWT token (tools can override per-request via `api_key`) |
+| `ENVIA_API_KEY` | stdio: yes; HTTP catalogs: yes; tracking-only: no | — | Default Envia JWT. Catalog tools inherit it on anonymous HTTP. Authenticated HTTP tools never inherit it. |
 | `ENVIA_ENVIRONMENT` | No | `sandbox` | `sandbox` or `production` |
 | `MCP_TRANSPORT` | No | `http` | `http` or `stdio` |
 | `PORT` | No | `3000` | HTTP server port (http mode only) |

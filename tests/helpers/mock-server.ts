@@ -13,13 +13,15 @@ export type ToolHandler = (
 
 export function createMockServer() {
     const handlers = new Map<string, ToolHandler>();
+    const toolConfigs = new Map<string, Record<string, unknown>>();
 
     const server = {
         registerTool: (
             name: string,
-            _config: { description?: string; inputSchema?: unknown },
+            config: Record<string, unknown>,
             cb: ToolHandler,
         ) => {
+            toolConfigs.set(name, config);
             handlers.set(name, cb);
             return {
                 enabled: true,
@@ -43,5 +45,5 @@ export function createMockServer() {
         }),
     };
 
-    return { server: server as unknown as McpServer, handlers };
+    return { server: server as unknown as McpServer, handlers, toolConfigs };
 }

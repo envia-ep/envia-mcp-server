@@ -28,17 +28,13 @@ export const postalCodeSchema = z
     .regex(/^[A-Za-z0-9 -]{3,10}$/, "Postal code must be 3-10 alphanumeric characters");
 
 /**
- * Account-sensitive API key parameter — used by tools that perform
- * account-level operations (rates, labels, pickups, cancellations, etc.).
+ * Account-sensitive API key parameter — used by authenticated tools
+ * (rates, labels, pickups, cancellations, etc.).
  *
- * Deployment model notes (v1):
- *   - HTTP / portal-embedded: the MCP uses the server-level ENVIA_API_KEY.
- *     Per-request overrides are accepted by the schema but are not the
- *     primary auth mechanism — the portal backend supplies the credential.
- *   - stdio / IDE: the per-request override is the main path for developers
- *     that need to switch between accounts without restarting the MCP.
+ * HTTP mixed-auth: these tools require a user OAuth token. They must not
+ * inherit ENVIA_API_KEY on anonymous requests. See documentation/tool-access.md.
  *
- * Optional: when omitted the server-level ENVIA_API_KEY is used.
+ * stdio / IDE: when omitted the server-level ENVIA_API_KEY is used.
  * If provided, the value must be non-empty after trimming.
  */
 export const requiredApiKeySchema = z
@@ -55,8 +51,10 @@ export const requiredApiKeySchema = z
     );
 
 /**
- * Optional API key parameter — used by tools that can work with
- * the server default but accept an override (tracking, validation, HS codes).
+ * Optional API key — anonymous and public-catalog tools.
+ *
+ * Tracking omits credentials entirely. Catalog tools inherit ENVIA_API_KEY
+ * when the user has no credential (see resolvePublicCatalogClient).
  */
 export const optionalApiKeySchema = z
     .string()

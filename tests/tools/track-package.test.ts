@@ -5,11 +5,12 @@ import {
   MOCK_TRACKING_RESPONSE,
 } from "../helpers/fixtures.js";
 import { EnviaApiClient } from "../../src/utils/api-client.js";
-import { registerTrackPackage } from "../../src/tools/track-package.js";
+import { registerTrackPackage, TRACK_PACKAGE_SECURITY_SCHEMES } from "../../src/tools/track-package.js";
 
 describe("envia_track_package", () => {
   let handler: ToolHandler;
   let mockFetch: ReturnType<typeof vi.fn>;
+  let toolConfigs: Map<string, Record<string, unknown>>;
 
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -20,10 +21,11 @@ describe("envia_track_package", () => {
     });
     vi.stubGlobal("fetch", mockFetch);
 
-    const { server, handlers } = createMockServer();
+    const mock = createMockServer();
+    toolConfigs = mock.toolConfigs;
     const client = new EnviaApiClient(MOCK_CONFIG);
-    registerTrackPackage(server, client, MOCK_CONFIG);
-    handler = handlers.get("envia_track_package")!;
+    registerTrackPackage(mock.server, client, MOCK_CONFIG);
+    handler = mock.handlers.get("envia_track_package")!;
   });
 
   afterEach(() => {
@@ -261,5 +263,37 @@ describe("envia_track_package", () => {
     const text = result.content[0].text;
 
     expect(text).toContain("Tracking failed:");
+  });
+
+  it("should advertise noauth so tracking works without OAuth", () => {
+    const config = toolConfigs.get("envia_track_package");
+
+    expect(config?.securitySchemes).toEqual(TRACK_PACKAGE_SECURITY_SCHEMES);
+    expect((config?._meta as { securitySchemes: unknown })?.securitySchemes).toEqual(
+      TRACK_PACKAGE_SECURITY_SCHEMES,
+    );
+  });
+
+  it("should return tracking status when the client has no API key", async () => {
+    const { server, handlers } = createMockServer();
+    const anonymousConfig = { ...MOCK_CONFIG, apiKey: "" };
+    registerTrackPackage(server, new EnviaApiClient(anonymousConfig), anonymousConfig);
+    const anonymousHandler = handlers.get("envia_track_package")!;
+
+    const result = await anonymousHandler({ tracking_numbers: "7520610403" });
+
+    expect(result.content[0].text).toContain("Tracking: 7520610403");
+  });
+
+  it("should omit Authorization when the client has no API key", async () => {
+    const { server, handlers } = createMockServer();
+    const anonymousConfig = { ...MOCK_CONFIG, apiKey: "" };
+    registerTrackPackage(server, new EnviaApiClient(anonymousConfig), anonymousConfig);
+    const anonymousHandler = handlers.get("envia_track_package")!;
+
+    await anonymousHandler({ tracking_numbers: "7520610403" });
+
+    const headers = mockFetch.mock.calls[0][1].headers as Record<string, string>;
+    expect(headers.Authorization).toBeUndefined();
   });
 });

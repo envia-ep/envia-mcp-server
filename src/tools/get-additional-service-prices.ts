@@ -12,9 +12,9 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { EnviaApiClient } from '../utils/api-client.js';
-import { resolveClient } from '../utils/api-client.js';
 import type { EnviaConfig } from '../config.js';
-import { requiredApiKeySchema } from '../utils/schemas.js';
+import { optionalApiKeySchema } from '../utils/schemas.js';
+import { asPublicCatalogTool, resolvePublicCatalogClient } from '../auth/tool-access.js';
 import { textResponse } from '../utils/mcp-response.js';
 import { mapCarrierError } from '../utils/error-mapper.js';
 
@@ -62,7 +62,7 @@ export function registerGetAdditionalServicePrices(
 ): void {
     server.registerTool(
         'envia_get_additional_service_prices',
-        {
+        asPublicCatalogTool({
             description:
                 'Get the pricing for all optional add-on services available on a specific carrier service. ' +
                 'Returns standard prices and any company-level custom overrides. ' +
@@ -74,14 +74,14 @@ export function registerGetAdditionalServicePrices(
                 destructiveHint: false,
             },
             inputSchema: z.object({
-                api_key: requiredApiKeySchema,
+                api_key: optionalApiKeySchema,
                 service_id: z.number().int().min(1).describe(
                     'Carrier service ID (numeric). Available from envia_list_carriers or a quote response.',
                 ),
             }),
-        },
+        }),
         async (args) => {
-            const activeClient = resolveClient(client, args.api_key, config);
+            const activeClient = resolvePublicCatalogClient(client, args.api_key, config);
             const url = `${config.queriesBase}/additional-services/prices/${args.service_id}`;
             const res = await activeClient.get<AdditionalServicePriceRow[]>(url);
 

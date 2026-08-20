@@ -13,9 +13,9 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { EnviaApiClient } from '../../utils/api-client.js';
-import { resolveClient } from '../../utils/api-client.js';
 import type { EnviaConfig } from '../../config.js';
-import { requiredApiKeySchema } from '../../utils/schemas.js';
+import { optionalApiKeySchema } from '../../utils/schemas.js';
+import { asPublicCatalogTool, resolvePublicCatalogClient } from '../../auth/tool-access.js';
 import { textResponse } from '../../utils/mcp-response.js';
 import { mapCarrierError } from '../../utils/error-mapper.js';
 
@@ -82,7 +82,7 @@ export function registerFindDropOff(
 ): void {
     server.registerTool(
         'envia_find_drop_off',
-        {
+        asPublicCatalogTool({
             description:
                 'Find carrier branch locations (drop-off points, lockers, warehouses, third-party pickup ' +
                 'sites) for a specific carrier. Use whenever the user asks "where can I drop off a package", ' +
@@ -107,7 +107,7 @@ export function registerFindDropOff(
                 destructiveHint: false,
             },
             inputSchema: z.object({
-                api_key: requiredApiKeySchema,
+                api_key: optionalApiKeySchema,
                 carrier: z.string().min(1).describe(
                     'Carrier slug (e.g. "fedex", "dhl", "estafeta", "ups"). Use envia_list_carriers for slugs.',
                 ),
@@ -130,9 +130,9 @@ export function registerFindDropOff(
                     'Shipment type: 1=parcel (default), 2=pallet, 3=full truck.',
                 ),
             }),
-        },
+        }),
         async (args) => {
-            const activeClient = resolveClient(client, args.api_key, config);
+            const activeClient = resolvePublicCatalogClient(client, args.api_key, config);
 
             const body: Record<string, unknown> = {
                 carrier: args.carrier.trim().toLowerCase(),

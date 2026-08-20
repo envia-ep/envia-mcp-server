@@ -12,9 +12,9 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { EnviaApiClient } from "../utils/api-client.js";
-import { resolveClient } from "../utils/api-client.js";
 import type { EnviaConfig } from "../config.js";
 import { countrySchema, optionalApiKeySchema } from "../utils/schemas.js";
+import { asPublicCatalogTool, resolvePublicCatalogClient } from "../auth/tool-access.js";
 import { fetchGenericForm, getRequiredFields } from "../services/generic-form.js";
 import { textResponse } from '../utils/mcp-response.js';
 import { transformPostalCode } from "../utils/address-resolver.js";
@@ -43,7 +43,7 @@ export function registerValidateAddress(
 ): void {
     server.registerTool(
         "envia_validate_address",
-        {
+        asPublicCatalogTool({
             description:
                 "Validate a postal code or look up a city to get the correct city, state, and country values. " +
                 "Use this before creating labels to prevent address-related errors. " +
@@ -65,10 +65,10 @@ export function registerValidateAddress(
                     .optional()
                     .describe("City name to look up (e.g. Monterrey, Bogota). Used when postal code is unknown."),
             }),
-        },
+        }),
         async (args) => {
             const { country, postal_code, city } = args;
-            const activeClient = resolveClient(client, args.api_key, config);
+            const activeClient = resolvePublicCatalogClient(client, args.api_key, config);
 
             const countryCode = country.trim().toUpperCase();
 

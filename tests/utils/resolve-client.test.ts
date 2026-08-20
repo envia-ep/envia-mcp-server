@@ -71,4 +71,36 @@ describe('resolveClient', () => {
         const headers = init?.headers as Record<string, string>;
         expect(headers.Authorization).toBe('Bearer padded-key-12345');
     });
+
+    it('should inherit serverApiKey when inheritServerApiKey is set and the request key is empty', async () => {
+        const anonymousConfig = { ...MOCK_CONFIG, apiKey: '', serverApiKey: 'server-catalog-key' };
+        const anonymousClient = new EnviaApiClient(anonymousConfig);
+        const catalogClient = resolveClient(anonymousClient, undefined, anonymousConfig, {
+            inheritServerApiKey: true,
+        });
+        const mockFetch = vi.mocked(fetch);
+        mockFetch.mockResolvedValueOnce(new Response(JSON.stringify({}), { status: 200 }));
+
+        await catalogClient.get(`${MOCK_CONFIG.queriesBase}/test`);
+
+        const headers = mockFetch.mock.calls[0][1]?.headers as Record<string, string>;
+        expect(headers.Authorization).toBe('Bearer server-catalog-key');
+    });
+
+    it('should not inherit serverApiKey when inheritServerApiKey is unset', async () => {
+        const anonymousConfig = { ...MOCK_CONFIG, apiKey: '', serverApiKey: 'server-catalog-key' };
+        const anonymousClient = new EnviaApiClient(anonymousConfig);
+        const result = resolveClient(anonymousClient, undefined, anonymousConfig);
+
+        expect(result).toBe(anonymousClient);
+    });
+
+    it('should keep the user credential when inheritServerApiKey is set and apiKey is present', () => {
+        const userConfig = { ...MOCK_CONFIG, apiKey: 'user-oauth-token', serverApiKey: 'server-catalog-key' };
+        const userClient = new EnviaApiClient(userConfig);
+
+        const result = resolveClient(userClient, undefined, userConfig, { inheritServerApiKey: true });
+
+        expect(result).toBe(userClient);
+    });
 });

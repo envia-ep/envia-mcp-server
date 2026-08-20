@@ -16,8 +16,14 @@
  *    messages from stdin and writes responses to stdout. Used by CLI-based
  *    MCP hosts (e.g. Claude Desktop, Cursor).
  *
- * Required env:
- *   ENVIA_API_KEY          — your Envia JWT token
+ * HTTP mixed-auth:
+ *   ENVIA_API_KEY is required for public catalog tools (carriers, add-ons,
+ *   address validation). Tracking works without it. Account tools need a user
+ *   OAuth token and do not inherit ENVIA_API_KEY on anonymous requests.
+ *   See documentation/tool-access.md.
+ *
+ * stdio:
+ *   ENVIA_API_KEY is required at startup.
  *
  * Optional env:
  *   ENVIA_ENVIRONMENT      — "sandbox" (default) | "production"
@@ -42,6 +48,7 @@ import { mcpAuthRouter } from '@modelcontextprotocol/sdk/server/auth/router.js';
 import { requireBearerAuth } from '@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js';
 
 import { createEnviaOAuthProvider } from './auth/provider.js';
+import { optionalBearerAuth } from './auth/optional-bearer.js';
 import { loadConfig } from './config.js';
 import { EnviaApiClient } from './utils/api-client.js';
 import { childLogger, getLogger } from './utils/logger.js';
@@ -313,9 +320,19 @@ const MIME: Record<string, string> = {
  * `decorateServerWithLogging`. Pass an empty object when context is
  * not yet known — the decorator still runs and produces useful events
  * with just the tool name + duration.
+ *
+ * @param logContext - Correlation or session identifiers attached to tool_call events
+ * @param apiKey - Per-request Envia credential. Empty string with `allowMissingApiKey` skips ENVIA_API_KEY.
+ * @param options - `allowMissingApiKey` lets unauthenticated HTTP requests serve public tools
+ * @returns Configured MCP server with every Envia tool registered
+ * @throws When no API key is available and `allowMissingApiKey` is not set
  */
-function createEnviaServer(logContext: { correlationId?: string; sessionId?: string } = {}, apiKey?: string): McpServer {
-    const config = loadConfig(apiKey);
+function createEnviaServer(
+    logContext: { correlationId?: string; sessionId?: string } = {},
+    apiKey?: string,
+    options: { allowMissingApiKey?: boolean } = {},
+): McpServer {
+    const config = loadConfig(apiKey, options);
     const client = new EnviaApiClient(config);
 
     const server = new McpServer(
@@ -495,8 +512,9 @@ async function startStdioMode(): Promise<void> {
  * Start the MCP server in HTTP mode with an Express app.
  *
  * Each POST /mcp request gets an isolated server + transport pair.
- * OAuth 2.0 + RFC 7591 DCR is provided by mcpAuthRouter; the /mcp endpoint
- * requires a valid Bearer token issued by that OAuth flow.
+ * OAuth 2.0 + RFC 7591 DCR is provided by mcpAuthRouter. Bearer tokens are
+ * optional: unauthenticated requests can initialize, list tools, and call
+ * public tools (`envia_track_package`). Invalid tokens still receive 401.
  */
 function startHttpMode(): void {
     const oauthProvider = createEnviaOAuthProvider();
@@ -571,7 +589,8 @@ function startHttpMode(): void {
     });
 
     // Bearer-auth middleware — validates OAuth access tokens and populates req.auth.
-    const bearerAuth = requireBearerAuth({ verifier: oauthProvider });
+    // Optional so ChatGPT can track shipments without signing in.
+    const bearerAuth = optionalBearerAuth(requireBearerAuth({ verifier: oauthProvider }));
 
     app.use('/mcp', (_req: Request, res: Response, next: NextFunction) => {
         const originalStatus = res.status.bind(res);
@@ -600,8 +619,8 @@ function startHttpMode(): void {
         reqLog.debug({ event: 'mcp_request_received' }, 'POST /mcp received');
 
         try {
-            // OAuth token verified by bearerAuth middleware; Envia API key retrieved
-            // via token exchange from the queries OAuth AS and cached in provider.
+            // OAuth token verified when present. Unauthenticated requests get an empty
+            // key so they cannot inherit ENVIA_API_KEY and call protected Envia APIs.
             const enviaApiKey = req.auth?.extra?.['enviaApiKey'] as string | undefined;
 
             // The MCP SDK transport requires Accept to include text/event-stream.
@@ -611,7 +630,11 @@ function startHttpMode(): void {
                 req.headers['accept'] = 'application/json, text/event-stream';
             }
 
-            const server = createEnviaServer({ correlationId }, enviaApiKey);
+            const server = createEnviaServer(
+                { correlationId },
+                enviaApiKey ?? '',
+                { allowMissingApiKey: !enviaApiKey },
+            );
             const transport = new StreamableHTTPServerTransport({
                 sessionIdGenerator: undefined,
             });

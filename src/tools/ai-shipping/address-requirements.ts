@@ -18,9 +18,9 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { EnviaApiClient } from '../../utils/api-client.js';
-import { resolveClient } from '../../utils/api-client.js';
 import type { EnviaConfig } from '../../config.js';
-import { countrySchema, requiredApiKeySchema } from '../../utils/schemas.js';
+import { countrySchema, optionalApiKeySchema } from '../../utils/schemas.js';
+import { asPublicCatalogTool, resolvePublicCatalogClient } from '../../auth/tool-access.js';
 import { textResponse } from '../../utils/mcp-response.js';
 import { mapCarrierError } from '../../utils/error-mapper.js';
 
@@ -38,7 +38,7 @@ export function registerAiAddressRequirements(
 ): void {
     server.registerTool(
         'envia_ai_address_requirements',
-        {
+        asPublicCatalogTool({
             description:
                 'Get the required and optional address fields for shipping to or from a country. ' +
                 'Returns which fields (street, number, neighborhood, postal code, etc.) are mandatory ' +
@@ -51,14 +51,14 @@ export function registerAiAddressRequirements(
                 destructiveHint: false,
             },
             inputSchema: z.object({
-                api_key: requiredApiKeySchema,
+                api_key: optionalApiKeySchema,
                 country: countrySchema.describe(
                     'ISO 3166-1 alpha-2 country code (e.g. "MX", "CO", "BR", "US").',
                 ),
             }),
-        },
+        }),
         async (args) => {
-            const activeClient = resolveClient(client, args.api_key, config);
+            const activeClient = resolvePublicCatalogClient(client, args.api_key, config);
             const country = args.country.toUpperCase();
             const url = `${config.queriesBase}/ai/shipping/address-requirements/${encodeURIComponent(country)}`;
             const res = await activeClient.get<unknown>(url);

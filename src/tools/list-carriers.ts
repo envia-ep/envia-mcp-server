@@ -8,9 +8,9 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { EnviaApiClient } from '../utils/api-client.js';
-import { resolveClient } from '../utils/api-client.js';
 import type { EnviaConfig } from '../config.js';
-import { countrySchema, requiredApiKeySchema } from '../utils/schemas.js';
+import { countrySchema, optionalApiKeySchema } from '../utils/schemas.js';
+import { asPublicCatalogTool, resolvePublicCatalogClient } from '../auth/tool-access.js';
 import { mapCarrierError } from '../utils/error-mapper.js';
 import { textResponse } from '../utils/mcp-response.js';
 
@@ -39,7 +39,7 @@ export function registerListCarriers(
 ): void {
     server.registerTool(
         "envia_list_carriers",
-        {
+        asPublicCatalogTool({
             description:
                 "List available shipping carriers for a country. Optionally include their services. " +
                 "Use this to find which carrier and service codes to pass to envia_quote_shipment or envia_create_shipment.",
@@ -49,7 +49,7 @@ export function registerListCarriers(
                 destructiveHint: false,
             },
             inputSchema: z.object({
-                api_key: requiredApiKeySchema,
+                api_key: optionalApiKeySchema,
                 country: countrySchema.describe("ISO 3166-1 alpha-2 country code (e.g. MX, US, CO)"),
                 international: z
                     .boolean()
@@ -60,10 +60,10 @@ export function registerListCarriers(
                     .default(false)
                     .describe("Set to true to also list available services per carrier."),
             }),
-        },
+        }),
         async (args) => {
             const { country, international, include_services } = args;
-            const activeClient = resolveClient(client, args.api_key, config);
+            const activeClient = resolvePublicCatalogClient(client, args.api_key, config);
             const countryCode = country.trim().toUpperCase();
             const intl = international ? 1 : 0;
 
