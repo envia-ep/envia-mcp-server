@@ -44,9 +44,9 @@ export const requiredApiKeySchema = z
     .optional()
     .describe(
         'Optional Envia API key. When provided, overrides the server-level ENVIA_API_KEY ' +
-        'for this request. Primary use case: stdio / IDE integrations where each developer ' +
-        'uses a personal credential. In HTTP portal-embedded deployments (v1) the server-level ' +
-        'key is used by default. Works with session token or API key. ' +
+        'for this request. stdio / IDE: omit to use ENVIA_API_KEY. HTTP mixed-auth: this tool ' +
+        'requires a user OAuth token and does not inherit ENVIA_API_KEY on anonymous requests. ' +
+        'Works with session token or API key. ' +
         'Get yours at https://shipping.envia.com/settings/developers',
     );
 
