@@ -64,7 +64,10 @@ export class EnviaApiClient {
     }
 
     /**
-     * Perform an authenticated request against any Envia API.
+     * Perform a request against any Envia API.
+     *
+     * Sends a Bearer token when `config.apiKey` is set; public endpoints (tracking)
+     * omit Authorization so they work without credentials.
      *
      * Retries automatically on 429 (rate-limited) and 5xx errors.
      * Blocks requests to non-Envia domains (SSRF prevention).
@@ -100,10 +103,12 @@ export class EnviaApiClient {
                 const timer = setTimeout(() => controller.abort(), timeoutMs);
 
                 const headers: Record<string, string> = {
-                    Authorization: `Bearer ${this.config.apiKey}`,
                     "Content-Type": "application/json",
                     Accept: "application/json",
                 };
+                if (this.config.apiKey) {
+                    headers.Authorization = `Bearer ${this.config.apiKey}`;
+                }
 
                 const response = await fetch(url, {
                     method,
@@ -179,23 +184,41 @@ export class EnviaApiClient {
 // Client resolution (API key override)
 // ---------------------------------------------------------------------------
 
+export interface ResolveClientOptions {
+    /**
+     * Public catalog tools: when the request has no user credential, use
+     * `config.serverApiKey` (ENVIA_API_KEY). Leave unset for anonymous tools
+     * such as tracking.
+     */
+    inheritServerApiKey?: boolean;
+}
+
 /**
  * Return a client that uses the given API key override, or the original
  * client when no override is provided.
  *
- * @param client   - Default API client (uses server-level ENVIA_API_KEY)
+ * @param client   - Default API client (request credential, may be empty)
  * @param apiKey   - Per-request API key override from tool input
  * @param config   - Server configuration (cloned with the new key)
+ * @param options  - `inheritServerApiKey` marks catalog tools that use ENVIA_API_KEY
  * @returns The appropriate EnviaApiClient instance
  */
 export function resolveClient(
     client: EnviaApiClient,
     apiKey: string | undefined,
     config: EnviaConfig,
+    options: ResolveClientOptions = {},
 ): EnviaApiClient {
     const key = apiKey?.trim();
     if (key && key !== config.apiKey) {
         return new EnviaApiClient({ ...config, apiKey: key });
+    }
+    if (config.apiKey) {
+        return client;
+    }
+    const serverKey = options.inheritServerApiKey ? config.serverApiKey?.trim() : '';
+    if (serverKey) {
+        return new EnviaApiClient({ ...config, apiKey: serverKey });
     }
     return client;
 }

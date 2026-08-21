@@ -11,8 +11,9 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { EnviaApiClient } from '../../utils/api-client.js';
-import { resolveClient } from '../../utils/api-client.js';
 import type { EnviaConfig } from '../../config.js';
+import { optionalApiKeySchema } from '../../utils/schemas.js';
+import { asPublicCatalogTool, resolvePublicCatalogClient } from '../../auth/tool-access.js';
 import { textResponse } from '../../utils/mcp-response.js';
 import { mapCarrierError } from '../../utils/error-mapper.js';
 import { queryBranchCatalogApi } from '../../services/branches.js';
@@ -27,7 +28,7 @@ export function registerGetBranchesCatalog(
 ): void {
     server.registerTool(
         'envia_get_branches_catalog',
-        {
+        asPublicCatalogTool({
             description:
                 'Get the full hierarchical catalog of states and localities where a carrier has branches. ' +
                 'Returns a map of state → [localities] so you can discover coverage before searching. ' +
@@ -38,9 +39,7 @@ export function registerGetBranchesCatalog(
                 destructiveHint: false,
             },
             inputSchema: z.object({
-                api_key: z.string().optional().describe(
-                    'Envia API key. Optional — branches catalog is a public endpoint. Uses server key if omitted.',
-                ),
+                api_key: optionalApiKeySchema,
                 carrier: z.string().min(1).describe(
                     'Carrier slug (e.g. "fedex", "dhl", "estafeta"). Use envia_list_carriers to see slugs.',
                 ),
@@ -48,9 +47,9 @@ export function registerGetBranchesCatalog(
                     'ISO 3166-1 alpha-2 country code (e.g. "MX", "CO", "BR").',
                 ),
             }),
-        },
+        }),
         async (args) => {
-            const activeClient = resolveClient(client, args.api_key, config);
+            const activeClient = resolvePublicCatalogClient(client, args.api_key, config);
 
             const path = `/branches/${encodeURIComponent(args.carrier)}/${encodeURIComponent(args.country_code)}/catalog`;
             const res = await queryBranchCatalogApi(activeClient, config, path);

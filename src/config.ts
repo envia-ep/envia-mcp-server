@@ -8,8 +8,13 @@
 export type EnviaEnvironment = "sandbox" | "production";
 
 export interface EnviaConfig {
-    /** JWT bearer token for Envia APIs. */
+    /** JWT bearer token for Envia APIs. Empty when the request is unauthenticated. */
     apiKey: string;
+    /**
+     * Process-level ENVIA_API_KEY. Public catalog tools inherit this when the
+     * request has no user credential. Anonymous tools (tracking) must not use it.
+     */
+    serverApiKey?: string;
     /** "sandbox" (default) or "production". */
     environment: EnviaEnvironment;
     /** Base URL for the Shipping API (e.g. ship/rate, ship/generate). */
@@ -24,8 +29,8 @@ export interface EnviaConfig {
 
 const BASES: Record<EnviaEnvironment, { shipping: string; queries: string }> = {
     sandbox: {
-        shipping: "https://api.test.envia.com",
-        queries: "https://queries.test.envia.com",
+        shipping: "https://api-test.envia.com",
+        queries: "https://queries-test.envia.com",
     },
     production: {
         shipping: "https://api.envia.com",
@@ -39,18 +44,37 @@ const BASES: Record<EnviaEnvironment, { shipping: string; queries: string }> = {
  */
 const GEOCODES_BASE = "https://geocodes.envia.com";
 
+export interface LoadConfigOptions {
+    /**
+     * When true, a missing API key is allowed so public tools (tracking) can run.
+     * Combined with an explicit `apiKeyOverride` (including `''`), the process
+     * `ENVIA_API_KEY` is not used — unauthenticated HTTP requests must not inherit it.
+     */
+    allowMissingApiKey?: boolean;
+}
+
 /**
  * Build configuration from environment variables.
  *
- * Required:
+ * Required (unless `allowMissingApiKey` is true):
  *   ENVIA_API_KEY  — your JWT token
  *
  * Optional:
  *   ENVIA_ENVIRONMENT — "sandbox" (default) | "production"
+ *
+ * @param apiKeyOverride - Per-request key. Empty string with `allowMissingApiKey` skips the env fallback.
+ * @param options - Loader flags
+ * @returns Typed Envia configuration
+ * @throws When no API key is available and `allowMissingApiKey` is not set
  */
-export function loadConfig(apiKeyOverride?: string): EnviaConfig {
-    const apiKey = apiKeyOverride?.trim() || process.env.ENVIA_API_KEY?.trim();
-    if (!apiKey) {
+export function loadConfig(apiKeyOverride?: string, options: LoadConfigOptions = {}): EnviaConfig {
+    const envKey = process.env.ENVIA_API_KEY?.trim() || '';
+    const skipEnvFallback = options.allowMissingApiKey === true && apiKeyOverride !== undefined;
+    const apiKey = skipEnvFallback
+        ? apiKeyOverride.trim()
+        : (apiKeyOverride?.trim() || envKey);
+
+    if (!apiKey && !options.allowMissingApiKey) {
         throw new Error(
             "ENVIA_API_KEY is required. Set it as an environment variable.\n" +
             "  Sandbox dashboard:    https://shipping-test.envia.com/settings/developers\n" +
@@ -70,6 +94,7 @@ export function loadConfig(apiKeyOverride?: string): EnviaConfig {
 
     return {
         apiKey,
+        serverApiKey: envKey || undefined,
         environment,
         shippingBase: urls.shipping,
         queriesBase: urls.queries,

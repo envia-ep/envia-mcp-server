@@ -26,6 +26,22 @@ describe("EnviaApiClient", () => {
     vi.restoreAllMocks();
   });
 
+  it("should omit the Authorization header when apiKey is empty", async () => {
+    const anonymousClient = new EnviaApiClient({ ...mockConfig, apiKey: "" });
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ data: "ok" }),
+    });
+    vi.stubGlobal("fetch", mockFetch);
+
+    await anonymousClient.get("https://api-test.envia.com/test");
+
+    expect(mockFetch).toHaveBeenCalledOnce();
+    const headers = mockFetch.mock.calls[0][1].headers as Record<string, string>;
+    expect(headers.Authorization).toBeUndefined();
+  });
+
   it("sends Authorization header with Bearer token", async () => {
     const mockFetch = vi.fn().mockResolvedValue({
       ok: true,

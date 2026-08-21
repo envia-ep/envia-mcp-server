@@ -22,9 +22,9 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { EnviaApiClient } from '../utils/api-client.js';
-import { resolveClient } from '../utils/api-client.js';
 import type { EnviaConfig } from '../config.js';
-import { requiredApiKeySchema } from '../utils/schemas.js';
+import { optionalApiKeySchema } from '../utils/schemas.js';
+import { asPublicCatalogTool, resolvePublicCatalogClient } from '../auth/tool-access.js';
 import { textResponse } from '../utils/mcp-response.js';
 import { fetchCarrierConstraints } from '../services/carrier-constraints.js';
 import { parseToolResponse } from '../utils/response-validator.js';
@@ -246,7 +246,7 @@ export function registerGetCarrierConstraints(
 ): void {
     server.registerTool(
         'envia_get_carrier_constraints',
-        {
+        asPublicCatalogTool({
             description:
                 'Get the full capability profile for a specific carrier: pickup window, ' +
                 'per-service weight limits, COD configuration, drop-off support, optional ' +
@@ -263,7 +263,7 @@ export function registerGetCarrierConstraints(
                 destructiveHint: false,
             },
             inputSchema: z.object({
-                api_key: requiredApiKeySchema,
+                api_key: optionalApiKeySchema,
                 carrier_id: z
                     .number()
                     .int()
@@ -285,9 +285,9 @@ export function registerGetCarrierConstraints(
                         '"coverage_summary" — postal-code coverage aggregated by country (may be slow).',
                     ),
             }),
-        },
+        }),
         async (args) => {
-            const activeClient = resolveClient(client, args.api_key, config);
+            const activeClient = resolvePublicCatalogClient(client, args.api_key, config);
 
             try {
                 const rawResponse = await fetchCarrierConstraints(

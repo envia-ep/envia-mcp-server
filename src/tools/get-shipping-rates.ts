@@ -12,10 +12,10 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { EnviaApiClient } from '../utils/api-client.js';
-import { resolveClient } from '../utils/api-client.js';
 import type { EnviaConfig } from '../config.js';
 import type { RateCostSummary } from '../types/carriers-api.js';
-import { countrySchema, requiredApiKeySchema } from '../utils/schemas.js';
+import { countrySchema, optionalApiKeySchema } from '../utils/schemas.js';
+import { asPublicCatalogTool, resolvePublicCatalogClient, withAnonymousFallbackDisclaimer } from '../auth/tool-access.js';
 import { resolveAddress } from '../utils/address-resolver.js';
 import { textResponse } from '../utils/mcp-response.js';
 import { buildRateAddress } from '../builders/address.js';
@@ -63,7 +63,7 @@ export function registerGetShippingRates(
 ): void {
     server.registerTool(
         'envia_quote_shipment',
-        {
+        asPublicCatalogTool({
             description:
                 'Get shipping rates for a parcel shipment across ALL available carriers and services. ' +
                 'Use this whenever the user asks "how much does it cost", "compare carriers", ' +
@@ -86,7 +86,7 @@ export function registerGetShippingRates(
                 destructiveHint: false,
             },
             inputSchema: z.object({
-                api_key: requiredApiKeySchema,
+                api_key: optionalApiKeySchema,
                 origin_postal_code: z.string().optional().describe(
                     'Origin postal / ZIP code. City and state are resolved automatically. ' +
                     'Required for most countries (MX, US, CA, BR, etc.). ' +
@@ -168,18 +168,28 @@ export function registerGetShippingRates(
                     'Adds a cash_on_delivery additional service automatically.',
                 ),
             }),
-        },
+        }),
         async (args) => {
-            const activeClient = resolveClient(client, args.api_key, config);
+            const activeClient = resolvePublicCatalogClient(client, args.api_key, config);
+            /**
+             * Wrap a tool reply, adding the assigned-rates disclaimer when this
+             * request fell back to ENVIA_API_KEY because no user auth was sent.
+             *
+             * @param text - Response body to return to the caller
+             * @returns MCP text response, with disclaimer when unauthenticated
+             */
+            const respond = (text: string) => textResponse(
+                withAnonymousFallbackDisclaimer(text, args.api_key, config),
+            );
 
             if (!args.origin_postal_code && !args.origin_city) {
-                return textResponse(
+                return respond(
                     'Error: Provide either origin_postal_code or origin_city. ' +
                     'Use postal code for MX, US, CA, BR, etc. Use city for CO, CL, GT, PA, HN, PE, BO.',
                 );
             }
             if (!args.destination_postal_code && !args.destination_city) {
-                return textResponse(
+                return respond(
                     'Error: Provide either destination_postal_code or destination_city. ' +
                     'Use postal code for MX, US, CA, BR, etc. Use city for CO, CL, GT, PA, HN, PE, BO.',
                 );
@@ -224,7 +234,7 @@ export function registerGetShippingRates(
             if (additionalServices.length > 0) {
                 const validationError = validateInsuranceExclusivity(additionalServices);
                 if (validationError) {
-                    return textResponse(`Error: ${validationError}`);
+                    return respond(`Error: ${validationError}`);
                 }
             }
 
@@ -269,7 +279,7 @@ export function registerGetShippingRates(
                 );
 
                 if (carrierList.length === 0) {
-                    return textResponse(
+                    return respond(
                         'No carriers available for this country and shipment type. ' +
                         'Use envia_list_carriers to verify available carriers.',
                     );
@@ -286,7 +296,7 @@ export function registerGetShippingRates(
                     .map((name) => ({ name, import: 0, third_party: 0 }));
 
                 if (carrierList.length === 0) {
-                    return textResponse(
+                    return respond(
                         'Error: Provide at least one carrier code (e.g. "dhl") or "all". ' +
                         'Use envia_list_carriers to find available carriers.',
                     );
@@ -347,7 +357,7 @@ export function registerGetShippingRates(
                 const msg = errors.length
                     ? `No rates found. Errors:\n${errors.map((e) => `  • ${e}`).join('\n')}`
                     : 'No rates returned for the given route and carriers.';
-                return textResponse(msg);
+                return respond(msg);
             }
 
             allRates.sort(
@@ -426,7 +436,7 @@ export function registerGetShippingRates(
                 'Next step: use envia_create_shipment with the chosen carrier and service to purchase the label.',
             );
 
-            return textResponse(lines.join('\n'));
+            return respond(lines.join('\n'));
         },
     );
 }

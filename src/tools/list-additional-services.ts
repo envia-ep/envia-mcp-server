@@ -18,9 +18,9 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { EnviaApiClient } from '../utils/api-client.js';
-import { resolveClient } from '../utils/api-client.js';
 import type { EnviaConfig } from '../config.js';
-import { countrySchema, requiredApiKeySchema } from '../utils/schemas.js';
+import { countrySchema, optionalApiKeySchema } from '../utils/schemas.js';
+import { asPublicCatalogTool, resolvePublicCatalogClient, withAnonymousFallbackDisclaimer } from '../auth/tool-access.js';
 import { textResponse } from '../utils/mcp-response.js';
 import { fetchAvailableAdditionalServices, type AdditionalServiceInfo } from '../services/additional-service.js';
 
@@ -38,7 +38,7 @@ export function registerListAdditionalServices(
 ): void {
     server.registerTool(
         'envia_list_additional_services',
-        {
+        asPublicCatalogTool({
             description:
                 'List optional additional services available for a shipment route. ' +
                 'Use this before quoting or creating a shipment to discover which services ' +
@@ -56,7 +56,7 @@ export function registerListAdditionalServices(
                 destructiveHint: false,
             },
             inputSchema: z.object({
-                api_key: requiredApiKeySchema,
+                api_key: optionalApiKeySchema,
                 origin_country: countrySchema.describe(
                     'Origin country (ISO 3166-1 alpha-2, e.g. MX, CO, BR). Required.',
                 ),
@@ -68,9 +68,19 @@ export function registerListAdditionalServices(
                     'Shipment type: 1 = parcel (default), 2 = LTL.',
                 ),
             }),
-        },
+        }),
         async (args) => {
-            const activeClient = resolveClient(client, args.api_key, config);
+            const activeClient = resolvePublicCatalogClient(client, args.api_key, config);
+            /**
+             * Wrap a tool reply, adding the assigned-rates disclaimer when this
+             * request fell back to ENVIA_API_KEY because no user auth was sent.
+             *
+             * @param text - Response body to return to the caller
+             * @returns MCP text response, with disclaimer when unauthenticated
+             */
+            const respond = (text: string) => textResponse(
+                withAnonymousFallbackDisclaimer(text, args.api_key, config),
+            );
             const originCountry = args.origin_country.toUpperCase();
             const destinationCountry = args.destination_country?.toUpperCase();
             const international = !!destinationCountry && destinationCountry !== originCountry;
@@ -85,14 +95,14 @@ export function registerListAdditionalServices(
             );
 
             if (services.length === 0) {
-                return textResponse(
+                return respond(
                     `No additional services found for ${originCountry}` +
                     (international ? ` → ${destinationCountry}` : '') +
                     ` (shipment type ${args.shipment_type}).`,
                 );
             }
 
-            return textResponse(formatServiceList(services, originCountry, destinationCountry));
+            return respond(formatServiceList(services, originCountry, destinationCountry));
         },
     );
 }

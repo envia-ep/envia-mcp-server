@@ -12,7 +12,8 @@ export const OAUTH_TOKENS_STORAGE_KEY = 'envia_mcp_oauth_tokens';
 export const DEFAULT_OAUTH_SCOPE = 'mcp:ship';
 export const DEFAULT_CLIENT_NAME = 'Envia MCP Chat Demo';
 
-const LOOPBACK_HOSTS = new Set(['127.0.0.1', '::1']);
+/** Node 18 reports IPv6 as `[::1]`; WHATWG / Node 19+ report `::1`. */
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', '::1', '[::1]']);
 
 export interface OAuthStorage {
     getItem(key: string): string | null;

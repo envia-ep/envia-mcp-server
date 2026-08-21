@@ -1,3 +1,5 @@
+import { webcrypto } from 'node:crypto';
+
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 import {
@@ -14,6 +16,13 @@ import {
     OAUTH_PKCE_STORAGE_KEY,
     OAUTH_TOKENS_STORAGE_KEY,
 } from '../../src/chat/oauth-client.js';
+
+if (typeof globalThis.crypto === 'undefined') {
+    Object.defineProperty(globalThis, 'crypto', {
+        value: webcrypto,
+        configurable: true,
+    });
+}
 
 const MCP_ORIGIN = 'http://127.0.0.1:3000';
 

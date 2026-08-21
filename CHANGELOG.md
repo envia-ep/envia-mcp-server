@@ -55,6 +55,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Mixed-auth HTTP** — `POST /mcp` no longer requires a Bearer token. Tracking and catalog tools can run without user OAuth; account tools still need a user token and do not inherit `ENVIA_API_KEY` on anonymous requests. Guide: `documentation/tool-access.md`.
+- **Public catalog access helpers** — `asPublicCatalogTool` and `resolvePublicCatalogClient` in `src/auth/tool-access.ts` mark catalog tools that ChatGPT can call anonymously while still sending `ENVIA_API_KEY` to Envia APIs that require auth.
+- **Anonymous tracking** — `envia_track_package` works with no API key and no OAuth token (`POST /ship/generaltrack` is public).
+- **Public catalog tools** — `envia_list_carriers`, `envia_list_additional_services`, `envia_get_carrier_constraints`, `envia_get_additional_service_prices`, `envia_validate_address`, `envia_classify_hscode`, `envia_get_branches_catalog`, `envia_find_drop_off`, and `envia_ai_address_requirements` are callable without user login and inherit `ENVIA_API_KEY` for Envia catalog APIs.
+
 - **Ecommerce order integration** — New `envia_get_ecommerce_order` tool fetches V4 orders and builds ready-to-use rate/generate payloads. Supports multi-location orders with fulfillment status detection.
 - **Dual-mode `create_shipment`** — Label creation now supports both manual mode (addresses + carrier) and ecommerce mode (pass `order_identifier` for one-step label creation from an order).
 - **International shipment items** — `create_shipment` accepts an `items` array for customs documentation on international shipments. Automatically detects international routes and validates that items are provided.
