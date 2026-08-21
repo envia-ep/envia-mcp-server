@@ -107,8 +107,8 @@ list tools, and call public tools.
 | Access | User OAuth | Uses `ENVIA_API_KEY` | Tools |
 |--------|------------|----------------------|-------|
 | **Anonymous** | Optional | No | `envia_track_package` |
-| **Public catalog** | Optional | Yes, when the user has no credential | Carriers, add-ons, address validation, HS codes, branches |
-| **Authenticated** | Required | No (never inherited on anonymous HTTP) | Quotes, labels, orders, pickups, cancellations |
+| **Public catalog** | Optional | Yes, when the user has no credential | Carriers, add-ons, address validation, quotes, HS codes, branches |
+| **Authenticated** | Required | No (never inherited on anonymous HTTP) | Labels, orders, pickups, cancellations |
 
 - **HTTP:** unauthenticated calls to authenticated tools do **not** inherit
   `ENVIA_API_KEY`. Catalog tools do, because those Envia APIs still require a
@@ -157,7 +157,7 @@ route that serves `src/chat/` is tracked as a Sprint 4 item.
 | `envia_validate_address` | catalog | Validate postal codes, look up cities, and surface country-specific required fields |
 | `envia_list_carriers` | catalog | List available carriers and services for a country |
 | `envia_list_additional_services` | catalog | List optional add-ons (insurance, COD, signatures) for a route |
-| `envia_quote_shipment` | authenticated | Compare rates across carriers with auto-resolved addresses |
+| `envia_quote_shipment` | catalog | Compare rates across carriers with auto-resolved addresses |
 | `envia_create_shipment` | authenticated | Purchase a shipping label with dynamic address validation and BR DCe support |
 | `envia_get_ecommerce_order` | authenticated | Fetch ecommerce order details and build shipment payloads |
 | `envia_track_package` | anonymous | Track one or more shipments (no API key or OAuth required) |
@@ -175,12 +175,16 @@ This enables multi-tenant stdio setups where developers pass their own key.
 - **Anonymous** — `envia_track_package`. Works with no API key and no OAuth
   token. Envia `POST /ship/generaltrack` is public.
 - **Public catalog** — `envia_validate_address`, `envia_list_carriers`,
-  `envia_list_additional_services`, `envia_get_carrier_constraints`,
+  `envia_list_additional_services`, `envia_quote_shipment`,
+  `envia_get_carrier_constraints`,
   `envia_get_additional_service_prices`, `envia_classify_hscode`,
   `envia_get_branches_catalog`, `envia_find_drop_off`,
   `envia_ai_address_requirements`. Callable without user login; the server
   uses `ENVIA_API_KEY` against Envia catalog APIs that require auth.
-- **Authenticated** — quotes, labels, orders, pickups, history, and other
+  Quote, additional-services, and address-validation replies include a
+  disclaimer when no user auth is sent: availability and pricing may vary,
+  so callers should sign in to get their assigned rates.
+- **Authenticated** — labels, orders, pickups, history, and other
   account-specific tools. HTTP callers must send a user OAuth token.
 
 Developer guide: [documentation/tool-access.md](documentation/tool-access.md).

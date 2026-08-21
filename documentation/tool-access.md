@@ -11,8 +11,8 @@ Source of truth for the helpers: `src/auth/tool-access.ts`.
 | Mode | User OAuth | `ENVIA_API_KEY` | Envia `Authorization` header | When to use |
 |------|------------|-----------------|------------------------------|-------------|
 | **Anonymous** | Optional | Not used | Omitted when no user credential | Public Envia endpoints (tracking) |
-| **Public catalog** | Optional | Inherited when the user has no credential | Server key, or user token if logged in | Catalogs that Envia still authenticates |
-| **Authenticated** | Required | Not inherited | User token only | Quotes, labels, orders, cancellations |
+| **Public catalog** | Optional | Inherited when the user has no credential | Server key, or user token if logged in | Catalogs that Envia still authenticates; quotes, add-ons, and address validation |
+| **Authenticated** | Required | Not inherited | User token only | Labels, orders, cancellations |
 
 Unauthenticated HTTP requests **do not** fall back to `ENVIA_API_KEY` for
 authenticated tools. That prevents an anonymous caller from creating labels
@@ -76,16 +76,28 @@ Credential precedence for catalog tools:
 2. User OAuth token on the HTTP request
 3. `ENVIA_API_KEY` (`config.serverApiKey`)
 
+## Assigned-rates disclaimer
+
+`envia_quote_shipment`, `envia_list_additional_services`, and
+`envia_validate_address` prepend a disclaimer when the request has **no**
+user credential and the handler falls back to `ENVIA_API_KEY`. The message
+states that service availability and pricing may vary, and it encourages the
+caller to sign in (or send an API key) to receive their assigned rates.
+
+Authenticated requests (user OAuth or `api_key`) do not include the
+disclaimer. Use `withAnonymousFallbackDisclaimer` from `src/auth/tool-access.ts`.
+
 ## Tools already marked
 
 | Tool | Mode |
 |------|------|
 | `envia_track_package` | Anonymous |
 | `envia_list_carriers` | Public catalog |
-| `envia_list_additional_services` | Public catalog |
+| `envia_list_additional_services` | Public catalog (disclaimer when unauthenticated) |
+| `envia_quote_shipment` | Public catalog (disclaimer when unauthenticated) |
 | `envia_get_carrier_constraints` | Public catalog |
 | `envia_get_additional_service_prices` | Public catalog |
-| `envia_validate_address` | Public catalog |
+| `envia_validate_address` | Public catalog (disclaimer when unauthenticated) |
 | `envia_classify_hscode` | Public catalog |
 | `envia_get_branches_catalog` | Public catalog |
 | `envia_find_drop_off` | Public catalog |
@@ -105,7 +117,7 @@ without `inheritServerApiKey`.
 
 ## Related files
 
-- `src/auth/tool-access.ts` — `asPublicCatalogTool`, `resolvePublicCatalogClient`
+- `src/auth/tool-access.ts` — `asPublicCatalogTool`, `resolvePublicCatalogClient`, `withAnonymousFallbackDisclaimer`
 - `src/auth/optional-bearer.ts` — skip Bearer verification when the header is absent
 - `src/config.ts` — `apiKey` (request) vs `serverApiKey` (`ENVIA_API_KEY`)
 - `src/utils/api-client.ts` — `resolveClient(..., { inheritServerApiKey: true })`

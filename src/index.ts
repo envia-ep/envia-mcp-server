@@ -18,8 +18,9 @@
  *
  * HTTP mixed-auth:
  *   ENVIA_API_KEY is required for public catalog tools (carriers, add-ons,
- *   address validation). Tracking works without it. Account tools need a user
- *   OAuth token and do not inherit ENVIA_API_KEY on anonymous requests.
+ *   address validation, quotes). Tracking works without it. Account tools
+ *   (labels, orders, cancellations) need a user OAuth token and do not
+ *   inherit ENVIA_API_KEY on anonymous requests.
  *   See documentation/tool-access.md.
  *
  * stdio:

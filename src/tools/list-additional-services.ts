@@ -20,7 +20,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { EnviaApiClient } from '../utils/api-client.js';
 import type { EnviaConfig } from '../config.js';
 import { countrySchema, optionalApiKeySchema } from '../utils/schemas.js';
-import { asPublicCatalogTool, resolvePublicCatalogClient } from '../auth/tool-access.js';
+import { asPublicCatalogTool, resolvePublicCatalogClient, withAnonymousFallbackDisclaimer } from '../auth/tool-access.js';
 import { textResponse } from '../utils/mcp-response.js';
 import { fetchAvailableAdditionalServices, type AdditionalServiceInfo } from '../services/additional-service.js';
 
@@ -71,6 +71,16 @@ export function registerListAdditionalServices(
         }),
         async (args) => {
             const activeClient = resolvePublicCatalogClient(client, args.api_key, config);
+            /**
+             * Wrap a tool reply, adding the assigned-rates disclaimer when this
+             * request fell back to ENVIA_API_KEY because no user auth was sent.
+             *
+             * @param text - Response body to return to the caller
+             * @returns MCP text response, with disclaimer when unauthenticated
+             */
+            const respond = (text: string) => textResponse(
+                withAnonymousFallbackDisclaimer(text, args.api_key, config),
+            );
             const originCountry = args.origin_country.toUpperCase();
             const destinationCountry = args.destination_country?.toUpperCase();
             const international = !!destinationCountry && destinationCountry !== originCountry;
@@ -85,14 +95,14 @@ export function registerListAdditionalServices(
             );
 
             if (services.length === 0) {
-                return textResponse(
+                return respond(
                     `No additional services found for ${originCountry}` +
                     (international ? ` → ${destinationCountry}` : '') +
                     ` (shipment type ${args.shipment_type}).`,
                 );
             }
 
-            return textResponse(formatServiceList(services, originCountry, destinationCountry));
+            return respond(formatServiceList(services, originCountry, destinationCountry));
         },
     );
 }

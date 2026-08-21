@@ -7,7 +7,9 @@
  * - authenticated — user OAuth required; never inherit ENVIA_API_KEY
  *
  * Mark a catalog tool with `asPublicCatalogTool(...)` on `registerTool` and
- * `resolvePublicCatalogClient(...)` in the handler.
+ * `resolvePublicCatalogClient(...)` in the handler. Quote, additional-services,
+ * and address-validation tools also prepend `ANONYMOUS_FALLBACK_DISCLAIMER`
+ * when they inherit ENVIA_API_KEY.
  */
 
 import type { EnviaApiClient } from '../utils/api-client.js';
@@ -70,4 +72,53 @@ export function resolvePublicCatalogClient(
     config: EnviaConfig,
 ): EnviaApiClient {
     return resolveClient(client, apiKey, config, PUBLIC_CATALOG_CLIENT_OPTIONS);
+}
+
+/**
+ * Disclaimer prepended when a catalog/quote tool falls back to ENVIA_API_KEY
+ * because the caller did not send a user credential.
+ */
+export const ANONYMOUS_FALLBACK_DISCLAIMER =
+    'Disclaimer: Service availability and pricing may vary from the rates assigned to your account. ' +
+    'Sign in or provide your API key to get your assigned rates.';
+
+/**
+ * True when the request has no user credential (OAuth or api_key) and the
+ * server will inherit `config.serverApiKey` (ENVIA_API_KEY).
+ *
+ * @param apiKey - Optional per-request override from tool input
+ * @param config - Server configuration including request `apiKey` and `serverApiKey`
+ * @returns Whether the call uses ENVIA_API_KEY as an anonymous fallback
+ */
+export function isUsingServerApiKeyFallback(
+    apiKey: string | undefined,
+    config: EnviaConfig,
+): boolean {
+    if (apiKey?.trim()) {
+        return false;
+    }
+    if (config.apiKey?.trim()) {
+        return false;
+    }
+    return Boolean(config.serverApiKey?.trim());
+}
+
+/**
+ * Prepend the anonymous-fallback disclaimer when the request used ENVIA_API_KEY
+ * because no user auth was sent. Authenticated responses are unchanged.
+ *
+ * @param text - Tool response body
+ * @param apiKey - Optional per-request override from tool input
+ * @param config - Server configuration including request `apiKey` and `serverApiKey`
+ * @returns Response text, with disclaimer prepended when falling back
+ */
+export function withAnonymousFallbackDisclaimer(
+    text: string,
+    apiKey: string | undefined,
+    config: EnviaConfig,
+): string {
+    if (!isUsingServerApiKeyFallback(apiKey, config)) {
+        return text;
+    }
+    return `${ANONYMOUS_FALLBACK_DISCLAIMER}\n\n${text}`;
 }

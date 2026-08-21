@@ -14,7 +14,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { EnviaApiClient } from "../utils/api-client.js";
 import type { EnviaConfig } from "../config.js";
 import { countrySchema, optionalApiKeySchema } from "../utils/schemas.js";
-import { asPublicCatalogTool, resolvePublicCatalogClient } from "../auth/tool-access.js";
+import { asPublicCatalogTool, resolvePublicCatalogClient, withAnonymousFallbackDisclaimer } from "../auth/tool-access.js";
 import { fetchGenericForm, getRequiredFields } from "../services/generic-form.js";
 import { textResponse } from '../utils/mcp-response.js';
 import { transformPostalCode } from "../utils/address-resolver.js";
@@ -69,12 +69,22 @@ export function registerValidateAddress(
         async (args) => {
             const { country, postal_code, city } = args;
             const activeClient = resolvePublicCatalogClient(client, args.api_key, config);
+            /**
+             * Wrap a tool reply, adding the assigned-rates disclaimer when this
+             * request fell back to ENVIA_API_KEY because no user auth was sent.
+             *
+             * @param text - Response body to return to the caller
+             * @returns MCP text response, with disclaimer when unauthenticated
+             */
+            const respond = (text: string) => textResponse(
+                withAnonymousFallbackDisclaimer(text, args.api_key, config),
+            );
 
             const countryCode = country.trim().toUpperCase();
 
             // At least one of postal_code or city is required
             if (!postal_code && !city) {
-                return textResponse('Error: Provide at least one of postal_code or city to validate.');
+                return respond('Error: Provide at least one of postal_code or city to validate.');
             }
 
             const results: string[] = [];
@@ -170,7 +180,7 @@ export function registerValidateAddress(
                 }
             }
 
-            return textResponse(results.join("\n\n"));
+            return respond(results.join("\n\n"));
         },
     );
 }
