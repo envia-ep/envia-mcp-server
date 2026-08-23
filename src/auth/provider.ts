@@ -57,6 +57,8 @@ export function sanitizeDcrPayload(payload: Record<string, unknown>): Record<str
     for (const key of DCR_PAYLOAD_KEYS) {
         if (payload[key] !== undefined) sanitized[key] = payload[key];
     }
+    // queries only supports public clients (PKCE); force auth method regardless of what the client requests
+    sanitized['token_endpoint_auth_method'] = 'none';
     return sanitized;
 }
 
@@ -72,18 +74,9 @@ async function proxyOAuthFetch(input: RequestInfo | URL, init?: RequestInit): Pr
     const url = String(input);
     let nextInit = init;
     if (url.includes('/oauth/v2/register') && typeof init?.body === 'string') {
-        const sanitized = sanitizeDcrRequestBody(init.body);
-        console.log('[oauth/register] outgoing body:', sanitized);
-        nextInit = { ...init, body: sanitized };
+        nextInit = { ...init, body: sanitizeDcrRequestBody(init.body) };
     }
-    const response = await fetch(input, nextInit);
-    if (url.includes('/oauth/v2/register')) {
-        const clone = response.clone();
-        clone.text().then((body) => {
-            console.log('[oauth/register] upstream status:', response.status, 'body:', body);
-        }).catch(() => undefined);
-    }
-    return response;
+    return fetch(input, nextInit);
 }
 
 /**
