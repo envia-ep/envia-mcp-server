@@ -99,6 +99,23 @@ export function sanitizeDcrRequestBody(body: string): string {
 }
 
 /**
+ * Select the credential used for downstream Envia API calls.
+ *
+ * When queries embeds the user's permanent Envia API key as a JWT claim
+ * (`envia_api_key`), that key is used because it has no expiration and
+ * carries the correct audience for queries.envia.com. Falls back to the
+ * JWT itself while the backend claim is being rolled out.
+ *
+ * @param payload - Decoded JWT payload
+ * @param jwtToken - Raw JWT string (fallback)
+ * @returns Credential for downstream API calls
+ */
+export function selectEnviaApiKey(payload: Record<string, unknown>, jwtToken: string): string {
+    const embedded = typeof payload['envia_api_key'] === 'string' ? payload['envia_api_key'].trim() : '';
+    return embedded || jwtToken;
+}
+
+/**
  * Verifies the queries-issued JWT locally. The JWT itself is the credential
  * used against queries (token_user accepts OAuth JWTs). No API-key exchange.
  *
@@ -138,6 +155,8 @@ async function verifyAccessToken(
     const exp = typeof payload['exp'] === 'number' ? payload['exp'] : 0;
     const scope = typeof payload['scope'] === 'string' ? payload['scope'] : '';
 
+    const enviaApiKey = selectEnviaApiKey(payload, token);
+
     return {
         token,
         clientId: String(payload['client_id'] ?? ''),
@@ -147,7 +166,7 @@ async function verifyAccessToken(
             sub,
             company_id: payload['company_id'],
             jti,
-            enviaApiKey: token,
+            enviaApiKey,
         },
     };
 }
