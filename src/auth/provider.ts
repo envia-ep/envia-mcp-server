@@ -16,15 +16,26 @@ export function createEnviaOAuthProvider(): ProxyOAuthServerProvider {
     const jwtKey = getJwtKey();
     const resource = getResourceUri();
 
+    const registrationUrl = `${issuer}/oauth/v2/register`;
+
     return new ProxyOAuthServerProvider({
         endpoints: {
             authorizationUrl: `${issuer}/oauth/v2/authorize`,
             tokenUrl: `${issuer}/oauth/v2/token`,
             revocationUrl: `${issuer}/oauth/v2/revoke`,
-            registrationUrl: `${issuer}/oauth/v2/register`,
+            registrationUrl,
         },
         verifyAccessToken: (token: string) => verifyAccessToken(token, issuer, jwtKey, resource),
         getClient: (clientId: string) => fetchClient(clientId, issuer),
+        // queries rejects the `response_types` field — strip it before forwarding
+        fetch: async (url: RequestInfo | URL, init?: RequestInit) => {
+            if (url === registrationUrl && init?.method === 'POST' && typeof init.body === 'string') {
+                const body = JSON.parse(init.body) as Record<string, unknown>;
+                delete body['response_types'];
+                init = { ...init, body: JSON.stringify(body) };
+            }
+            return fetch(url, init);
+        },
     });
 }
 
