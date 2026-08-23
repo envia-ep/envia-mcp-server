@@ -514,6 +514,10 @@ function startHttpMode(): void {
     // allowing the Heroku router to forward requests with external Host headers.
     const app = createMcpExpressApp({ host: HOST });
 
+    // Heroku and Cloudflare sit in front of the dyno, so trust the first proxy hop
+    // for correct IP resolution in express-rate-limit.
+    app.set('trust proxy', 1);
+
     // OAuth 2.0 relay endpoints — mcpAuthRouter wires /.well-known/*, /oauth/*.
     // The ProxyOAuthServerProvider delegates all auth to the queries OAuth AS.
     const mcpScopes = [
