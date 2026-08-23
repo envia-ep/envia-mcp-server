@@ -45,7 +45,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { createMcpExpressApp } from '@modelcontextprotocol/sdk/server/express.js';
-import { mcpAuthRouter } from '@modelcontextprotocol/sdk/server/auth/router.js';
+import { mcpAuthRouter, createOAuthMetadata } from '@modelcontextprotocol/sdk/server/auth/router.js';
 import { requireBearerAuth } from '@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js';
 
 import { createEnviaOAuthProvider } from './auth/provider.js';
@@ -560,13 +560,27 @@ function startHttpMode(): void {
         'tickets:write',
     ];
 
-    app.use(mcpAuthRouter({
+    // Override the SDK's default metadata which advertises client_secret_post.
+    // queries only supports public PKCE clients (token_endpoint_auth_method=none),
+    // so advertising client_secret_post causes clients like Claude to register as
+    // confidential clients and then fail. Serve corrected metadata first so the
+    // mcpAuthRouter route below never gets a chance to serve the wrong value.
+    const authRouterOptions = {
         provider: oauthProvider,
         issuerUrl,
         serviceDocumentationUrl: new URL('https://docs.envia.com/docs/mcp-overview'),
         scopesSupported: mcpScopes,
         resourceName: 'Envia Shipping MCP',
-    }));
+    };
+    const correctedMetadata = {
+        ...createOAuthMetadata(authRouterOptions),
+        token_endpoint_auth_methods_supported: ['none'],
+    };
+    app.get('/.well-known/oauth-authorization-server', (_req: Request, res: Response) => {
+        res.json(correctedMetadata);
+    });
+
+    app.use(mcpAuthRouter(authRouterOptions));
 
     const resourceUri = issuerUrl.href.replace(/\/$/, '');
     const queriesIssuer = (process.env.ENVIA_QUERIES_HOSTNAME ?? '').replace(/\/$/, '');
