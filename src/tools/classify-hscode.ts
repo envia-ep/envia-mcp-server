@@ -9,9 +9,9 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { EnviaApiClient } from "../utils/api-client.js";
-import { resolveClient } from "../utils/api-client.js";
 import type { EnviaConfig } from "../config.js";
 import { optionalApiKeySchema } from "../utils/schemas.js";
+import { asPublicCatalogTool, resolvePublicCatalogClient } from "../auth/tool-access.js";
 import { mapCarrierError } from '../utils/error-mapper.js';
 import { textResponse } from '../utils/mcp-response.js';
 
@@ -37,7 +37,7 @@ export function registerClassifyHscode(
 ): void {
     server.registerTool(
         "envia_classify_hscode",
-        {
+        asPublicCatalogTool({
             description:
                 "Classify a product into an HS code (known as NCM in Brazil) for customs and regulatory compliance. " +
                 "Describe the product in plain language and optionally specify destination countries. " +
@@ -67,10 +67,10 @@ export function registerClassifyHscode(
                     .default(true)
                     .describe("Include alternative HS code suggestions (default: true)"),
             }),
-        },
+        }),
         async (args) => {
             const { description, hs_code_provided, destination_countries, include_alternatives } = args;
-            const activeClient = resolveClient(client, args.api_key, config);
+            const activeClient = resolvePublicCatalogClient(client, args.api_key, config);
 
             const body: Record<string, unknown> = {
                 description,

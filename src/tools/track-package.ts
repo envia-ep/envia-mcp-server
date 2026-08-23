@@ -34,31 +34,54 @@ interface TrackData {
     eventHistory?: TrackEvent[];
 }
 
+/** ChatGPT mixed-auth: tracking is public; OAuth is optional for richer account context. */
+export const TRACK_PACKAGE_SECURITY_SCHEMES = [
+    { type: 'noauth' },
+    { type: 'oauth2', scopes: ['mcp:read', 'shipments:read'] },
+];
+
+/**
+ * Register the envia_track_package tool. Auth is optional: `/ship/generaltrack` is public.
+ * Do not use `resolvePublicCatalogClient` — tracking must not inherit ENVIA_API_KEY.
+ *
+ * @param server - MCP server instance
+ * @param client - Default Envia API client (may have an empty key)
+ * @param config - Server configuration
+ */
 export function registerTrackPackage(
     server: McpServer,
     client: EnviaApiClient,
     config: EnviaConfig,
 ): void {
+    const toolConfig = {
+        description:
+            "Track one or more packages by their tracking numbers. " +
+            "Returns the current status and event history for each shipment. " +
+            "Does not require an API key or OAuth login — tracking is a public lookup.",
+        annotations: {
+            readOnlyHint: true,
+            openWorldHint: true,
+            destructiveHint: false,
+        },
+        securitySchemes: TRACK_PACKAGE_SECURITY_SCHEMES,
+        _meta: {
+            securitySchemes: TRACK_PACKAGE_SECURITY_SCHEMES,
+        },
+        inputSchema: z.object({
+            api_key: optionalApiKeySchema.describe(
+                'Optional Envia API key or OAuth token. Tracking works without credentials.',
+            ),
+            tracking_numbers: z
+                .string()
+                .describe(
+                    "One or more tracking numbers, comma-separated (e.g. '7520610403' or '7520610403,7520610404')",
+                ),
+        }),
+    };
+
     server.registerTool(
         "envia_track_package",
-        {
-            description:
-                "Track one or more packages by their tracking numbers. " +
-                "Returns the current status and event history for each shipment.",
-            annotations: {
-                readOnlyHint: true,
-                openWorldHint: true,
-                destructiveHint: false,
-            },
-            inputSchema: z.object({
-                api_key: optionalApiKeySchema,
-                tracking_numbers: z
-                    .string()
-                    .describe(
-                        "One or more tracking numbers, comma-separated (e.g. '7520610403' or '7520610403,7520610404')",
-                    ),
-            }),
-        },
+        toolConfig,
         async (args) => {
             const { tracking_numbers } = args;
             const activeClient = resolveClient(client, args.api_key, config);

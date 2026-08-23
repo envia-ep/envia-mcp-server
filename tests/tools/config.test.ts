@@ -66,4 +66,34 @@ describe("loadConfig", () => {
 
     expect(config.apiKey).toBe("my-secret-token");
   });
+
+  it("should allow a missing API key when allowMissingApiKey is true", () => {
+    const config = loadConfig(undefined, { allowMissingApiKey: true });
+
+    expect(config.apiKey).toBe("");
+  });
+
+  it("should not inherit ENVIA_API_KEY when an empty override is passed with allowMissingApiKey", () => {
+    process.env.ENVIA_API_KEY = "server-secret-key";
+
+    const config = loadConfig("", { allowMissingApiKey: true });
+
+    expect(config.apiKey).toBe("");
+  });
+
+    it("should use the override key when allowMissingApiKey is true", () => {
+    process.env.ENVIA_API_KEY = "server-secret-key";
+
+    const config = loadConfig("oauth-access-token", { allowMissingApiKey: true });
+
+    expect(config.apiKey).toBe("oauth-access-token");
+  });
+
+  it("should keep ENVIA_API_KEY on serverApiKey when the request key is empty", () => {
+    process.env.ENVIA_API_KEY = "server-secret-key";
+
+    const config = loadConfig("", { allowMissingApiKey: true });
+
+    expect(config.serverApiKey).toBe("server-secret-key");
+  });
 });

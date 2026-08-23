@@ -500,10 +500,13 @@
     <!-- Demo warning banner -->
     <div role="alert" style="background:#fef3c7;border-bottom:2px solid #f59e0b;color:#78350f;padding:8px 16px;font-family:system-ui,-apple-system,sans-serif;font-size:12px;line-height:1.4;flex-shrink:0;">
         <strong>⚠ Development / demo UI.</strong>
-        Keys and tokens entered here travel through the browser
+        Sign in uses the queries OAuth 2.0 server (consent on envia-clients).
+        LLM keys entered here travel through the browser
         (via <code>anthropic-dangerous-direct-browser-access</code>) and are visible to DevTools and extensions.
-        <strong>Do not paste production credentials</strong> — this is for local MCP testing only.
-        Production flow is the portal-embedded agent (see README → Deployment model).
+        <strong>Do not use production credentials</strong> — point this page at stage
+        (<code>queries-test</code>) for end-to-end auth tests.
+        Open the chat at <code>http://127.0.0.1</code>, not <code>localhost</code>
+        (loopback redirect URIs cannot use the localhost hostname).
     </div>
 
     <!-- App shell wraps sidebar + main + debug so the demo banner above doesn't break flex layout. -->
@@ -528,8 +531,18 @@
             <label for="llm-model">Model (optional)</label>
             <input type="text" id="llm-model" placeholder="Auto-detected">
 
-            <label for="envia-token">Envia Bearer Token</label>
-            <input type="password" id="envia-token" placeholder="Your Envia API token">
+            <label>Envia account</label>
+            <button class="btn btn-primary" id="btn-oauth" type="button">Sign in with Envia</button>
+            <div id="oauth-status" style="margin: 8px 0 10px; font-size: 12px; color: var(--text-muted); text-align: center;">
+                Not signed in
+            </div>
+            <button class="btn btn-outline" id="btn-signout" type="button" style="display: none; margin-bottom: 10px;">Sign out</button>
+
+            <details style="margin-bottom: 10px;">
+                <summary style="font-size: 12px; color: var(--text-muted); cursor: pointer;">Paste a token instead</summary>
+                <label for="envia-token" style="margin-top: 8px;">Envia Bearer Token</label>
+                <input type="password" id="envia-token" placeholder="OAuth JWT or API token">
+            </details>
 
             <button class="btn btn-primary" id="btn-connect">Connect</button>
             <div style="margin-top: 8px; text-align: center;">
@@ -552,7 +565,7 @@
         </div>
         <div class="messages" id="messages">
             <div class="message-system">
-                Configure your MCP server URL, LLM API key, and Envia token, then click Connect.
+                Sign in with Envia (stage consent), enter an LLM API key, then click Connect.
             </div>
         </div>
         <div class="input-area">
@@ -576,15 +589,25 @@
 
     <script type="module">
         import { McpClient, LLMOrchestrator } from './chat-client.js';
+        import { ChatOAuthSession, canonicalizeOrigin } from './oauth-client.js';
+
+        if (window.location.hostname === 'localhost') {
+            const loopback = new URL(window.location.href);
+            loopback.hostname = '127.0.0.1';
+            window.location.replace(loopback.href);
+        }
 
         // ── DOM refs ──
         const $ = (sel) => document.querySelector(sel);
         const mcpUrlInput = $('#mcp-url');
-        mcpUrlInput.value = window.location.origin;
+        mcpUrlInput.value = canonicalizeOrigin(window.location.origin);
         const llmProviderSelect = $('#llm-provider');
         const llmKeyInput = $('#llm-key');
         const llmModelInput = $('#llm-model');
         const enviaTokenInput = $('#envia-token');
+        const btnOauth = $('#btn-oauth');
+        const btnSignout = $('#btn-signout');
+        const oauthStatus = $('#oauth-status');
         const btnConnect = $('#btn-connect');
         const statusBadge = $('#status-badge');
         const toolsList = $('#tools-list');
@@ -600,6 +623,55 @@
         let mcpClient = null;
         let orchestrator = null;
         let isProcessing = false;
+        const oauth = new ChatOAuthSession(canonicalizeOrigin(window.location.origin));
+
+        function renderOauthStatus() {
+            if (oauth.isSignedIn()) {
+                const scope = oauth.getGrantedScope();
+                oauthStatus.textContent = scope ? `Signed in · ${scope}` : 'Signed in';
+                oauthStatus.style.color = 'var(--success)';
+                btnOauth.textContent = 'Signed in with Envia';
+                btnOauth.disabled = true;
+                btnSignout.style.display = 'inline-flex';
+            } else {
+                oauthStatus.textContent = 'Not signed in';
+                oauthStatus.style.color = 'var(--text-muted)';
+                btnOauth.textContent = 'Sign in with Envia';
+                btnOauth.disabled = false;
+                btnSignout.style.display = 'none';
+            }
+        }
+
+        btnOauth.addEventListener('click', async () => {
+            try {
+                btnOauth.disabled = true;
+                btnOauth.textContent = 'Redirecting…';
+                await oauth.startLogin();
+            } catch (err) {
+                addMessage('error', `Sign-in failed: ${err.message}`);
+                renderOauthStatus();
+            }
+        });
+
+        btnSignout.addEventListener('click', () => {
+            oauth.signOut();
+            renderOauthStatus();
+            addSystemMessage('Signed out of Envia.');
+        });
+
+        (async () => {
+            try {
+                const handled = await oauth.handleRedirect(window.location.search);
+                if (handled) {
+                    history.replaceState({}, '', window.location.pathname);
+                    addSystemMessage('Envia sign-in complete. Enter an LLM key and click Connect.');
+                }
+            } catch (err) {
+                history.replaceState({}, '', window.location.pathname);
+                addMessage('error', `OAuth callback failed: ${err.message}`);
+            }
+            renderOauthStatus();
+        })();
 
         // ── Debug panel ──
         btnToggleDebug.addEventListener('click', () => {
@@ -699,17 +771,25 @@
             const mcpUrl = mcpUrlInput.value.trim();
             const llmKey = llmKeyInput.value.trim();
             const provider = llmProviderSelect.value;
-            const enviaToken = enviaTokenInput.value.trim();
+            let enviaToken = enviaTokenInput.value.trim();
 
             if (!mcpUrl) return alert('Please enter the MCP Server URL');
             if (!llmKey) return alert('Please enter your LLM API Key');
+
+            if (!enviaToken) {
+                try {
+                    enviaToken = await oauth.refreshIfNeeded();
+                } catch (err) {
+                    return alert(err.message);
+                }
+            }
 
             btnConnect.disabled = true;
             btnConnect.textContent = 'Connecting...';
 
             try {
-                // Connect to MCP
-                mcpClient = new McpClient(mcpUrl);
+                // Connect to MCP (Bearer = OAuth JWT; the server also uses it as the Envia API key)
+                mcpClient = new McpClient(mcpUrl, enviaToken);
                 await mcpClient.connect();
 
                 // Create orchestrator
@@ -784,7 +864,7 @@
 
                 addSystemMessage(
                     `Connected to MCP server. ${mcpClient.tools.length} tools available. ` +
-                    (enviaToken ? 'Envia token configured.' : 'No Envia token — set ENVIA_API_KEY in the server environment.')
+                    (enviaToken ? 'Envia OAuth token attached to /mcp.' : 'No Envia token — sign in or set ENVIA_API_KEY.'),
                 );
 
             } catch (err) {

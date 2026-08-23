@@ -16,6 +16,10 @@ import {
 import { EnviaApiClient } from '../../src/utils/api-client.js';
 import { registerGetShippingRates } from '../../src/tools/get-shipping-rates.js';
 import { resolveAddress } from '../../src/utils/address-resolver.js';
+import {
+    ANONYMOUS_FALLBACK_DISCLAIMER,
+    PUBLIC_CATALOG_SECURITY_SCHEMES,
+} from '../../src/auth/tool-access.js';
 
 vi.mock('../../src/utils/address-resolver.js', () => ({
     resolveAddress: vi.fn(),
@@ -772,6 +776,63 @@ describe('envia_quote_shipment', () => {
             const text = result.content[0].text;
 
             expect(text).not.toContain('requires items[]');
+        });
+    });
+
+    describe('optional auth', () => {
+        const anonymousConfig = {
+            ...MOCK_CONFIG,
+            apiKey: '',
+            serverApiKey: 'server-catalog-key',
+        };
+
+        it('should advertise noauth so quotes work without OAuth', () => {
+            const { server, toolConfigs } = createMockServer();
+            registerGetShippingRates(server, new EnviaApiClient(MOCK_CONFIG), MOCK_CONFIG);
+            const config = toolConfigs.get('envia_quote_shipment');
+
+            expect(config?.securitySchemes).toEqual(PUBLIC_CATALOG_SECURITY_SCHEMES);
+        });
+
+        it('should inherit ENVIA_API_KEY when the request has no user credential', async () => {
+            const { server, handlers } = createMockServer();
+            registerGetShippingRates(server, new EnviaApiClient(anonymousConfig), anonymousConfig);
+            const anonymousHandler = handlers.get('envia_quote_shipment')!;
+
+            await anonymousHandler({ ...VALID_QUOTE_ARGS, carriers: 'dhl' });
+
+            const headers = mockFetch.mock.calls[0][1]?.headers as Record<string, string>;
+            expect(headers.Authorization).toBe('Bearer server-catalog-key');
+        });
+
+        it('should include the assigned-rates disclaimer when no auth is provided', async () => {
+            const { server, handlers } = createMockServer();
+            registerGetShippingRates(server, new EnviaApiClient(anonymousConfig), anonymousConfig);
+            const anonymousHandler = handlers.get('envia_quote_shipment')!;
+
+            const result = await anonymousHandler({ ...VALID_QUOTE_ARGS, carriers: 'dhl' });
+
+            expect(result.content[0].text.startsWith(ANONYMOUS_FALLBACK_DISCLAIMER)).toBe(true);
+        });
+
+        it('should omit the disclaimer when the request has a user credential', async () => {
+            const result = await handler({ ...VALID_QUOTE_ARGS, carriers: 'dhl' });
+
+            expect(result.content[0].text).not.toContain(ANONYMOUS_FALLBACK_DISCLAIMER);
+        });
+
+        it('should omit the disclaimer when the user sends an api_key override', async () => {
+            const { server, handlers } = createMockServer();
+            registerGetShippingRates(server, new EnviaApiClient(anonymousConfig), anonymousConfig);
+            const anonymousHandler = handlers.get('envia_quote_shipment')!;
+
+            const result = await anonymousHandler({
+                ...VALID_QUOTE_ARGS,
+                carriers: 'dhl',
+                api_key: 'user-override-key',
+            });
+
+            expect(result.content[0].text).not.toContain(ANONYMOUS_FALLBACK_DISCLAIMER);
         });
     });
 });

@@ -3,7 +3,13 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { countrySchema, carrierSchema, dateSchema, postalCodeSchema } from "../../src/utils/schemas.js";
+import {
+    countrySchema,
+    carrierSchema,
+    dateSchema,
+    postalCodeSchema,
+    requiredApiKeySchema,
+} from "../../src/utils/schemas.js";
 
 describe("countrySchema", () => {
   it("accepts valid 2-letter codes", () => {
@@ -82,5 +88,19 @@ describe("postalCodeSchema", () => {
     expect(() => postalCodeSchema.parse("031?00")).toThrow();
     expect(() => postalCodeSchema.parse("031#00")).toThrow();
     expect(() => postalCodeSchema.parse("031/00")).toThrow();
+  });
+});
+
+describe("requiredApiKeySchema", () => {
+  it("should tell HTTP clients that anonymous requests do not inherit ENVIA_API_KEY", () => {
+    expect(requiredApiKeySchema.description).toContain(
+      "does not inherit ENVIA_API_KEY",
+    );
+  });
+
+  it("should not tell HTTP clients that the server-level key is used by default", () => {
+    expect(requiredApiKeySchema.description).not.toContain(
+      "the server-level key is used by default",
+    );
   });
 });
