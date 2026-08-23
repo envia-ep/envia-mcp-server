@@ -6,6 +6,7 @@ import {
     sanitizeDcrPayload,
     sanitizeDcrRequestBody,
     selectEnviaApiKey,
+    QUERIES_ISSUER_ALIASES,
 } from '../../src/auth/provider.js';
 
 describe('normalizeResourceUri', () => {
@@ -81,5 +82,23 @@ describe('selectEnviaApiKey', () => {
 
     it('should trim whitespace from the embedded key', () => {
         expect(selectEnviaApiKey({ envia_api_key: '  trimmed-key  ' }, 'jwt-token')).toBe('trimmed-key');
+    });
+});
+
+describe('QUERIES_ISSUER_ALIASES', () => {
+    it('should accept the public-facing queries hostname', () => {
+        expect(QUERIES_ISSUER_ALIASES.has('https://queries.envia.com')).toBe(true);
+    });
+
+    it('should accept the Heroku-internal queries-private hostname', () => {
+        expect(QUERIES_ISSUER_ALIASES.has('https://queries-private.envia.com')).toBe(true);
+    });
+
+    it('should not accept an unrelated hostname', () => {
+        expect(QUERIES_ISSUER_ALIASES.has('https://api.envia.com')).toBe(false);
+    });
+
+    it('should not accept a hostname with a trailing slash', () => {
+        expect(QUERIES_ISSUER_ALIASES.has('https://queries.envia.com/')).toBe(false);
     });
 });

@@ -116,6 +116,18 @@ export function selectEnviaApiKey(payload: Record<string, unknown>, jwtToken: st
 }
 
 /**
+ * Both canonical hostname variants of the Envia queries API are accepted JWT
+ * issuers. The Heroku-internal hostname (`queries-private.envia.com`) and the
+ * public-facing one (`queries.envia.com`) point at the same service; either
+ * may appear as `iss` depending on which `ENVIA_QUERIES_HOSTNAME` value was
+ * set when the token was signed.
+ */
+export const QUERIES_ISSUER_ALIASES = new Set([
+    'https://queries.envia.com',
+    'https://queries-private.envia.com',
+]);
+
+/**
  * Verifies the queries-issued JWT locally. The JWT itself is the credential
  * used against queries (token_user accepts OAuth JWTs). No API-key exchange.
  *
@@ -136,14 +148,20 @@ async function verifyAccessToken(
 
     let payload: Record<string, unknown>;
     try {
+        // issuer not passed to jwtVerify — checked manually below so both the
+        // public URL and the Heroku-internal hostname are accepted.
         const { payload: p } = await jwtVerify(token, secret, {
             algorithms: ['HS256'],
-            issuer,
         });
         payload = p as Record<string, unknown>;
     } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         throw new InvalidTokenError(`Invalid or expired access token: ${msg}`);
+    }
+
+    const tokenIss = typeof payload['iss'] === 'string' ? normalizeResourceUri(payload['iss']) : '';
+    if (!QUERIES_ISSUER_ALIASES.has(tokenIss) && tokenIss !== normalizeResourceUri(issuer)) {
+        throw new InvalidTokenError('Invalid or expired access token: unexpected issuer');
     }
 
     if (!audiencesMatch(payload['aud'], resource)) {
