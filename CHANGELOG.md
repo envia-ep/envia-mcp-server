@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0](https://github.com/envia-ep/envia-mcp-server/compare/v1.1.0...v1.2.0) (2026-08-23)
+
+
+### Features
+
+* **auth:** support per-request Bearer token for multi-tenant HTTP mode ([ddda277](https://github.com/envia-ep/envia-mcp-server/commit/ddda2777c8208d58b2559100a781775b5c93fbe7))
+* **domain:** serve OpenAI apps challenge token at well-known URL ([0f9b5f6](https://github.com/envia-ep/envia-mcp-server/commit/0f9b5f618adb29028c811fb20049395ee4aa8c94))
+* **tools:** add readOnlyHint, openWorldHint, destructiveHint annotations to all tools ([f63ddfb](https://github.com/envia-ep/envia-mcp-server/commit/f63ddfb43a5abbd277ab2f432cfc8f24b9876684))
+* **tools:** Pase 3 — add envia_create_international_shipment wizard ([fb8221e](https://github.com/envia-ep/envia-mcp-server/commit/fb8221e38a29099895f502bf9186b15406a74eee))
+
+
+### Bug Fixes
+
+* advertise only none in token_endpoint_auth_methods_supported ([b81f3a7](https://github.com/envia-ep/envia-mcp-server/commit/b81f3a7442b7dbd51d9d56cf00c35064c37e8506))
+* **auth:** accept both queries.envia.com and queries-private.envia.com as valid JWT issuers ([5bf82e1](https://github.com/envia-ep/envia-mcp-server/commit/5bf82e1311933231c25e58284fc1858fa103ac4d))
+* **auth:** throw InvalidTokenError so bearer auth returns 401 not 500 ([4a6a1fc](https://github.com/envia-ep/envia-mcp-server/commit/4a6a1fcde271adf9ba2d94913ff1504fbccfb5f9))
+* enable trust proxy for Heroku/Cloudflare reverse proxy ([ff1c731](https://github.com/envia-ep/envia-mcp-server/commit/ff1c73178b0e85ac7068aa882282c64c1e18db6f))
+* force token_endpoint_auth_method=none for queries DCR ([de0de10](https://github.com/envia-ep/envia-mcp-server/commit/de0de100c2228cf5856486c8b2d2dafe397f091f))
+* **http:** normalize Accept header for clients that omit text/event-stream ([fbb47b6](https://github.com/envia-ep/envia-mcp-server/commit/fbb47b65eda83798c6d8f4ccded725e34d31861b))
+* **list-tickets:** surface real 422 error instead of falsely claiming sandbox-only ([4e3ca4b](https://github.com/envia-ep/envia-mcp-server/commit/4e3ca4b4f36aee8d53aacbf42481f79773741c9d))
+* **list-tickets:** surface real 422 error instead of falsely claiming sandbox-only ([6c3338c](https://github.com/envia-ep/envia-mcp-server/commit/6c3338cd9e9cd10aaf4c3d27f8118aebf715f1c0))
+* resolve merge conflict, use allowlist-based DCR sanitization ([7c1702f](https://github.com/envia-ep/envia-mcp-server/commit/7c1702f83f3ed7be297a059733d44460807d63dc))
+* strip response_types from registration forwarded to queries ([ef04566](https://github.com/envia-ep/envia-mcp-server/commit/ef04566caef93d74ed0db680ff7eb9fe5aa9be54))
+* **tools:** add missing annotations to envia_list_orders and envia_list_shops ([1c93c48](https://github.com/envia-ep/envia-mcp-server/commit/1c93c4887b467000d048341620303d8e6d0ff0c4))
+
 ## [1.1.0](https://github.com/envia-ep/envia-mcp-server/compare/v1.0.0...v1.1.0) (2026-04-29)
 
 
