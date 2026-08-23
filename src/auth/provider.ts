@@ -1,4 +1,5 @@
 import { ProxyOAuthServerProvider } from '@modelcontextprotocol/sdk/server/auth/providers/proxyProvider.js';
+import { InvalidTokenError } from '@modelcontextprotocol/sdk/server/auth/errors.js';
 import type { OAuthClientInformationFull } from '@modelcontextprotocol/sdk/shared/auth.js';
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
 
@@ -125,11 +126,11 @@ async function verifyAccessToken(
         payload = p as Record<string, unknown>;
     } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
-        throw new Error(`Invalid or expired access token: ${msg}`);
+        throw new InvalidTokenError(`Invalid or expired access token: ${msg}`);
     }
 
     if (!audiencesMatch(payload['aud'], resource)) {
-        throw new Error('Invalid or expired access token: unexpected audience');
+        throw new InvalidTokenError('Invalid or expired access token: unexpected audience');
     }
 
     const jti = String(payload['jti'] ?? '');
