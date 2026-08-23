@@ -72,9 +72,18 @@ async function proxyOAuthFetch(input: RequestInfo | URL, init?: RequestInit): Pr
     const url = String(input);
     let nextInit = init;
     if (url.includes('/oauth/v2/register') && typeof init?.body === 'string') {
-        nextInit = { ...init, body: sanitizeDcrRequestBody(init.body) };
+        const sanitized = sanitizeDcrRequestBody(init.body);
+        console.log('[oauth/register] outgoing body:', sanitized);
+        nextInit = { ...init, body: sanitized };
     }
-    return fetch(input, nextInit);
+    const response = await fetch(input, nextInit);
+    if (url.includes('/oauth/v2/register')) {
+        const clone = response.clone();
+        clone.text().then((body) => {
+            console.log('[oauth/register] upstream status:', response.status, 'body:', body);
+        }).catch(() => undefined);
+    }
+    return response;
 }
 
 /**
