@@ -11,9 +11,13 @@
 
 /** A file attachment on a ticket. */
 export interface TicketFile {
-    id: number;
-    ticket_id: number;
-    file_url: string;
+    id: string;
+    name: string;
+    description: string;
+    url: string;
+    active: string;
+    visible: string;
+    created_by: string;
     created_at: string;
 }
 
@@ -76,7 +80,12 @@ export interface TicketRecord {
     carrier_description: string | null;
     file_quantity: number;
     files: TicketFile[];
-    last_comment: Record<string, unknown>;
+    last_comment: {
+        comment_text: string;
+        comment_type: string;
+        comment_status_id: number;
+        comment_created_at: string;
+    } | null;
     /** Only populated when getComments=true is sent. */
     allComments: TicketComment[];
     /** Stringified JSON with ticket-specific variables. */
@@ -107,7 +116,10 @@ export interface TicketRecord {
         consignee_postal_code: string | null;
         consignee_country: string | null;
     };
-    payment_method: Record<string, unknown>;
+    payment_method: {
+        name: string;
+        description: string;
+    } | null;
     /**
      * CSAT rating block.
      * `evaluated` is 1 only when ticket_status_id is 2 (Accepted) or 3 (Declined).
@@ -161,9 +173,16 @@ export interface TicketType {
     name: string;
     /** Human-readable description e.g. "Overweight", "Delayed Package". */
     description: string;
-    /** Stringified JSON with eligibility conditions — parse before use. */
+    /**
+     * Stringified JSON with eligibility rules — parse before use.
+     * Known fields: reference, inputs, files, conditions, comment_template.
+     */
     rules: string | null;
-    type: null;
+    /**
+     * Higher-level classification extracted from rules->$.type in the DB query.
+     * Examples: 'claim', 'request'. May be null if the rules JSON has no `type` key.
+     */
+    type: string | null;
     /** 0 = inactive, 1 = active. */
     active: number;
 }
@@ -180,6 +199,32 @@ export interface TicketTypesResponse {
 /** Response from POST /company/tickets. */
 export interface CreateTicketResponse {
     id: number;
+}
+
+// ---------------------------------------------------------------------------
+// Upload Ticket File
+// ---------------------------------------------------------------------------
+
+/** Input shape for a single file to attach to a ticket (base64-encoded). */
+export interface TicketFileUpload {
+    /** File name including extension, e.g. "evidence.jpg". */
+    name: string;
+    /** Raw file content encoded as a base64 string. */
+    content_base64: string;
+    /** MIME type. Allowed: image/jpeg, image/png, application/pdf. */
+    content_type: 'image/jpeg' | 'image/png' | 'application/pdf';
+    /** Optional description of the file purpose. */
+    description?: string;
+}
+
+/** Response from POST /company/tickets/:ticket_id/files. */
+export interface UploadTicketFileResponse {
+    success: boolean;
+    data: {
+        id: number;
+        name: string;
+        url: string;
+    };
 }
 
 // ---------------------------------------------------------------------------

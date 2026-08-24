@@ -78,14 +78,21 @@ function resolveLogLevel(): LogLevel {
 /**
  * Build the pino destination stream.
  *
- * Returns `undefined` when no transport is needed (pino writes JSON to
- * stdout by default). When LOG_PRETTY is requested AND pino-pretty is
- * available, returns a pretty-print stream for local development.
+ * In stdio mode, stdout is reserved for MCP JSON-RPC messages — pino MUST
+ * write to stderr to avoid corrupting the protocol framing. Claude Desktop
+ * (and any stdio MCP host) parses every byte from stdout as JSON-RPC; a log
+ * line landing there produces "Expected ',' or ']' after array element" errors.
  *
- * pino-pretty is intentionally a soft dependency — production deploys
- * never need it and importing it lazily keeps cold-start tiny.
+ * In all other modes, returns `undefined` so pino defaults to stdout, or a
+ * pino-pretty stream when LOG_PRETTY is requested for local development.
+ * pino-pretty is a soft dependency — production deploys never need it.
  */
 function buildDestination(): DestinationStream | undefined {
+    const isStdio = (process.env.MCP_TRANSPORT ?? '').toLowerCase() === 'stdio';
+    if (isStdio) {
+        return process.stderr as unknown as DestinationStream;
+    }
+
     const wantsPretty =
         process.env.LOG_PRETTY === 'true' ||
         (process.env.LOG_PRETTY === undefined && process.env.NODE_ENV !== 'production');

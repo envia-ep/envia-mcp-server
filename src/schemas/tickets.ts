@@ -32,3 +32,18 @@ export const CreateTicketResponseSchema = z.object({
 });
 
 export type CreateTicketResponseT = z.infer<typeof CreateTicketResponseSchema>;
+
+/**
+ * Response from POST /company/tickets/:ticket_id/files.
+ * Derived from the new endpoint added to queries.
+ */
+export const UploadTicketFileResponseSchema = z.object({
+    success: z.boolean(),
+    data: z.object({
+        id: z.number(),
+        name: z.string(),
+        url: z.string(),
+    }),
+});
+
+export type UploadTicketFileResponseT = z.infer<typeof UploadTicketFileResponseSchema>;
