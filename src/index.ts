@@ -591,13 +591,15 @@ function startHttpMode(): void {
 
     const resourceUri = issuerUrl.href.replace(/\/$/, '');
     const { origin: mcpOrigin, resource: mcpResource } = mcpResourceUris(resourceUri);
-    const queriesIssuer = (process.env.ENVIA_QUERIES_HOSTNAME ?? '').replace(/\/$/, '');
     const resourceMetadataUrl = `${mcpOrigin}/.well-known/oauth-protected-resource`;
 
+    // The authorization server is this MCP, not queries: `mcpAuthRouter` proxies
+    // /authorize, /token and /register. Advertising queries directly would send
+    // clients past the proxy and expose the backend as a public issuer.
     const sendProtectedResourceMetadata = (_req: Request, res: Response): void => {
         res.json({
             resource: mcpResource,
-            authorization_servers: queriesIssuer ? [queriesIssuer] : [],
+            authorization_servers: [mcpOrigin],
             bearer_methods_supported: ['header'],
             scopes_supported: mcpScopes,
         });
