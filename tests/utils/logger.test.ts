@@ -11,6 +11,7 @@ import {
     getLogger,
     childLogger,
     _resetLoggerForTesting,
+    LOGGER_REDACT_PATHS,
     type LogLevel,
 } from '../../src/utils/logger.js';
 
@@ -144,5 +145,12 @@ describe('logger', () => {
         });
 
         expect(observed).toEqual(expectations.map(([, expected]) => expected));
+    });
+
+    it('should redact credential field names in the logger config', () => {
+        expect(LOGGER_REDACT_PATHS).toContain('api_key');
+        expect(LOGGER_REDACT_PATHS).toContain('enviaApiKey');
+        expect(LOGGER_REDACT_PATHS).toContain('headers["x-api-key"]');
+        expect(LOGGER_REDACT_PATHS).toContain('headers.authorization');
     });
 });

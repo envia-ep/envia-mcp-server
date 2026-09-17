@@ -66,6 +66,17 @@ interface ToolResult {
 type OnToolCallFn = (name: string, args: Record<string, unknown>) => void;
 type OnDebugFn = (tag: string, title: string, data: unknown) => void;
 
+/**
+ * True when `token` has three non-empty dot-separated segments (JWT shape).
+ *
+ * @param token - Candidate credential
+ * @returns Whether the token should be sent as Authorization Bearer
+ */
+function looksLikeJwt(token: string): boolean {
+    const parts = token.split('.');
+    return parts.length === 3 && parts.every((part) => part.length > 0);
+}
+
 interface AnthropicContentBlock {
     type: string;
     text?: string;
@@ -106,7 +117,7 @@ export class McpClient {
 
     /**
      * @param baseUrl — e.g. "http://127.0.0.1:3100"
-     * @param accessToken — OAuth access token sent as Authorization: Bearer
+     * @param accessToken — MCP OAuth JWT (Authorization) or opaque Envia key (x-api-key)
      */
     constructor(baseUrl: string, accessToken?: string) {
         this.baseUrl = baseUrl.replace(/\/$/, '');
@@ -132,7 +143,13 @@ export class McpClient {
             'Accept': 'application/json, text/event-stream',
         };
         if (this.sessionId) h['mcp-session-id'] = this.sessionId;
-        if (this.accessToken) h['Authorization'] = `Bearer ${this.accessToken}`;
+        if (this.accessToken) {
+            if (looksLikeJwt(this.accessToken)) {
+                h['Authorization'] = `Bearer ${this.accessToken}`;
+            } else {
+                h['x-api-key'] = this.accessToken;
+            }
+        }
         return h;
     }
 

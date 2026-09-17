@@ -50,6 +50,11 @@ import { requireBearerAuth } from '@modelcontextprotocol/sdk/server/auth/middlew
 
 import { createEnviaOAuthProvider } from './auth/provider.js';
 import { optionalBearerAuth } from './auth/optional-bearer.js';
+import { createMcpAuthGate } from './auth/mcp-auth-gate.js';
+import { resolveHttpEnviaApiKey } from './auth/http-credentials.js';
+import { mcpResourceUris } from './auth/mcp-resource.js';
+import { decorateToolCatalog } from './auth/tool-catalog.js';
+import { buildWwwAuthenticateHeader } from './auth/www-authenticate.js';
 import { loadConfig } from './config.js';
 import { EnviaApiClient } from './utils/api-client.js';
 import { childLogger, getLogger } from './utils/logger.js';
@@ -324,14 +329,15 @@ const MIME: Record<string, string> = {
  *
  * @param logContext - Correlation or session identifiers attached to tool_call events
  * @param apiKey - Per-request Envia credential. Empty string with `allowMissingApiKey` skips ENVIA_API_KEY.
- * @param options - `allowMissingApiKey` lets unauthenticated HTTP requests serve public tools
+ * @param options - `allowMissingApiKey` lets unauthenticated HTTP requests serve public tools.
+ *   `httpCatalog` strips `api_key` from advertised schemas (OpenAI listing).
  * @returns Configured MCP server with every Envia tool registered
  * @throws When no API key is available and `allowMissingApiKey` is not set
  */
 function createEnviaServer(
     logContext: { correlationId?: string; sessionId?: string } = {},
     apiKey?: string,
-    options: { allowMissingApiKey?: boolean } = {},
+    options: { allowMissingApiKey?: boolean; httpCatalog?: boolean } = {},
 ): McpServer {
     const config = loadConfig(apiKey, options);
     const client = new EnviaApiClient(config);
@@ -350,6 +356,7 @@ function createEnviaServer(
 
     // Decorate BEFORE any register*() call so every tool gets logged.
     decorateServerWithLogging(server, logContext);
+    decorateToolCatalog(server, { omitApiKeyFromSchema: options.httpCatalog === true });
 
     registerValidateAddress(server, client, config);
     registerListCarriers(server, client, config);
@@ -583,22 +590,26 @@ function startHttpMode(): void {
     app.use(mcpAuthRouter(authRouterOptions));
 
     const resourceUri = issuerUrl.href.replace(/\/$/, '');
+    const { origin: mcpOrigin, resource: mcpResource } = mcpResourceUris(resourceUri);
     const queriesIssuer = (process.env.ENVIA_QUERIES_HOSTNAME ?? '').replace(/\/$/, '');
-    const resourceMetadataUrl = `${resourceUri}/.well-known/oauth-protected-resource`;
+    const resourceMetadataUrl = `${mcpOrigin}/.well-known/oauth-protected-resource`;
 
-    app.get('/.well-known/oauth-protected-resource', (_req: Request, res: Response) => {
+    const sendProtectedResourceMetadata = (_req: Request, res: Response): void => {
         res.json({
-            resource: resourceUri,
+            resource: mcpResource,
             authorization_servers: queriesIssuer ? [queriesIssuer] : [],
             bearer_methods_supported: ['header'],
             scopes_supported: mcpScopes,
         });
-    });
+    };
+
+    app.get('/.well-known/oauth-protected-resource', sendProtectedResourceMetadata);
+    app.get('/.well-known/oauth-protected-resource/mcp', sendProtectedResourceMetadata);
 
     app.use((_req: Request, res: Response, next: NextFunction) => {
         res.setHeader('Access-Control-Allow-Origin', '*');
         res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
-        res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Accept, mcp-session-id, Authorization');
+        res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Accept, mcp-session-id, Authorization, x-api-key, x-correlation-id, x-request-id');
         res.setHeader('Access-Control-Expose-Headers', 'mcp-session-id');
         next();
     });
@@ -610,6 +621,7 @@ function startHttpMode(): void {
     // Bearer-auth middleware — validates OAuth access tokens and populates req.auth.
     // Optional so ChatGPT can track shipments without signing in.
     const bearerAuth = optionalBearerAuth(requireBearerAuth({ verifier: oauthProvider }));
+    const mcpAuthGate = createMcpAuthGate({ resourceMetadataUrl });
 
     app.use('/mcp', (_req: Request, res: Response, next: NextFunction) => {
         const originalStatus = res.status.bind(res);
@@ -617,7 +629,12 @@ function startHttpMode(): void {
             if (code === 401 && !res.getHeader('WWW-Authenticate')) {
                 res.setHeader(
                     'WWW-Authenticate',
-                    `Bearer realm="mcp", resource_metadata="${resourceMetadataUrl}"`,
+                    buildWwwAuthenticateHeader({
+                        resourceMetadataUrl,
+                        error: 'invalid_token',
+                        errorDescription: 'Authentication required',
+                        scope: 'mcp:read',
+                    }),
                 );
             }
             return originalStatus(code);
@@ -625,7 +642,7 @@ function startHttpMode(): void {
         next();
     });
 
-    app.post('/mcp', bearerAuth, async (req: Request, res: Response) => {
+    app.post('/mcp', bearerAuth, mcpAuthGate, async (req: Request, res: Response) => {
         // Honour an upstream-provided correlation ID (portal embedding,
         // load balancer, etc.) so traces stitch across services. Fall
         // back to a fresh UUID per request when absent.
@@ -640,7 +657,7 @@ function startHttpMode(): void {
         try {
             // OAuth token verified when present. Unauthenticated requests get an empty
             // key so they cannot inherit ENVIA_API_KEY and call protected Envia APIs.
-            const enviaApiKey = req.auth?.extra?.['enviaApiKey'] as string | undefined;
+            const enviaApiKey = resolveHttpEnviaApiKey(req);
 
             // The MCP SDK transport requires Accept to include text/event-stream.
             // Some clients (e.g. ChatGPT) omit it — patch the header so the SDK
@@ -651,8 +668,8 @@ function startHttpMode(): void {
 
             const server = createEnviaServer(
                 { correlationId },
-                enviaApiKey ?? '',
-                { allowMissingApiKey: !enviaApiKey },
+                enviaApiKey,
+                { allowMissingApiKey: !enviaApiKey, httpCatalog: true },
             );
             const transport = new StreamableHTTPServerTransport({
                 sessionIdGenerator: undefined,

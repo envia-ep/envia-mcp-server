@@ -109,15 +109,20 @@ without `inheritServerApiKey`.
 
 ## HTTP vs stdio
 
-- **HTTP:** Bearer auth is optional. Missing `Authorization` is allowed.
-  Unauthenticated requests get an empty request `apiKey` and keep
-  `serverApiKey` from `ENVIA_API_KEY` for catalog tools only.
+- **HTTP:** Bearer auth is optional. Missing `Authorization` is allowed for
+  `initialize`, `tools/list`, and public catalog tools. Protected `tools/call`
+  without a user credential returns **HTTP 401** + `WWW-Authenticate`.
+  User identity is, in order: verified OAuth JWT, `x-api-key` header, then
+  (transition) `api_key` in the JSON-RPC body. HTTP `tools/list` does **not**
+  advertise `api_key`. Invalid Bearer tokens still receive `401`.
 - **stdio:** `ENVIA_API_KEY` is still required at startup. Per-request
-  `api_key` overrides work as before.
+  `api_key` overrides work as before and remain in the schema.
 
 ## Related files
 
-- `src/auth/tool-access.ts` — `asPublicCatalogTool`, `resolvePublicCatalogClient`, `withAnonymousFallbackDisclaimer`
+- `src/auth/tool-access.ts` — `asPublicCatalogTool`, `asAuthenticatedTool`, `resolvePublicCatalogClient`, `withAnonymousFallbackDisclaimer`
+- `src/auth/mcp-auth-gate.ts` — HTTP 401 for protected tools without a credential
+- `src/auth/http-credentials.ts` — JWT extra / `x-api-key` / body `api_key`
 - `src/auth/optional-bearer.ts` — skip Bearer verification when the header is absent
 - `src/config.ts` — `apiKey` (request) vs `serverApiKey` (`ENVIA_API_KEY`)
 - `src/utils/api-client.ts` — `resolveClient(..., { inheritServerApiKey: true })`

@@ -22,6 +22,39 @@ export const PUBLIC_CATALOG_SECURITY_SCHEMES = [
     { type: 'oauth2', scopes: ['mcp:read'] },
 ];
 
+/** ChatGPT authenticated tools: OAuth required. Scopes match default DCR (`mcp:read`). */
+export const AUTHENTICATED_TOOL_SECURITY_SCHEMES = [
+    { type: 'oauth2', scopes: ['mcp:read'] },
+];
+
+/**
+ * Tools that may run on HTTP without a user credential.
+ * Keep in sync with `documentation/tool-access.md`.
+ */
+export const PUBLIC_CATALOG_TOOL_NAMES: ReadonlySet<string> = new Set([
+    'envia_track_package',
+    'envia_list_carriers',
+    'envia_list_additional_services',
+    'envia_quote_shipment',
+    'envia_get_carrier_constraints',
+    'envia_get_additional_service_prices',
+    'envia_validate_address',
+    'envia_classify_hscode',
+    'envia_get_branches_catalog',
+    'envia_find_drop_off',
+    'envia_ai_address_requirements',
+]);
+
+/**
+ * True when `tools/call` for this name is allowed without a user credential.
+ *
+ * @param toolName - MCP tool name
+ * @returns Whether the tool is public/anonymous catalog
+ */
+export function isPublicCatalogToolName(toolName: string): boolean {
+    return PUBLIC_CATALOG_TOOL_NAMES.has(toolName);
+}
+
 /**
  * Options that make `resolveClient` fall back to `config.serverApiKey` (ENVIA_API_KEY)
  * when the request has no user credential.
@@ -51,6 +84,32 @@ export function asPublicCatalogTool<T extends object>(config: T): T & {
         _meta: {
             ...existingMeta,
             securitySchemes: PUBLIC_CATALOG_SECURITY_SCHEMES,
+        },
+    };
+}
+
+/**
+ * Mark a tool descriptor as OAuth-required for ChatGPT (`oauth2` only, no `noauth`).
+ *
+ * Writes both the OpenAI-documented top-level field and the `_meta` mirror.
+ *
+ * @param config - Tool descriptor passed to `server.registerTool`
+ * @returns Descriptor with authenticated `securitySchemes`
+ */
+export function asAuthenticatedTool<T extends object>(config: T): T & {
+    securitySchemes: typeof AUTHENTICATED_TOOL_SECURITY_SCHEMES;
+    _meta: { securitySchemes: typeof AUTHENTICATED_TOOL_SECURITY_SCHEMES };
+} {
+    const existingMeta = '_meta' in config && config._meta !== null && typeof config._meta === 'object'
+        ? (config._meta as Record<string, unknown>)
+        : {};
+
+    return {
+        ...config,
+        securitySchemes: AUTHENTICATED_TOOL_SECURITY_SCHEMES,
+        _meta: {
+            ...existingMeta,
+            securitySchemes: AUTHENTICATED_TOOL_SECURITY_SCHEMES,
         },
     };
 }

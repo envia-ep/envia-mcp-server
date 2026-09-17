@@ -16,12 +16,30 @@ describe('McpClient OAuth bearer', () => {
         });
         vi.stubGlobal('fetch', fetchMock);
 
-        const client = new McpClient('http://127.0.0.1:3000', 'jwt-from-oauth');
+        const client = new McpClient('http://127.0.0.1:3000', 'aaa.bbb.ccc');
         await client.callTool('envia_list_carriers', {});
 
         expect(fetchMock).toHaveBeenCalledTimes(1);
         const headers = fetchMock.mock.calls[0][1].headers as Record<string, string>;
-        expect(headers['Authorization']).toBe('Bearer jwt-from-oauth');
+        expect(headers['Authorization']).toBe('Bearer aaa.bbb.ccc');
+        expect(headers['x-api-key']).toBeUndefined();
+    });
+
+    it('should send opaque Envia tokens as x-api-key instead of Authorization', async () => {
+        const fetchMock = vi.fn().mockResolvedValue({
+            ok: true,
+            status: 200,
+            headers: { get: () => null },
+            json: async () => ({ jsonrpc: '2.0', result: { tools: [] } }),
+        });
+        vi.stubGlobal('fetch', fetchMock);
+
+        const client = new McpClient('http://127.0.0.1:3000', 'opaque-envia-key');
+        await client.callTool('envia_list_carriers', {});
+
+        const headers = fetchMock.mock.calls[0][1].headers as Record<string, string>;
+        expect(headers['Authorization']).toBeUndefined();
+        expect(headers['x-api-key']).toBe('opaque-envia-key');
     });
 
     it('should omit Authorization when no access token is set', async () => {

@@ -102,6 +102,30 @@ function buildDestination(): DestinationStream | undefined {
 }
 
 /**
+ * Pino redact paths for credentials. Exported so tests can lock the list.
+ */
+export const LOGGER_REDACT_PATHS: string[] = [
+    'authorization',
+    'Authorization',
+    'api_key',
+    'enviaApiKey',
+    '*.authorization',
+    '*.Authorization',
+    '*.api_key',
+    '*.enviaApiKey',
+    'headers.authorization',
+    'headers.Authorization',
+    'headers["x-api-key"]',
+    'headers["X-Api-Key"]',
+    'req.headers.authorization',
+    'req.headers.Authorization',
+    'req.headers["x-api-key"]',
+    '*.headers.authorization',
+    '*.headers.Authorization',
+    '*.headers["x-api-key"]',
+];
+
+/**
  * Build the pino logger options object.
  *
  * @returns Options with a sensible base context and ISO timestamps.
@@ -114,6 +138,10 @@ function buildOptions(): LoggerOptions {
             env: process.env.NODE_ENV ?? 'development',
         },
         timestamp: pino.stdTimeFunctions.isoTime,
+        redact: {
+            paths: LOGGER_REDACT_PATHS,
+            censor: '[REDACTED]',
+        },
         formatters: {
             // Emit "level" as a string ("info") instead of pino's default
             // numeric value (30). Datadog, Loki, and most JSON log
