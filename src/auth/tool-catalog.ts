@@ -45,10 +45,17 @@ export function titleFromToolName(name: string): string {
 /**
  * Remove `api_key` from a Zod object schema when present. Non-Zod values pass through.
  *
+ * Throws when the field is present but cannot be removed — a schema carrying
+ * refinements rejects `.omit()`. Failing loudly at registration is deliberate:
+ * returning the original schema would publish the credential field on HTTP and
+ * the listing would be rejected with no local signal.
+ *
  * @param schema - Tool `inputSchema`
+ * @param toolName - Tool being registered, for the error message
  * @returns Schema without `api_key`, or the original value
+ * @throws When `api_key` is present and `.omit()` fails
  */
-export function omitApiKeyFromSchema(schema: unknown): unknown {
+export function omitApiKeyFromSchema(schema: unknown, toolName = 'unknown'): unknown {
     if (schema === null || typeof schema !== 'object') {
         return schema;
     }
@@ -59,7 +66,15 @@ export function omitApiKeyFromSchema(schema: unknown): unknown {
     if (typeof candidate.omit !== 'function' || !candidate.shape || !('api_key' in candidate.shape)) {
         return schema;
     }
-    return candidate.omit({ api_key: true });
+    try {
+        return candidate.omit({ api_key: true });
+    } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        throw new Error(
+            `Cannot strip api_key from ${toolName}: ${reason}. ` +
+            'Move business-rule refinements into the handler so the input schema stays a plain object.',
+        );
+    }
 }
 
 /**
@@ -123,7 +138,7 @@ export function applyCatalogConfig(
     }
 
     if (options.omitApiKeyFromSchema && 'inputSchema' in record) {
-        record['inputSchema'] = omitApiKeyFromSchema(record['inputSchema']);
+        record['inputSchema'] = omitApiKeyFromSchema(record['inputSchema'], name);
     }
 
     return record as Parameters<RegisterToolFn>[1];

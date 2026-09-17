@@ -58,12 +58,16 @@ export function registerFulfillOrder(
                     .describe('How the shipment was created: normal=carrier API, manual=manual entry, automatic=auto-detect'),
                 shipment_method: z.enum(['normal', 'manual', 'automatic']).optional()
                     .describe('Shipment method type (optional, mirrors fulfillment_method)'),
-            }).refine(
-                (data) => data.shipment_id !== undefined || data.tracking_number !== undefined,
-                { message: 'At least one of shipment_id or tracking_number is required.' },
-            ),
+            }),
         },
         async (args) => {
+            if (args.shipment_id === undefined && args.tracking_number === undefined) {
+                return textResponse(
+                    'At least one of shipment_id or tracking_number is required.\n\n' +
+                    'Suggestion: pass shipment_id from envia_create_shipment, or the carrier tracking number.',
+                );
+            }
+
             const activeClient = resolveClient(client, args.api_key, config);
 
             const body: Record<string, unknown> = {
