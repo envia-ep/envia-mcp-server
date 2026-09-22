@@ -51,6 +51,13 @@ export interface LoadConfigOptions {
      * `ENVIA_API_KEY` is not used — unauthenticated HTTP requests must not inherit it.
      */
     allowMissingApiKey?: boolean;
+    /**
+     * When true, an `apiKeyOverride` does not imply production. HTTP resolves the
+     * credential from the transport (JWT extra, `x-api-key`, body `api_key`), and
+     * that resolution must not decide which Envia backend the request reaches:
+     * only `ENVIA_ENVIRONMENT` does.
+     */
+    keepDefaultEnvironment?: boolean;
 }
 
 /**
@@ -84,8 +91,11 @@ export function loadConfig(apiKeyOverride?: string, options: LoadConfigOptions =
         );
     }
 
-    // Per-request keys always target production — only local/stdio dev sets sandbox via env var.
-    const defaultEnv = apiKeyOverride?.trim() ? "production" : "sandbox";
+    // A key passed as a tool argument targets production; only local/stdio dev sets
+    // sandbox via env var. A credential the HTTP transport resolved is not that
+    // signal, so `keepDefaultEnvironment` leaves the choice to ENVIA_ENVIRONMENT.
+    const perRequestKey = options.keepDefaultEnvironment !== true && Boolean(apiKeyOverride?.trim());
+    const defaultEnv = perRequestKey ? "production" : "sandbox";
     const raw = (process.env.ENVIA_ENVIRONMENT ?? defaultEnv).toLowerCase();
     const environment: EnviaEnvironment = raw === "production" ? "production" : "sandbox";
 

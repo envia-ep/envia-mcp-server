@@ -97,3 +97,29 @@ describe("loadConfig", () => {
     expect(config.serverApiKey).toBe("server-secret-key");
   });
 });
+
+describe("loadConfig environment selection", () => {
+  it("should target production when a key arrives as a tool argument", () => {
+    delete process.env.ENVIA_ENVIRONMENT;
+
+    const config = loadConfig("per-request-key");
+
+    expect(config.shippingBase).toBe("https://api.envia.com");
+  });
+
+  it("should keep the sandbox default when the credential came from the transport", () => {
+    delete process.env.ENVIA_ENVIRONMENT;
+
+    const config = loadConfig("transport-key", { keepDefaultEnvironment: true });
+
+    expect(config.shippingBase).toBe("https://api-test.envia.com");
+  });
+
+  it("should still honour ENVIA_ENVIRONMENT over the transport default", () => {
+    process.env.ENVIA_ENVIRONMENT = "production";
+
+    const config = loadConfig("transport-key", { keepDefaultEnvironment: true });
+
+    expect(config.shippingBase).toBe("https://api.envia.com");
+  });
+});

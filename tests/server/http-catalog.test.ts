@@ -3,6 +3,8 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 import { createEnviaServer } from '../../src/server.js';
 
+import { _resetLoggerForTesting } from '../../src/utils/logger.js';
+
 /**
  * Exercises the real registration path. The unit suite calls handlers directly,
  * so it stayed green through two defects that only surfaced on `tools/list`:
@@ -32,7 +34,9 @@ describe('HTTP catalog', () => {
     let tools: ListedTool[];
 
     beforeAll(async () => {
-        process.env.LOG_LEVEL = 'silent';
+        process.env.LOG_LEVEL = 'fatal';
+        process.env.LOG_PRETTY = 'false';
+        _resetLoggerForTesting();
         tools = await listTools(createEnviaServer({}, 'test-key', { httpCatalog: true }));
     });
 
@@ -107,7 +111,9 @@ describe('HTTP catalog', () => {
 
 describe('stdio catalog', () => {
     it('should keep api_key so developers can pass their own key', async () => {
-        process.env.LOG_LEVEL = 'silent';
+        process.env.LOG_LEVEL = 'fatal';
+        process.env.LOG_PRETTY = 'false';
+        _resetLoggerForTesting();
         const tools = await listTools(createEnviaServer({}, 'test-key'));
         const withApiKey = tools.filter((tool) => tool.inputSchema?.properties?.['api_key'] !== undefined);
 

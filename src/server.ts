@@ -14,7 +14,7 @@ import { dirname, resolve } from 'node:path';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 import { decorateToolCatalog, publishToolSecuritySchemes } from './auth/tool-catalog.js';
-import { loadConfig } from './config.js';
+import { loadConfig, type LoadConfigOptions } from './config.js';
 import { EnviaApiClient } from './utils/api-client.js';
 import { decorateServerWithLogging } from './utils/server-logger.js';
 
@@ -266,15 +266,15 @@ import { registerResources } from './resources/api-docs.js';
  *
  * @param logContext - Correlation or session identifiers attached to tool_call events
  * @param apiKey - Per-request Envia credential. Empty string with `allowMissingApiKey` skips ENVIA_API_KEY.
- * @param options - `allowMissingApiKey` lets unauthenticated HTTP requests serve public tools.
- *   `httpCatalog` strips `api_key` from advertised schemas (OpenAI listing).
+ * @param options - `loadConfig` flags plus `httpCatalog`, which strips `api_key`
+ *   from advertised schemas (OpenAI listing).
  * @returns Configured MCP server with every Envia tool registered
  * @throws When no API key is available and `allowMissingApiKey` is not set
  */
 export function createEnviaServer(
     logContext: { correlationId?: string; sessionId?: string } = {},
     apiKey?: string,
-    options: { allowMissingApiKey?: boolean; httpCatalog?: boolean } = {},
+    options: LoadConfigOptions & { httpCatalog?: boolean } = {},
 ): McpServer {
     const config = loadConfig(apiKey, options);
     const client = new EnviaApiClient(config);
