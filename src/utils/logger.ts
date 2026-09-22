@@ -123,6 +123,14 @@ export const LOGGER_REDACT_PATHS: string[] = [
     '*.headers.authorization',
     '*.headers.Authorization',
     '*.headers["x-api-key"]',
+    // Two levels deep, where a JSON-RPC body and a verified token carry the
+    // credential. Nothing logs either today; the paths are the guard against a
+    // future debug log doing it by accident.
+    'params.arguments.api_key',
+    '*.params.arguments.api_key',
+    'body.params.arguments.api_key',
+    'auth.extra.enviaApiKey',
+    '*.auth.extra.enviaApiKey',
 ];
 
 /**

@@ -153,4 +153,9 @@ describe('logger', () => {
         expect(LOGGER_REDACT_PATHS).toContain('headers["x-api-key"]');
         expect(LOGGER_REDACT_PATHS).toContain('headers.authorization');
     });
+
+    it('should redact the credential inside a JSON-RPC body and a verified token', () => {
+        expect(LOGGER_REDACT_PATHS).toContain('params.arguments.api_key');
+        expect(LOGGER_REDACT_PATHS).toContain('auth.extra.enviaApiKey');
+    });
 });
