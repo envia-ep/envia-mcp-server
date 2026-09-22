@@ -11,10 +11,11 @@ this file is that justification.
 looks up, lists, previews, or computes. Any call that writes to Envia, to a
 carrier, or to a ticket is `false`.
 
-**`openWorldHint: true`** — the call reaches a carrier or another open-ended
-external party. Quoting, creating, cancelling, tracking, manifests, and customs
-documents all leave Envia. Catalogs, addresses, clients, packages, and tickets
-stay inside the account, so they are `false`.
+**`openWorldHint: true`** — the answer depends on a party outside Envia. Quoting,
+creating, cancelling, tracking, manifests and customs documents reach a carrier;
+pickups and non-delivery reports reach the carrier too, in both directions; order
+and shop tools reach the ecommerce platform. Data that lives in the account —
+catalogs, addresses, clients, packages, tickets, analytics, billing — is `false`.
 
 **`destructiveHint: true`** — any one of:
 

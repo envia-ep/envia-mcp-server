@@ -94,3 +94,27 @@ describe('resolveHttpEnviaApiKey', () => {
         ).toBe(false);
     });
 });
+
+describe('extractBodyApiKey with a JSON-RPC batch', () => {
+    it('should read the credential shared by every entry that carries one', () => {
+        const key = extractBodyApiKey([
+            { method: 'tools/call', params: { name: 'envia_track_package', arguments: {} } },
+            { method: 'tools/call', params: { name: 'envia_list_shipments', arguments: { api_key: 'portal-key' } } },
+        ]);
+
+        expect(key).toBe('portal-key');
+    });
+
+    it('should refuse a batch that mixes two credentials', () => {
+        const key = extractBodyApiKey([
+            { method: 'tools/call', params: { name: 'envia_list_shipments', arguments: { api_key: 'one' } } },
+            { method: 'tools/call', params: { name: 'envia_list_orders', arguments: { api_key: 'two' } } },
+        ]);
+
+        expect(key).toBe('');
+    });
+
+    it('should return empty for a batch with no credential', () => {
+        expect(extractBodyApiKey([{ method: 'tools/list' }])).toBe('');
+    });
+});

@@ -224,3 +224,27 @@ describe('createMcpAuthGate', () => {
         expect(res.statusCode).toBe(200);
     });
 });
+
+describe('createMcpAuthGate with a batch', () => {
+    it('should call next for a batch that carries the portal api_key', () => {
+        const gate = createMcpAuthGate({ resourceMetadataUrl: RESOURCE });
+        const req = {
+            headers: {},
+            body: [
+                {
+                    jsonrpc: '2.0',
+                    id: 1,
+                    method: 'tools/call',
+                    params: { name: 'envia_list_shipments', arguments: { api_key: 'portal-key' } },
+                },
+            ],
+        } as Request;
+        const res = mockRes();
+        const next = vi.fn() as NextFunction;
+
+        gate(req, res, next);
+
+        expect(next).toHaveBeenCalledOnce();
+        expect(res.statusCode).toBe(200);
+    });
+});

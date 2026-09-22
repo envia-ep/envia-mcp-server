@@ -45,11 +45,19 @@ export function readHeader(req: HttpCredentialRequest, name: string): string {
  * Read `api_key` from a JSON-RPC `tools/call` body. Empty or non-string values
  * are not credentials.
  *
+ * A batch resolves to a credential only when every entry that carries one carries
+ * the same value: the request builds a single client, so two identities in one
+ * array cannot both be honoured.
+ *
  * @param body - Parsed JSON-RPC body
  * @returns Trimmed api_key, or empty string
  */
 export function extractBodyApiKey(body: unknown): string {
-    if (body === null || typeof body !== 'object' || Array.isArray(body)) {
+    if (Array.isArray(body)) {
+        const keys = new Set(body.map((entry) => extractBodyApiKey(entry)).filter((key) => key !== ''));
+        return keys.size === 1 ? [...keys][0]! : '';
+    }
+    if (body === null || typeof body !== 'object') {
         return '';
     }
     const params = (body as { params?: unknown }).params;

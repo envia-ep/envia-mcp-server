@@ -34,7 +34,7 @@ export function registerSubmitNdReport(
                 'Shipment must be in an NDR/exception status for this to succeed.',
             annotations: {
                 readOnlyHint: false,
-                openWorldHint: false,
+                openWorldHint: true,
                 destructiveHint: true,
             },
             inputSchema: z.object({
