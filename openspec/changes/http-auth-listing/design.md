@@ -41,7 +41,7 @@ See proposal.md for why. HTTP already used optional Bearer so tracking and quote
 
 - [Portal breaks if the gate ignores body `api_key`] → Keep the body channel until `agentic-ai` sends `x-api-key`.
 - [Invalid Bearer plus `x-api-key` is rejected] → Documented. The portal must not attach `CARRIERS_MCP_TOKEN` as Authorization against this host.
-- [JSON-RPC batches could mix initialize and tools/call] → Batches are rejected at the gate.
+- [JSON-RPC batches could mix initialize and tools/call] → An unauthenticated batch passes only when every entry is allowed; one protected call refuses the whole array. A batch resolves to a credential only when every entry carrying one carries the same value.
 - [Body `api_key` remains a hidden credential channel] → Acceptable for one consumer (portal). Not advertised in `tools/list`.
 
 ## Migration Plan

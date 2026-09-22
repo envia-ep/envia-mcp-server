@@ -14,7 +14,7 @@
 ## 3. Transport gate
 
 - [x] 3.1 Resolve HTTP credentials JWT → `x-api-key` → body `api_key` and verify http-credentials tests pass
-- [x] 3.2 Return 401 for protected `tools/call` without a credential and verify mcp-auth-gate tests pass
+- [x] 3.2 Refuse protected `tools/call` without a credential and verify mcp-auth-gate tests pass (superseded by 6.3: the refusal is a 200 tool-level challenge, 401 for every other method)
 - [x] 3.3 Wire the gate on `POST /mcp` after optional Bearer and verify public tools still skip the 401
 
 ## 4. Chat demo and docs

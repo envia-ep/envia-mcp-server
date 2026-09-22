@@ -134,9 +134,12 @@ export const LOGGER_REDACT_PATHS: string[] = [
 /**
  * Build the pino logger options object.
  *
+ * Exported so tests can emit through the real redact configuration instead of
+ * asserting that path strings exist.
+ *
  * @returns Options with a sensible base context and ISO timestamps.
  */
-function buildOptions(): LoggerOptions {
+export function buildLoggerOptions(): LoggerOptions {
     return {
         level: resolveLogLevel(),
         base: {
@@ -170,7 +173,7 @@ export function getLogger(): Logger {
     if (cachedRoot) return cachedRoot;
 
     const destination = buildDestination();
-    cachedRoot = destination ? pino(buildOptions(), destination) : pino(buildOptions());
+    cachedRoot = destination ? pino(buildLoggerOptions(), destination) : pino(buildLoggerOptions());
     return cachedRoot;
 }
 

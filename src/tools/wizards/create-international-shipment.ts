@@ -141,7 +141,7 @@ export function registerCreateInternationalShipment(
             annotations: {
                 readOnlyHint: false,
                 openWorldHint: true,
-                destructiveHint: true,
+                destructiveHint: false,
             },
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,

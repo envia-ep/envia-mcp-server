@@ -1,15 +1,19 @@
 /**
  * Tests for the logger module.
  *
- * Validates that level resolution, child context attachment, and the
- * test-only reset hook all behave as the public API documents.
+ * Validates that level resolution, child context attachment, the test-only
+ * reset hook, and credential redaction all behave as the public API documents.
  */
 
+import { Writable } from 'node:stream';
+
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import pino from 'pino';
 
 import {
     getLogger,
     childLogger,
+    buildLoggerOptions,
     _resetLoggerForTesting,
     LOGGER_REDACT_PATHS,
     type LogLevel,
@@ -157,5 +161,55 @@ describe('logger', () => {
     it('should redact the credential inside a JSON-RPC body and a verified token', () => {
         expect(LOGGER_REDACT_PATHS).toContain('params.arguments.api_key');
         expect(LOGGER_REDACT_PATHS).toContain('auth.extra.enviaApiKey');
+    });
+});
+
+describe('logger redaction', () => {
+    /**
+     * Emits through the real logger options so an unsupported pino path fails
+     * here instead of leaking in production.
+     */
+    function emit(payload: Record<string, unknown>): string {
+        const lines: string[] = [];
+        const sink = new Writable({
+            write(chunk, _encoding, done) {
+                lines.push(String(chunk));
+                done();
+            },
+        });
+        pino(buildLoggerOptions(), sink).info(payload, 'audit');
+        return lines.join('');
+    }
+
+    it('should censor the credential inside JSON-RPC arguments', () => {
+        const line = emit({ params: { arguments: { api_key: 'super-secret-key' } } });
+
+        expect(line).not.toContain('super-secret-key');
+        expect(line).toContain('[REDACTED]');
+    });
+
+    it('should censor the credential carried by a verified token', () => {
+        const line = emit({ auth: { extra: { enviaApiKey: 'jwt-carried-key' } } });
+
+        expect(line).not.toContain('jwt-carried-key');
+        expect(line).toContain('[REDACTED]');
+    });
+
+    it('should censor the Authorization header', () => {
+        const line = emit({ headers: { authorization: 'Bearer secret-token' } });
+
+        expect(line).not.toContain('secret-token');
+    });
+
+    it('should censor the x-api-key header', () => {
+        const line = emit({ headers: { 'x-api-key': 'header-secret' } });
+
+        expect(line).not.toContain('header-secret');
+    });
+
+    it('should keep the rest of the record readable', () => {
+        const line = emit({ tool: 'envia_list_shipments', params: { arguments: { api_key: 'secret' } } });
+
+        expect(line).toContain('envia_list_shipments');
     });
 });

@@ -2,12 +2,12 @@
 
 ## Why
 
-ChatGPT App review rejects this MCP because protected tools advertise `api_key` in their input schema and return HTTP 200 with error text when no credential is present. Public listing needs a transport 401 plus OAuth metadata, without taking down the Envia portal, which still sends the user key as a tool argument.
+ChatGPT App review rejects this MCP because protected tools advertise `api_key` in their input schema and return HTTP 200 with error text when no credential is present. Public listing needs an explicit auth challenge plus OAuth metadata, without taking down the Envia portal, which still sends the user key as a tool argument.
 
 ## What Changes
 
 - HTTP `tools/list` stops advertising `api_key`. stdio keeps the field.
-- Protected `tools/call` without a user credential returns HTTP 401 and `WWW-Authenticate`.
+- Protected `tools/call` without a user credential is refused with the challenge ChatGPT acts on: HTTP 200 carrying `isError` and `_meta["mcp/www_authenticate"]`, with `WWW-Authenticate` on the same response. Every other refused method returns HTTP 401.
 - `initialize`, `tools/list`, and public catalog tools still run without a token.
 - User identity on HTTP is, in order: verified OAuth JWT, `x-api-key`, then body `api_key` (portal transition).
 - Every tool gets a `title`. Protected tools advertise `oauth2` `securitySchemes`.

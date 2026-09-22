@@ -22,8 +22,8 @@ catalogs, addresses, clients, packages, tickets, analytics, billing — is `fals
 1. it deletes or overwrites existing state (`delete_*`, `update_*`,
    `select_order_service`, `manage_order_tags`);
 2. it creates a charge or a document filed with a carrier or tax authority
-   (`create_shipment`, `create_international_shipment`, `schedule_pickup`,
-   `cancel_shipment`, `generate_manifest`, `generate_complement`);
+   (`create_shipment`, `schedule_pickup`, `cancel_shipment`,
+   `generate_manifest`, `generate_complement`);
 3. it sends something a person receives and cannot unsend (`create_ticket`,
    `add_ticket_comment`, `rate_ticket`, `submit_nd_report`);
 4. it is irreversible by the tool's own contract (`fulfill_order` marks the
