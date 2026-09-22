@@ -86,7 +86,8 @@ export function allowsUnauthenticatedMcpBody(body: unknown): boolean {
 }
 
 /**
- * Express middleware: 401 protected `tools/call` without a user credential.
+ * Express middleware: challenge protected `tools/call` without a user credential.
+ * A single tool call gets the 200 tool-level challenge; anything else gets 401.
  *
  * @param options - PRM URL for the challenge header
  * @returns Middleware

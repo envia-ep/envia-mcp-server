@@ -9,7 +9,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 export type ToolHandler = (
     args: Record<string, unknown>,
-) => Promise<{ content: Array<{ type: string; text: string }> }>;
+) => Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }>;
 
 export function createMockServer() {
     const handlers = new Map<string, ToolHandler>();

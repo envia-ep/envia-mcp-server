@@ -25,8 +25,8 @@ export function textResponse(text: string): McpTextResponse {
 }
 
 /**
- * Wrap a tool-level failure. Use for application errors once the handler runs.
- * Missing credentials on protected tools must be HTTP 401, not this helper.
+ * Wrap a tool-level failure: application errors once the handler runs, and the
+ * auth challenge the gate returns, which ChatGPT only reads from an HTTP 200 result.
  *
  * @param text - User-visible error text (must not include secrets)
  * @param meta - Optional `_meta` (e.g. `mcp/www_authenticate`)
