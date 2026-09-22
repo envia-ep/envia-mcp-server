@@ -3,13 +3,22 @@
  *
  * Cuts `tools/call` to protected tools when the request has no user credential.
  * `initialize`, `tools/list`, notifications, and public catalog tools still pass.
+ *
+ * A refused `tools/call` answers 200 with `isError` and `_meta["mcp/www_authenticate"]`,
+ * which is what opens the sign-in prompt in ChatGPT — a bare transport 401 does not.
+ * The `WWW-Authenticate` header rides along on the same response for clients that
+ * read the header instead, and anything that is not a `tools/call` still gets 401.
  */
 
 import type { NextFunction, Request, Response } from 'express';
 
+import { errorResponse } from '../utils/mcp-response.js';
 import { hasHttpUserCredential, type HttpCredentialRequest } from './http-credentials.js';
 import { isPublicCatalogToolName } from './tool-access.js';
 import { buildWwwAuthenticateHeader } from './www-authenticate.js';
+
+/** Shown to the end user when a protected tool is called without a credential. */
+const SIGN_IN_MESSAGE = 'Sign in to your Envia account to use this tool.';
 
 export interface McpAuthGateOptions {
     /** Absolute PRM URL included in WWW-Authenticate. */
@@ -24,7 +33,7 @@ interface JsonRpcRequest {
 }
 
 /**
- * Read the JSON-RPC method from a parsed body. Batches are rejected by the gate.
+ * Read the JSON-RPC method from a parsed body.
  *
  * @param body - `req.body`
  * @returns Method string, `'__batch__'` for arrays, or empty when unknown
@@ -61,15 +70,18 @@ export function jsonRpcToolName(body: unknown): string {
 /**
  * True when this JSON-RPC message may proceed without a user credential.
  *
+ * A batch passes only when every entry does, so one protected call cannot ride
+ * along with a public one.
+ *
  * @param body - Parsed body
  * @returns Whether the gate should call `next()`
  */
 export function allowsUnauthenticatedMcpBody(body: unknown): boolean {
-    const method = jsonRpcMethod(body);
-    if (method === '__batch__') {
-        return false;
+    if (Array.isArray(body)) {
+        return body.every((entry) => allowsUnauthenticatedMcpBody(entry));
     }
-    if (method === '' || method !== 'tools/call') {
+    const method = jsonRpcMethod(body);
+    if (method !== 'tools/call') {
         return true;
     }
     const toolName = jsonRpcToolName(body);
@@ -103,15 +115,23 @@ export function createMcpAuthGate(options: McpAuthGateOptions) {
         }
 
         const id = jsonRpcId(req.body);
-        res.setHeader(
-            'WWW-Authenticate',
-            buildWwwAuthenticateHeader({
-                resourceMetadataUrl: options.resourceMetadataUrl,
-                error: 'invalid_token',
-                errorDescription: 'Authentication required',
-                scope: 'mcp:read',
-            }),
-        );
+        const challenge = buildWwwAuthenticateHeader({
+            resourceMetadataUrl: options.resourceMetadataUrl,
+            error: 'invalid_token',
+            errorDescription: 'Authentication required',
+            scope: 'mcp:read',
+        });
+        res.setHeader('WWW-Authenticate', challenge);
+
+        if (jsonRpcMethod(req.body) === 'tools/call') {
+            res.status(200).json({
+                jsonrpc: '2.0',
+                result: errorResponse(SIGN_IN_MESSAGE, { 'mcp/www_authenticate': [challenge] }),
+                id,
+            });
+            return;
+        }
+
         res.status(401).json({
             jsonrpc: '2.0',
             error: { code: -32001, message: 'Authentication required' },
