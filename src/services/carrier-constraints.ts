@@ -67,7 +67,7 @@ export interface FetchCarrierConstraintsOptions {
  *
  * Error mapping:
  *   - 400 (malformed carrier_id or invalid include) → propagates backend message
- *   - 401 → "Authentication failed — the Envia credential ... is not valid or has expired."
+ *   - 401 → "Authentication failed — the Envia credential is not valid or has expired."
  *   - 404 (carrier not found) → "Carrier not found." or C11 note if endpoint missing
  *   - 422 (service_id valid but does not belong to this carrier) → propagates backend message
  *   - 5xx → "Backend error: {message}"

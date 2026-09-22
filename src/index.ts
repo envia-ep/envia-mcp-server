@@ -596,9 +596,7 @@ function startHttpMode(): void {
     // The authorization server is this MCP, not queries: `mcpAuthRouter` proxies
     // /authorize, /token and /register. Advertising queries directly would send
     // clients past the proxy and expose the backend as a public issuer.
-    //
-    // `authorization_servers` carries the issuer verbatim, trailing slash included,
-    // so it matches the `issuer` in the metadata document a client fetches next.
+    // The issuer goes out verbatim so it matches the metadata a client fetches next.
     const sendProtectedResourceMetadata = (_req: Request, res: Response): void => {
         res.json({
             resource: mcpResource,
@@ -608,9 +606,8 @@ function startHttpMode(): void {
         });
     };
 
-    // Registered before `mcpAuthRouter`: the SDK serves the root PRM path itself
-    // whenever the issuer has no path, and its document advertises the origin as
-    // `resource` instead of the canonical /mcp URI. First route wins in Express.
+    // Before `mcpAuthRouter`, which serves the root PRM path itself and advertises
+    // the origin as `resource` instead of the canonical /mcp URI.
     app.get('/.well-known/oauth-protected-resource', sendProtectedResourceMetadata);
     app.get('/.well-known/oauth-protected-resource/mcp', sendProtectedResourceMetadata);
 
@@ -719,9 +716,8 @@ function startHttpMode(): void {
         res.status(405).set('Allow', 'POST').send('Method Not Allowed');
     });
 
-    // Domain verification for the ChatGPT app submission. 404 when the token is
-    // unset: an empty 200 reads as a verified domain serving the wrong token,
-    // which is the harder failure to diagnose during review.
+    // Domain verification for the app submission. An empty 200 would read as a
+    // verified domain serving the wrong token, so an unset variable 404s instead.
     app.get('/.well-known/openai-apps-challenge', (_req: Request, res: Response) => {
         const challengeToken = process.env.OPENAI_APPS_CHALLENGE_TOKEN?.trim();
         if (!challengeToken) {

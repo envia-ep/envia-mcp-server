@@ -4,10 +4,8 @@
  * Cuts `tools/call` to protected tools when the request has no user credential.
  * `initialize`, `tools/list`, notifications, and public catalog tools still pass.
  *
- * A refused `tools/call` answers 200 with `isError` and `_meta["mcp/www_authenticate"]`,
- * which is what opens the sign-in prompt in ChatGPT — a bare transport 401 does not.
- * The `WWW-Authenticate` header rides along on the same response for clients that
- * read the header instead, and anything that is not a `tools/call` still gets 401.
+ * A refused `tools/call` answers 200 with `_meta["mcp/www_authenticate"]`, which is
+ * what opens ChatGPT's sign-in prompt; any other method gets 401. See DECISIONS.md.
  */
 
 import type { NextFunction, Request, Response } from 'express';
@@ -70,8 +68,7 @@ export function jsonRpcToolName(body: unknown): string {
 /**
  * True when this JSON-RPC message may proceed without a user credential.
  *
- * A batch passes only when every entry does, so one protected call cannot ride
- * along with a public one.
+ * A batch passes only when every entry does.
  *
  * @param body - Parsed body
  * @returns Whether the gate should call `next()`

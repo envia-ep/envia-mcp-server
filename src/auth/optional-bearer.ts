@@ -5,14 +5,9 @@ import { looksLikeJwt } from './http-credentials.js';
 const BEARER_PREFIX = /^Bearer\s+/i;
 
 /**
- * Wraps Bearer-auth middleware so a request the verifier cannot possibly accept
- * continues anonymously instead of failing every method on the connection.
- *
- * A token with JWT shape is verified as before: expired or forged access tokens
- * still receive 401, which is how an OAuth client learns to refresh. Anything
- * else — an opaque legacy token, a non-Bearer scheme — is ignored. It never
- * authenticates, and the protected-tool gate still challenges, but `initialize`
- * and `tools/list` keep working for clients that send a stale header.
+ * Wraps Bearer-auth middleware so a token the verifier could never accept — opaque,
+ * or another scheme — is ignored instead of failing every method on the connection.
+ * JWT-shaped tokens are still verified, so an expired one gets its 401.
  *
  * Public tools such as `envia_track_package` can run anonymously. Protected tools
  * must not inherit `ENVIA_API_KEY` when this middleware skips verification.

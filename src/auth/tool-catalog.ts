@@ -129,11 +129,9 @@ export function decorateToolCatalog(server: McpServer, options: ToolCatalogOptio
 /**
  * Publish `securitySchemes` as a top-level field on every advertised tool.
  *
- * The SDK builds each `tools/list` entry from a fixed set of fields and drops
- * anything it does not know, so the value passed to `registerTool` survives only
- * inside `_meta`. ChatGPT reads the top-level field — "Tools must declare
- * securitySchemes" was one of the listing rejections — so the mirror alone is
- * not enough. Call once after every tool is registered.
+ * The SDK drops unknown fields when building a `tools/list` entry, so the value from
+ * `registerTool` survives only inside `_meta`; ChatGPT reads the top level. Call once
+ * after every tool is registered.
  *
  * @param server - MCP server with all tools already registered
  * @returns The same server
