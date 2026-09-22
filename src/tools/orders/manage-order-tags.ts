@@ -12,7 +12,7 @@ import type { EnviaApiClient } from '../../utils/api-client.js';
 import { resolveClient } from '../../utils/api-client.js';
 import type { EnviaConfig } from '../../config.js';
 import { requiredApiKeySchema } from '../../utils/schemas.js';
-import { textResponse } from '../../utils/mcp-response.js';
+import { errorResponse, textResponse } from '../../utils/mcp-response.js';
 import { mapCarrierError } from '../../utils/error-mapper.js';
 import { mutateOrderApi, deleteOrderApi } from '../../services/orders.js';
 import type { TagAddResponse, TagRemoveResponse } from '../../types/orders.js';
@@ -51,10 +51,10 @@ export function registerManageOrderTags(
         },
         async (args) => {
             if (args.action === 'add' && !(args.tags && args.tags.length > 0)) {
-                return textResponse('tags is required for action="add".');
+                return errorResponse('tags is required for action="add".');
             }
             if (args.action === 'remove' && !(args.tag_ids && args.tag_ids.length > 0)) {
-                return textResponse('tag_ids is required for action="remove".');
+                return errorResponse('tag_ids is required for action="remove".');
             }
 
             const activeClient = resolveClient(client, args.api_key, config);

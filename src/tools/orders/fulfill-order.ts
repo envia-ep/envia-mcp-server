@@ -14,7 +14,7 @@ import type { EnviaApiClient } from '../../utils/api-client.js';
 import { resolveClient } from '../../utils/api-client.js';
 import type { EnviaConfig } from '../../config.js';
 import { requiredApiKeySchema } from '../../utils/schemas.js';
-import { textResponse } from '../../utils/mcp-response.js';
+import { errorResponse, textResponse } from '../../utils/mcp-response.js';
 import { mapCarrierError } from '../../utils/error-mapper.js';
 import { mutateOrderApi } from '../../services/orders.js';
 import type { FulfillOrderResponse } from '../../types/orders.js';
@@ -62,7 +62,7 @@ export function registerFulfillOrder(
         },
         async (args) => {
             if (args.shipment_id === undefined && args.tracking_number === undefined) {
-                return textResponse(
+                return errorResponse(
                     'At least one of shipment_id or tracking_number is required.\n\n' +
                     'Suggestion: pass shipment_id from envia_create_shipment, or the carrier tracking number.',
                 );
