@@ -36,7 +36,7 @@ export function registerManageOrderTags(
             annotations: {
                 readOnlyHint: false,
                 openWorldHint: false,
-                destructiveHint: false,
+                destructiveHint: true,
             },
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,

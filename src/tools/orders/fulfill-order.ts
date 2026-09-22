@@ -39,7 +39,7 @@ export function registerFulfillOrder(
             annotations: {
                 readOnlyHint: false,
                 openWorldHint: true,
-                destructiveHint: false,
+                destructiveHint: true,
             },
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,

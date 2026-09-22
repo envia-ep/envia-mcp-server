@@ -67,7 +67,7 @@ export interface FetchCarrierConstraintsOptions {
  *
  * Error mapping:
  *   - 400 (malformed carrier_id or invalid include) → propagates backend message
- *   - 401 → "Authentication failed — verify your ENVIA_API_KEY."
+ *   - 401 → "Authentication failed — the Envia credential ... is not valid or has expired."
  *   - 404 (carrier not found) → "Carrier not found." or C11 note if endpoint missing
  *   - 422 (service_id valid but does not belong to this carrier) → propagates backend message
  *   - 5xx → "Backend error: {message}"
@@ -124,7 +124,7 @@ export async function fetchCarrierConstraints(
 
         case 401:
             throw new Error(
-                'Authentication failed — verify your ENVIA_API_KEY is valid and not expired.',
+                'Authentication failed — the Envia credential for this request is not valid or has expired.',
             );
 
         case 404: {

@@ -248,11 +248,11 @@ function friendlyError(status: number, body: Record<string, unknown>): string {
         case 400:
             return `Bad request — check that all required parameters are correct. Detail: ${detail}`;
         case 401:
-            return "Authentication failed — verify your ENVIA_API_KEY is valid and not expired.";
+            return "Authentication failed — the Envia credential for this request is not valid or has expired.";
         case 402:
             return "Insufficient balance — add funds to your Envia account before retrying.";
         case 403:
-            return "Forbidden — your API key does not have permission for this operation.";
+            return "Forbidden — this account does not have permission for this operation.";
         case 404:
             return `Not found — the requested resource does not exist. Detail: ${detail}`;
         case 422:
