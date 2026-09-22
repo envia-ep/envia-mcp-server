@@ -12,6 +12,20 @@ import { asAuthenticatedTool } from './tool-access.js';
 
 type RegisterToolFn = McpServer['registerTool'];
 
+const LIST_TOOLS_METHOD = 'tools/list';
+
+interface ListedTool {
+    name: string;
+    _meta?: { securitySchemes?: unknown };
+    securitySchemes?: unknown;
+}
+
+type ListToolsHandler = (request: unknown, extra: unknown) => Promise<{ tools: ListedTool[] }>;
+
+interface ProtocolInternals {
+    _requestHandlers: Map<string, ListToolsHandler>;
+}
+
 interface CatalogDecoratedServer extends McpServer {
     __toolCatalogDecorated?: boolean;
 }
@@ -110,6 +124,43 @@ export function decorateToolCatalog(server: McpServer, options: ToolCatalogOptio
 
     decorated.registerTool = patched;
     return decorated;
+}
+
+/**
+ * Publish `securitySchemes` as a top-level field on every advertised tool.
+ *
+ * The SDK builds each `tools/list` entry from a fixed set of fields and drops
+ * anything it does not know, so the value passed to `registerTool` survives only
+ * inside `_meta`. ChatGPT reads the top-level field — "Tools must declare
+ * securitySchemes" was one of the listing rejections — so the mirror alone is
+ * not enough. Call once after every tool is registered.
+ *
+ * @param server - MCP server with all tools already registered
+ * @returns The same server
+ * @throws When the SDK has not installed a `tools/list` handler to wrap
+ */
+export function publishToolSecuritySchemes(server: McpServer): McpServer {
+    const protocol = server.server as unknown as ProtocolInternals;
+    const original = protocol._requestHandlers.get(LIST_TOOLS_METHOD);
+    if (!original) {
+        throw new Error(
+            'Cannot publish securitySchemes: no tools/list handler is registered. ' +
+            'Call publishToolSecuritySchemes after the last registerTool.',
+        );
+    }
+
+    protocol._requestHandlers.set(LIST_TOOLS_METHOD, async (request, extra) => {
+        const result = await original(request, extra);
+        return {
+            ...result,
+            tools: result.tools.map((tool) => {
+                const schemes = tool._meta?.securitySchemes;
+                return schemes === undefined ? tool : { ...tool, securitySchemes: schemes };
+            }),
+        };
+    });
+
+    return server;
 }
 
 /**

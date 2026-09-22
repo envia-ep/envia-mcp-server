@@ -53,7 +53,7 @@ import { optionalBearerAuth } from './auth/optional-bearer.js';
 import { createMcpAuthGate } from './auth/mcp-auth-gate.js';
 import { resolveHttpEnviaApiKey } from './auth/http-credentials.js';
 import { mcpResourceUris } from './auth/mcp-resource.js';
-import { decorateToolCatalog } from './auth/tool-catalog.js';
+import { decorateToolCatalog, publishToolSecuritySchemes } from './auth/tool-catalog.js';
 import { buildWwwAuthenticateHeader } from './auth/www-authenticate.js';
 import { loadConfig } from './config.js';
 import { EnviaApiClient } from './utils/api-client.js';
@@ -468,6 +468,8 @@ function createEnviaServer(
 
     registerResources(server, config);
 
+    publishToolSecuritySchemes(server);
+
     return server;
 }
 
@@ -587,8 +589,6 @@ function startHttpMode(): void {
         res.json(correctedMetadata);
     });
 
-    app.use(mcpAuthRouter(authRouterOptions));
-
     const resourceUri = issuerUrl.href.replace(/\/$/, '');
     const { origin: mcpOrigin, resource: mcpResource } = mcpResourceUris(resourceUri);
     const resourceMetadataUrl = `${mcpOrigin}/.well-known/oauth-protected-resource`;
@@ -596,17 +596,25 @@ function startHttpMode(): void {
     // The authorization server is this MCP, not queries: `mcpAuthRouter` proxies
     // /authorize, /token and /register. Advertising queries directly would send
     // clients past the proxy and expose the backend as a public issuer.
+    //
+    // `authorization_servers` carries the issuer verbatim, trailing slash included,
+    // so it matches the `issuer` in the metadata document a client fetches next.
     const sendProtectedResourceMetadata = (_req: Request, res: Response): void => {
         res.json({
             resource: mcpResource,
-            authorization_servers: [mcpOrigin],
+            authorization_servers: [issuerUrl.href],
             bearer_methods_supported: ['header'],
             scopes_supported: mcpScopes,
         });
     };
 
+    // Registered before `mcpAuthRouter`: the SDK serves the root PRM path itself
+    // whenever the issuer has no path, and its document advertises the origin as
+    // `resource` instead of the canonical /mcp URI. First route wins in Express.
     app.get('/.well-known/oauth-protected-resource', sendProtectedResourceMetadata);
     app.get('/.well-known/oauth-protected-resource/mcp', sendProtectedResourceMetadata);
+
+    app.use(mcpAuthRouter(authRouterOptions));
 
     app.use((_req: Request, res: Response, next: NextFunction) => {
         res.setHeader('Access-Control-Allow-Origin', '*');
@@ -711,8 +719,16 @@ function startHttpMode(): void {
         res.status(405).set('Allow', 'POST').send('Method Not Allowed');
     });
 
+    // Domain verification for the ChatGPT app submission. 404 when the token is
+    // unset: an empty 200 reads as a verified domain serving the wrong token,
+    // which is the harder failure to diagnose during review.
     app.get('/.well-known/openai-apps-challenge', (_req: Request, res: Response) => {
-        res.type('text/plain').send(process.env.OPENAI_APPS_CHALLENGE_TOKEN ?? '');
+        const challengeToken = process.env.OPENAI_APPS_CHALLENGE_TOKEN?.trim();
+        if (!challengeToken) {
+            res.status(404).type('text/plain').send('Not Found');
+            return;
+        }
+        res.type('text/plain').send(challengeToken);
     });
 
     app.delete('/mcp', (_req: Request, res: Response) => {
