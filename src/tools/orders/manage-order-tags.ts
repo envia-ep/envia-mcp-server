@@ -12,7 +12,7 @@ import type { EnviaApiClient } from '../../utils/api-client.js';
 import { resolveClient } from '../../utils/api-client.js';
 import type { EnviaConfig } from '../../config.js';
 import { requiredApiKeySchema } from '../../utils/schemas.js';
-import { textResponse } from '../../utils/mcp-response.js';
+import { errorResponse, textResponse } from '../../utils/mcp-response.js';
 import { mapCarrierError } from '../../utils/error-mapper.js';
 import { mutateOrderApi, deleteOrderApi } from '../../services/orders.js';
 import type { TagAddResponse, TagRemoveResponse } from '../../types/orders.js';
@@ -36,7 +36,7 @@ export function registerManageOrderTags(
             annotations: {
                 readOnlyHint: false,
                 openWorldHint: false,
-                destructiveHint: false,
+                destructiveHint: true,
             },
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
@@ -47,18 +47,16 @@ export function registerManageOrderTags(
                     .describe('Tag strings to add (required when action="add")'),
                 tag_ids: z.array(z.number().int().min(1)).optional()
                     .describe('Tag IDs to remove (required when action="remove"; get IDs from order tag records)'),
-            }).refine(
-                (data) => {
-                    if (data.action === 'add') return Array.isArray(data.tags) && data.tags.length > 0;
-                    if (data.action === 'remove') return Array.isArray(data.tag_ids) && data.tag_ids.length > 0;
-                    return false;
-                },
-                {
-                    message: 'tags is required for action="add"; tag_ids is required for action="remove".',
-                },
-            ),
+            }),
         },
         async (args) => {
+            if (args.action === 'add' && !(args.tags && args.tags.length > 0)) {
+                return errorResponse('tags is required for action="add".');
+            }
+            if (args.action === 'remove' && !(args.tag_ids && args.tag_ids.length > 0)) {
+                return errorResponse('tag_ids is required for action="remove".');
+            }
+
             const activeClient = resolveClient(client, args.api_key, config);
 
             if (args.action === 'add') {

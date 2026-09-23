@@ -1,7 +1,10 @@
+import { jwtVerify } from 'jose';
 import { ProxyOAuthServerProvider } from '@modelcontextprotocol/sdk/server/auth/providers/proxyProvider.js';
 import { InvalidTokenError } from '@modelcontextprotocol/sdk/server/auth/errors.js';
 import type { OAuthClientInformationFull } from '@modelcontextprotocol/sdk/shared/auth.js';
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
+
+import { mcpAudienceCandidates, normalizeResourceUri } from './mcp-resource.js';
 
 /**
  * Builds a ProxyOAuthServerProvider that delegates all OAuth flows to the
@@ -143,7 +146,6 @@ async function verifyAccessToken(
     jwtKey: string,
     resource: string,
 ): Promise<AuthInfo> {
-    const { jwtVerify } = await import('jose');
     const secret = new TextEncoder().encode(jwtKey);
 
     let payload: Record<string, unknown>;
@@ -252,28 +254,20 @@ function getResourceUri(): string {
     return normalizeResourceUri(raw);
 }
 
-/**
- * Strips a trailing slash so `http://host:3000` and `http://host:3000/` compare equal.
- *
- * @param uri - Absolute URI
- * @returns URI without a trailing slash
- */
-export function normalizeResourceUri(uri: string): string {
-    return uri.replace(/\/$/, '');
-}
+export { normalizeResourceUri };
 
 /**
- * JWT `aud` may be a string or array; MCP metadata often appends a trailing slash
- * while queries stores the RFC 8707 resource without one.
+ * JWT `aud` may be a string or array. ChatGPT may send the origin; Claude may
+ * send the `/mcp` resource. Both are accepted for the configured server URL.
  *
  * @param tokenAud - `aud` claim
- * @param expected - This MCP server's canonical URI
- * @returns True when any audience matches after slash-normalization
+ * @param expected - This MCP server's configured URI (`OAUTH_SERVER_URL`)
+ * @returns True when any audience matches an accepted candidate
  */
 export function audiencesMatch(tokenAud: unknown, expected: string): boolean {
-    const want = normalizeResourceUri(expected);
+    const accepted = new Set(mcpAudienceCandidates(expected));
     const values = Array.isArray(tokenAud) ? tokenAud : [tokenAud];
-    return values.some((value) => typeof value === 'string' && normalizeResourceUri(value) === want);
+    return values.some((value) => typeof value === 'string' && accepted.has(normalizeResourceUri(value)));
 }
 
 export { createEnviaOAuthProvider as EnviaOAuthProvider };

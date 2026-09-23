@@ -14,7 +14,7 @@ import type { EnviaApiClient } from '../../utils/api-client.js';
 import { resolveClient } from '../../utils/api-client.js';
 import type { EnviaConfig } from '../../config.js';
 import { requiredApiKeySchema } from '../../utils/schemas.js';
-import { textResponse } from '../../utils/mcp-response.js';
+import { errorResponse, textResponse } from '../../utils/mcp-response.js';
 import { mapCarrierError } from '../../utils/error-mapper.js';
 import { mutateOrderApi } from '../../services/orders.js';
 import type { FulfillOrderResponse } from '../../types/orders.js';
@@ -39,7 +39,7 @@ export function registerFulfillOrder(
             annotations: {
                 readOnlyHint: false,
                 openWorldHint: true,
-                destructiveHint: false,
+                destructiveHint: true,
             },
             inputSchema: z.object({
                 api_key: requiredApiKeySchema,
@@ -58,12 +58,16 @@ export function registerFulfillOrder(
                     .describe('How the shipment was created: normal=carrier API, manual=manual entry, automatic=auto-detect'),
                 shipment_method: z.enum(['normal', 'manual', 'automatic']).optional()
                     .describe('Shipment method type (optional, mirrors fulfillment_method)'),
-            }).refine(
-                (data) => data.shipment_id !== undefined || data.tracking_number !== undefined,
-                { message: 'At least one of shipment_id or tracking_number is required.' },
-            ),
+            }),
         },
         async (args) => {
+            if (args.shipment_id === undefined && args.tracking_number === undefined) {
+                return errorResponse(
+                    'At least one of shipment_id or tracking_number is required.\n\n' +
+                    'Suggestion: pass shipment_id from envia_create_shipment, or the carrier tracking number.',
+                );
+            }
+
             const activeClient = resolveClient(client, args.api_key, config);
 
             const body: Record<string, unknown> = {

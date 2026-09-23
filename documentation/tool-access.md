@@ -31,8 +31,10 @@ a fallback for anonymous catalog calls.
 - Do **not** use `resolvePublicCatalogClient`.
 
 HTTP `POST /mcp` accepts requests with no `Authorization` header so clients
-can initialize, list tools, and track without OAuth. Invalid Bearer tokens
-still receive `401`.
+can initialize, list tools, and track without OAuth. A JWT-shaped Bearer token
+is still verified and an invalid one receives `401`; a token that could never
+verify — opaque, or another scheme — is ignored and the request continues
+anonymously.
 
 ## Public catalog: mark a tool
 
@@ -109,15 +111,24 @@ without `inheritServerApiKey`.
 
 ## HTTP vs stdio
 
-- **HTTP:** Bearer auth is optional. Missing `Authorization` is allowed.
-  Unauthenticated requests get an empty request `apiKey` and keep
-  `serverApiKey` from `ENVIA_API_KEY` for catalog tools only.
+- **HTTP:** Bearer auth is optional. Missing `Authorization` is allowed for
+  `initialize`, `tools/list`, and public catalog tools. A protected `tools/call`
+  without a user credential is refused with **HTTP 200 + `isError` +
+  `_meta["mcp/www_authenticate"]`** and the `WWW-Authenticate` header — a bare
+  401 does not open ChatGPT's sign-in prompt. Every other refused method still
+  returns **401**. User identity is, in order: verified OAuth JWT, `x-api-key`
+  header, then (transition) `api_key` in the JSON-RPC body. HTTP `tools/list`
+  does **not** advertise `api_key`. A JWT-shaped Bearer token that fails
+  verification still receives `401`.
 - **stdio:** `ENVIA_API_KEY` is still required at startup. Per-request
-  `api_key` overrides work as before.
+  `api_key` overrides work as before and remain in the schema.
 
 ## Related files
 
-- `src/auth/tool-access.ts` — `asPublicCatalogTool`, `resolvePublicCatalogClient`, `withAnonymousFallbackDisclaimer`
-- `src/auth/optional-bearer.ts` — skip Bearer verification when the header is absent
+- `src/auth/tool-access.ts` — `asPublicCatalogTool`, `asAuthenticatedTool`, `resolvePublicCatalogClient`, `withAnonymousFallbackDisclaimer`
+- `src/auth/mcp-auth-gate.ts` — challenge for protected tools without a credential
+- `src/auth/http-credentials.ts` — JWT extra / `x-api-key` / body `api_key`
+- `src/auth/optional-bearer.ts` — skip Bearer verification unless the token is a JWT
+- `documentation/tool-annotations.md` — `destructiveHint` / `openWorldHint` criteria
 - `src/config.ts` — `apiKey` (request) vs `serverApiKey` (`ENVIA_API_KEY`)
 - `src/utils/api-client.ts` — `resolveClient(..., { inheritServerApiKey: true })`

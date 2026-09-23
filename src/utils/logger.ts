@@ -102,11 +102,44 @@ function buildDestination(): DestinationStream | undefined {
 }
 
 /**
+ * Pino redact paths for credentials. Exported so tests can lock the list.
+ */
+export const LOGGER_REDACT_PATHS: string[] = [
+    'authorization',
+    'Authorization',
+    'api_key',
+    'enviaApiKey',
+    '*.authorization',
+    '*.Authorization',
+    '*.api_key',
+    '*.enviaApiKey',
+    'headers.authorization',
+    'headers.Authorization',
+    'headers["x-api-key"]',
+    'headers["X-Api-Key"]',
+    'req.headers.authorization',
+    'req.headers.Authorization',
+    'req.headers["x-api-key"]',
+    '*.headers.authorization',
+    '*.headers.Authorization',
+    '*.headers["x-api-key"]',
+    // Two levels deep, where a JSON-RPC body and a verified token carry the credential.
+    'params.arguments.api_key',
+    '*.params.arguments.api_key',
+    'body.params.arguments.api_key',
+    'auth.extra.enviaApiKey',
+    '*.auth.extra.enviaApiKey',
+];
+
+/**
  * Build the pino logger options object.
+ *
+ * Exported so tests can emit through the real redact configuration instead of
+ * asserting that path strings exist.
  *
  * @returns Options with a sensible base context and ISO timestamps.
  */
-function buildOptions(): LoggerOptions {
+export function buildLoggerOptions(): LoggerOptions {
     return {
         level: resolveLogLevel(),
         base: {
@@ -114,6 +147,10 @@ function buildOptions(): LoggerOptions {
             env: process.env.NODE_ENV ?? 'development',
         },
         timestamp: pino.stdTimeFunctions.isoTime,
+        redact: {
+            paths: LOGGER_REDACT_PATHS,
+            censor: '[REDACTED]',
+        },
         formatters: {
             // Emit "level" as a string ("info") instead of pino's default
             // numeric value (30). Datadog, Loki, and most JSON log
@@ -136,7 +173,7 @@ export function getLogger(): Logger {
     if (cachedRoot) return cachedRoot;
 
     const destination = buildDestination();
-    cachedRoot = destination ? pino(buildOptions(), destination) : pino(buildOptions());
+    cachedRoot = destination ? pino(buildLoggerOptions(), destination) : pino(buildLoggerOptions());
     return cachedRoot;
 }
 

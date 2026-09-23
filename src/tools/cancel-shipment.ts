@@ -125,7 +125,7 @@ export function registerCancelShipment(
                 + 'after label generation.',
             annotations: {
                 readOnlyHint: false,
-                openWorldHint: false,
+                openWorldHint: true,
                 destructiveHint: true,
             },
             inputSchema: z.object({

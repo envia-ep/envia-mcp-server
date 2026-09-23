@@ -2,7 +2,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 import {
     ANONYMOUS_FALLBACK_DISCLAIMER,
+    asAuthenticatedTool,
     asPublicCatalogTool,
+    AUTHENTICATED_TOOL_SECURITY_SCHEMES,
+    isPublicCatalogToolName,
     isUsingServerApiKeyFallback,
     PUBLIC_CATALOG_SECURITY_SCHEMES,
     resolvePublicCatalogClient,
@@ -28,6 +31,30 @@ describe('asPublicCatalogTool', () => {
 
         expect(marked.securitySchemes).toEqual(PUBLIC_CATALOG_SECURITY_SCHEMES);
         expect(marked._meta.securitySchemes).toEqual(PUBLIC_CATALOG_SECURITY_SCHEMES);
+    });
+});
+
+describe('asAuthenticatedTool', () => {
+    it('should advertise oauth2 without noauth', () => {
+        const marked = asAuthenticatedTool({
+            description: 'List shipments',
+        });
+
+        expect(marked.securitySchemes).toEqual(AUTHENTICATED_TOOL_SECURITY_SCHEMES);
+        expect(marked._meta.securitySchemes).toEqual(AUTHENTICATED_TOOL_SECURITY_SCHEMES);
+        expect(JSON.stringify(marked.securitySchemes)).not.toContain('noauth');
+    });
+});
+
+describe('isPublicCatalogToolName', () => {
+    it('should treat quote and tracking as public', () => {
+        expect(isPublicCatalogToolName('envia_quote_shipment')).toBe(true);
+        expect(isPublicCatalogToolName('envia_track_package')).toBe(true);
+    });
+
+    it('should treat account tools as protected', () => {
+        expect(isPublicCatalogToolName('envia_list_shipments')).toBe(false);
+        expect(isPublicCatalogToolName('envia_get_company_info')).toBe(false);
     });
 });
 

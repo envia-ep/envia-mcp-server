@@ -27,6 +27,14 @@ describe('audiencesMatch', () => {
     it('should reject an aud that points at a different resource', () => {
         expect(audiencesMatch('https://mcp.envia.com', 'http://127.0.0.1:3000')).toBe(false);
     });
+
+    it('should accept the /mcp resource when OAUTH_SERVER_URL is the origin', () => {
+        expect(audiencesMatch('http://127.0.0.1:3000/mcp', 'http://127.0.0.1:3000')).toBe(true);
+    });
+
+    it('should accept the origin when OAUTH_SERVER_URL includes /mcp', () => {
+        expect(audiencesMatch('https://mcp.envia.com', 'https://mcp.envia.com/mcp')).toBe(true);
+    });
 });
 
 describe('sanitizeDcrPayload', () => {

@@ -33,7 +33,7 @@ export function registerCancelPickup(
                 'Requires the carrier code and the confirmation number from the original pickup schedule.',
             annotations: {
                 readOnlyHint: false,
-                openWorldHint: false,
+                openWorldHint: true,
                 destructiveHint: true,
             },
             inputSchema: z.object({

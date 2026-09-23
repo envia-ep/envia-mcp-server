@@ -30,17 +30,39 @@ describe('optionalBearerAuth', () => {
         expect(next).toHaveBeenCalledOnce();
     });
 
-    it('should verify the token when Authorization is present', () => {
+    it('should verify the token when Authorization carries a JWT', () => {
         const next = vi.fn() as NextFunction;
         const bearerAuth = vi.fn((_req: Request, _res: Response, innerNext: NextFunction) => {
             innerNext();
         });
         const middleware = optionalBearerAuth(bearerAuth);
-        const req = makeRequest('Bearer access-token');
+        const req = makeRequest('Bearer header.payload.signature');
 
         middleware(req, {} as Response, next);
 
         expect(bearerAuth).toHaveBeenCalledOnce();
         expect(bearerAuth).toHaveBeenCalledWith(req, expect.anything(), next);
+    });
+
+    it('should continue anonymously when the Bearer token is opaque', () => {
+        const bearerAuth = vi.fn();
+        const next = vi.fn() as NextFunction;
+        const middleware = optionalBearerAuth(bearerAuth);
+
+        middleware(makeRequest('Bearer legacy-opaque-token'), {} as Response, next);
+
+        expect(bearerAuth).not.toHaveBeenCalled();
+        expect(next).toHaveBeenCalledOnce();
+    });
+
+    it('should continue anonymously when the scheme is not Bearer', () => {
+        const bearerAuth = vi.fn();
+        const next = vi.fn() as NextFunction;
+        const middleware = optionalBearerAuth(bearerAuth);
+
+        middleware(makeRequest('Basic dXNlcjpwYXNz'), {} as Response, next);
+
+        expect(bearerAuth).not.toHaveBeenCalled();
+        expect(next).toHaveBeenCalledOnce();
     });
 });
