@@ -5,6 +5,42 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0](https://github.com/envia-ep/envia-mcp-server/compare/v1.1.0...v1.2.0) (2026-09-23)
+
+
+### Features
+
+* **auth:** challenge a protected tool call the way ChatGPT expects ([aef56d0](https://github.com/envia-ep/envia-mcp-server/commit/aef56d01b6d64e96518f59f99baf531406030970))
+* **auth:** return 401 for protected HTTP tools without a user credential ([d63bee0](https://github.com/envia-ep/envia-mcp-server/commit/d63bee0debc681ea9cdc8b4dc882ab49ecb5fa8b))
+* **auth:** support per-request Bearer token for multi-tenant HTTP mode ([ddda277](https://github.com/envia-ep/envia-mcp-server/commit/ddda2777c8208d58b2559100a781775b5c93fbe7))
+* **catalog:** advertise securitySchemes top level and serve one PRM document ([cfd2a93](https://github.com/envia-ep/envia-mcp-server/commit/cfd2a930df2629a426d08b61caea11ead9cef4b1))
+* **domain:** serve OpenAI apps challenge token at well-known URL ([0f9b5f6](https://github.com/envia-ep/envia-mcp-server/commit/0f9b5f618adb29028c811fb20049395ee4aa8c94))
+* **tools:** add readOnlyHint, openWorldHint, destructiveHint annotations to all tools ([f63ddfb](https://github.com/envia-ep/envia-mcp-server/commit/f63ddfb43a5abbd277ab2f432cfc8f24b9876684))
+* **tools:** Pase 3 — add envia_create_international_shipment wizard ([fb8221e](https://github.com/envia-ep/envia-mcp-server/commit/fb8221e38a29099895f502bf9186b15406a74eee))
+
+
+### Bug Fixes
+
+* advertise only none in token_endpoint_auth_methods_supported ([b81f3a7](https://github.com/envia-ep/envia-mcp-server/commit/b81f3a7442b7dbd51d9d56cf00c35064c37e8506))
+* **auth:** accept both queries.envia.com and queries-private.envia.com as valid JWT issuers ([5bf82e1](https://github.com/envia-ep/envia-mcp-server/commit/5bf82e1311933231c25e58284fc1858fa103ac4d))
+* **auth:** advertise this MCP as the authorization server in both PRM routes ([73a49e2](https://github.com/envia-ep/envia-mcp-server/commit/73a49e2cd4ed202a6cbe2258ee0f1bab5dd9e2d7))
+* **auth:** ignore a Bearer token that cannot be a JWT instead of failing the request ([f12febb](https://github.com/envia-ep/envia-mcp-server/commit/f12febbf41e3c0227e94cc1121dad66dc1fa4fea))
+* **auth:** keep tools/list working when stripping api_key on HTTP ([8a76481](https://github.com/envia-ep/envia-mcp-server/commit/8a764814ea2d3fd1be1cb46bde2f0d5c4d3db0a4))
+* **auth:** mixed-auth HTTP for ChatGPT App listing ([219b92e](https://github.com/envia-ep/envia-mcp-server/commit/219b92e770e80c100027f0b8d870dfd23e5db48d))
+* **auth:** read the credential out of a JSON-RPC batch ([fd0fde1](https://github.com/envia-ep/envia-mcp-server/commit/fd0fde104e1d48283706ae6e7e56b5a3a0e4c5b4))
+* **auth:** throw InvalidTokenError so bearer auth returns 401 not 500 ([4a6a1fc](https://github.com/envia-ep/envia-mcp-server/commit/4a6a1fcde271adf9ba2d94913ff1504fbccfb5f9))
+* **catalog:** correct write annotations and stop naming the credential in errors ([5893f2a](https://github.com/envia-ep/envia-mcp-server/commit/5893f2ac22e0b4e0a3ee149768d004e7b32fcad0))
+* **config:** stop a transport credential from choosing the Envia backend ([6903b27](https://github.com/envia-ep/envia-mcp-server/commit/6903b27a9ddf41bd9525f9af7a395d914fc693e3))
+* enable trust proxy for Heroku/Cloudflare reverse proxy ([ff1c731](https://github.com/envia-ep/envia-mcp-server/commit/ff1c73178b0e85ac7068aa882282c64c1e18db6f))
+* force token_endpoint_auth_method=none for queries DCR ([de0de10](https://github.com/envia-ep/envia-mcp-server/commit/de0de100c2228cf5856486c8b2d2dafe397f091f))
+* **http:** normalize Accept header for clients that omit text/event-stream ([fbb47b6](https://github.com/envia-ep/envia-mcp-server/commit/fbb47b65eda83798c6d8f4ccded725e34d31861b))
+* **list-tickets:** surface real 422 error instead of falsely claiming sandbox-only ([4e3ca4b](https://github.com/envia-ep/envia-mcp-server/commit/4e3ca4b4f36aee8d53aacbf42481f79773741c9d))
+* **list-tickets:** surface real 422 error instead of falsely claiming sandbox-only ([6c3338c](https://github.com/envia-ep/envia-mcp-server/commit/6c3338cd9e9cd10aaf4c3d27f8118aebf715f1c0))
+* **orders:** report handler validation failures as tool errors ([2fcdb6b](https://github.com/envia-ep/envia-mcp-server/commit/2fcdb6b94d0e4c3a16dffe2671f8c7aadafb7845))
+* resolve merge conflict, use allowlist-based DCR sanitization ([7c1702f](https://github.com/envia-ep/envia-mcp-server/commit/7c1702f83f3ed7be297a059733d44460807d63dc))
+* strip response_types from registration forwarded to queries ([ef04566](https://github.com/envia-ep/envia-mcp-server/commit/ef04566caef93d74ed0db680ff7eb9fe5aa9be54))
+* **tools:** add missing annotations to envia_list_orders and envia_list_shops ([1c93c48](https://github.com/envia-ep/envia-mcp-server/commit/1c93c4887b467000d048341620303d8e6d0ff0c4))
+
 ## [1.1.0](https://github.com/envia-ep/envia-mcp-server/compare/v1.0.0...v1.1.0) (2026-04-29)
 
 
