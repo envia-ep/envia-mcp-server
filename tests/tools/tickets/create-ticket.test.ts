@@ -369,6 +369,49 @@ describe('envia_create_ticket', () => {
         );
     });
 
+    it('should preserve creation and log a sanitized warning when autoassignment rejects', async () => {
+        const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+        const postSpy = vi.spyOn(EnviaApiClient.prototype, 'post')
+            .mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                data: { id: 3177 },
+            })
+            .mockRejectedValueOnce(new Error('sensitive internal autoassign rejection'));
+
+        const result = await handler({
+            api_key: MOCK_CONFIG.apiKey,
+            type_id: 8,
+            shipment_id: 999,
+        });
+        const text = result.content[0].text;
+
+        expect(text).toContain('Ticket created successfully');
+        expect(text).toContain('Ticket ID: 3177');
+        expect(text).not.toContain('sensitive internal autoassign rejection');
+        expect(postSpy).toHaveBeenCalledTimes(2);
+        expect(postSpy).toHaveBeenNthCalledWith(
+            1,
+            `${MOCK_CONFIG.queriesBase}/company/tickets`,
+            { type_id: 8, shipment_id: 999 },
+        );
+        expect(postSpy).toHaveBeenNthCalledWith(
+            2,
+            `${MOCK_CONFIG.queriesBase}/company/tickets/autoassign/3177`,
+            {},
+        );
+        expect(warnSpy).toHaveBeenCalledTimes(1);
+        expect(warnSpy).toHaveBeenCalledWith(
+            {
+                event: 'ticket_autoassignment_failed',
+                tool: 'envia_create_ticket',
+                ticketId: 3177,
+                status: 0,
+            },
+            'Ticket autoassignment failed after successful creation',
+        );
+    });
+
     it('should reuse the same authenticated client for creation and autoassignment', async () => {
         const postSpy = vi.spyOn(EnviaApiClient.prototype, 'post');
         mockFetch
