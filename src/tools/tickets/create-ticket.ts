@@ -9,11 +9,6 @@
  * duplicate-prevention rule does not fire, and reverse lookups by tracking
  * number return nothing.
  *
- * After a successful creation response yields a schema-valid ticket ID, the
- * tool requests autoassignment through the same authenticated Queries client.
- * Autoassignment is fail-open: failures are logged without changing the
- * successful creation response.
- *
  * Handles 409 Conflict when an active ticket already exists for the same
  * shipment + type combination.
  */
@@ -31,63 +26,9 @@ import { queryShipmentsApi } from '../../services/shipments.js';
 import { parseToolResponse } from '../../utils/response-validator.js';
 import { ShipmentDetailResponseSchema } from '../../schemas/shipments.js';
 import { CreateTicketResponseSchema } from '../../schemas/tickets.js';
-import { logger } from '../../utils/logger.js';
-
-/**
- * Request autoassignment for a newly created ticket without changing the
- * creation result when assignment fails.
- *
- * @param client - Authenticated client used to create the ticket.
- * @param config - Queries API configuration.
- * @param ticketId - Schema-validated ID returned by ticket creation.
- * @returns A promise that resolves after the assignment attempt is observed.
- */
-async function autoassignCreatedTicket(
-    client: EnviaApiClient,
-    config: EnviaConfig,
-    ticketId: number,
-): Promise<void> {
-    try {
-        const response = await mutateTicketApi<unknown>(
-            client,
-            config,
-            `/company/tickets/autoassign/${ticketId}`,
-            {},
-        );
-
-        if (response.ok) return;
-
-        logger.warn(
-            {
-                event: 'ticket_autoassignment_failed',
-                tool: 'envia_create_ticket',
-                ticketId,
-                status: response.status,
-            },
-            'Ticket autoassignment failed after successful creation',
-        );
-    } catch {
-        logger.warn(
-            {
-                event: 'ticket_autoassignment_failed',
-                tool: 'envia_create_ticket',
-                ticketId,
-                status: 0,
-            },
-            'Ticket autoassignment failed after successful creation',
-        );
-    }
-}
 
 /**
  * Register the envia_create_ticket tool on the MCP server.
- *
- * Successful ticket creation is followed by fail-open autoassignment through
- * the same authenticated Queries API client.
- *
- * @param server - MCP server on which the tool is registered.
- * @param client - Default Envia API client.
- * @param config - Envia API configuration.
  */
 export function registerCreateTicket(
     server: McpServer,
@@ -204,12 +145,6 @@ export function registerCreateTicket(
 
             const validated = parseToolResponse(CreateTicketResponseSchema, res.data, 'envia_create_ticket');
             const ticketId = validated.id;
-            const validatedCreation = CreateTicketResponseSchema.safeParse(validated);
-
-            if (validatedCreation.success) {
-                await autoassignCreatedTicket(activeClient, config, validatedCreation.data.id);
-            }
-
             const linkLine = resolvedShipmentId !== undefined
                 ? `  Linked to shipment_id: ${resolvedShipmentId}` +
                     (args.tracking_number ? ` (tracking ${args.tracking_number})` : '')
