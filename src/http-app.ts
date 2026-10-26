@@ -45,6 +45,32 @@ const MIME: Record<string, string> = {
     '.json': 'application/json; charset=utf-8',
 };
 
+/**
+ * Allow any browser origin to call discovery, OAuth, and `/mcp`.
+ *
+ * Must run before those routes. A handler that sends the response first never
+ * reaches a later CORS middleware, and the login router answers `OPTIONS` on
+ * `/authorize` with 405, so the preflight has to end here.
+ *
+ * @param req - Incoming request
+ * @param res - Outgoing response
+ * @param next - Continues the chain for non-preflight methods
+ */
+function allowBrowserCors(req: Request, res: Response, next: NextFunction): void {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
+    res.setHeader(
+        'Access-Control-Allow-Headers',
+        'Content-Type, Accept, mcp-session-id, Authorization, x-api-key, x-correlation-id, x-request-id',
+    );
+    res.setHeader('Access-Control-Expose-Headers', 'mcp-session-id, WWW-Authenticate');
+    if (req.method === 'OPTIONS') {
+        res.status(204).end();
+        return;
+    }
+    next();
+}
+
 
 /**
  * Build the Express app that serves MCP over HTTP.
@@ -113,6 +139,8 @@ export function createHttpApp(): Express {
         ...createOAuthMetadata(authRouterOptions),
         token_endpoint_auth_methods_supported: ['none'],
     };
+    app.use(allowBrowserCors);
+
     app.get('/.well-known/oauth-authorization-server', (_req: Request, res: Response) => {
         res.json(correctedMetadata);
     });
@@ -140,18 +168,6 @@ export function createHttpApp(): Express {
     app.get('/.well-known/oauth-protected-resource/mcp', sendProtectedResourceMetadata);
 
     app.use(mcpAuthRouter(authRouterOptions));
-
-    app.use((_req: Request, res: Response, next: NextFunction) => {
-        res.setHeader('Access-Control-Allow-Origin', '*');
-        res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
-        res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Accept, mcp-session-id, Authorization, x-api-key, x-correlation-id, x-request-id');
-        res.setHeader('Access-Control-Expose-Headers', 'mcp-session-id, WWW-Authenticate');
-        next();
-    });
-
-    app.options('/mcp', (_req: Request, res: Response) => {
-        res.status(204).end();
-    });
 
     // Bearer-auth middleware — validates OAuth access tokens and populates req.auth.
     // Optional so ChatGPT can track shipments without signing in.
