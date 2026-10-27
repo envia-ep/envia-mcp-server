@@ -371,7 +371,7 @@ src/
 | `PORT` | No | `3000` | HTTP server port (http mode only) |
 | `HOST` | No | `127.0.0.1` | HTTP bind address (http mode only) |
 
-On Heroku, `.profile.d/20-datadog-git.sh` runs when a dyno boots and exports `DD_GIT_COMMIT_SHA` and `DD_VERSION` from dyno metadata. Those two values are not Config Vars. The Datadog buildpack is installed when the slug is compiled, so a dyno restart does not pick it up.
+On Heroku, `.profile.d/20-datadog-git.sh` runs when a dyno boots and exports `DD_GIT_COMMIT_SHA` and `DD_VERSION` from dyno metadata. Those two values are not Config Vars. The Datadog buildpack is installed when the slug is compiled, so a dyno restart does not pick it up. The web process loads `dd-trace` before the app (`node --import dd-trace/initialize.mjs`) so HTTP requests show up as the `envia-mcp-server` service. The CLI and stdio entrypoints do not load the tracer.
 
 ## Development
 
