@@ -159,6 +159,40 @@ describe('POST /mcp with a credential', () => {
     });
 });
 
+describe('browser CORS', () => {
+    it('should let a cross-origin client read the authorization server metadata', async () => {
+        const response = await fetch(`${baseUrl}/.well-known/oauth-authorization-server`);
+
+        expect(response.headers.get('access-control-allow-origin')).toBe('*');
+    });
+
+    it('should let a cross-origin client read the protected resource metadata', async () => {
+        const response = await fetch(`${baseUrl}/.well-known/oauth-protected-resource`);
+
+        expect(response.headers.get('access-control-allow-origin')).toBe('*');
+    });
+
+    it('should answer an OAuth preflight before the login router', async () => {
+        const response = await fetch(`${baseUrl}/.well-known/oauth-authorization-server`, {
+            method: 'OPTIONS',
+            headers: { Origin: 'https://sandbox.example', 'Access-Control-Request-Method': 'GET' },
+        });
+
+        expect(response.status).toBe(204);
+        expect(response.headers.get('access-control-allow-origin')).toBe('*');
+    });
+
+    it('should answer an authorize preflight before the login router', async () => {
+        const response = await fetch(`${baseUrl}/authorize`, {
+            method: 'OPTIONS',
+            headers: { Origin: 'https://sandbox.example', 'Access-Control-Request-Method': 'GET' },
+        });
+
+        expect(response.status).toBe(204);
+        expect(response.headers.get('access-control-allow-origin')).toBe('*');
+    });
+});
+
 describe('discovery routes', () => {
     it('should serve the same protected-resource document on both paths', async () => {
         const root = await (await fetch(`${baseUrl}/.well-known/oauth-protected-resource`)).json();
